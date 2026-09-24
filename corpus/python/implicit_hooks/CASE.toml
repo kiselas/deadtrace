@@ -1,0 +1,57 @@
+schema_version = 1
+case_id = "implicit-python-hooks"
+description = "Unsupported descriptor, protocol, and metaclass dispatch propagates conservatively."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Resource"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Resource.value"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "property_helper"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Resource.__iter__"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "protocol_helper"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Meta"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Meta.__new__"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

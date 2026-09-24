@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "dishka-components-guard"
+description = "Component-scoped providers block negative binding findings."
+
+[analysis]
+complete = false
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = ["DT2002", "DT3107"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "ComponentProvider.service"
+expectation = "protected"

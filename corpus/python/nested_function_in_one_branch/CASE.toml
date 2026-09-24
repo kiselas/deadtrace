@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "nested-function-in-one-branch"
+description = "A local name bound by a nested def in one branch may call that function."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "main.write"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "main.unused"
+expectation = "candidate"

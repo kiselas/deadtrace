@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "project-decorator-without-call"
+description = "A project decorator applied without parentheses runs at definition time."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "log_calls"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "log_calls.wrapper"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "decorated"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

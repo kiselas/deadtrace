@@ -1,0 +1,9 @@
+[project]
+name = "deadtrace-case-function-reference-in-registry"
+version = "0.0.0"
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "script"
+roots = ["main:main"]
+frameworks = ["python"]

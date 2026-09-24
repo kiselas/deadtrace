@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "dataclass-post-init"
+description = "A dataclass's generated initializer calls __post_init__."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Order.__post_init__"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Order"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

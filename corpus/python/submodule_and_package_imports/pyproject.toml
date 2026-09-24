@@ -1,0 +1,9 @@
+[project]
+name = "deadtrace-case-submodule-and-package-imports"
+version = "0.0.0"
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "script"
+roots = ["jobs.cli:main"]
+frameworks = ["python"]

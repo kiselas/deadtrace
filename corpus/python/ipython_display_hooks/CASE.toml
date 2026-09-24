@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "ipython-display-hooks"
+description = "IPython calls _repr_*_ display hooks on the objects it shows."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Table._repr_html_"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Table._repr_mimebundle_"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Table._render"
+expectation = "candidate"

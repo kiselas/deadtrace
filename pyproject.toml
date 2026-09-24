@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deadtrace"
+version = "0.1.0a0"
+description = "Explainable, framework-aware dead-code analysis"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+authors = [
+  { name = "Aleksandr Kisel" },
+]
+keywords = ["dead-code", "static-analysis", "python", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+  "packaging>=24,<27",
+  "rich>=14,<16",
+  "typer>=0.20,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/kiselas/deadtrace"
+Repository = "https://github.com/kiselas/deadtrace"
+Issues = "https://github.com/kiselas/deadtrace/issues"
+
+[project.scripts]
+deadtrace = "deadtrace.cli:app"
+
+[dependency-groups]
+dev = [
+  "build>=1.3,<2",
+  "hypothesis>=6.140,<7",
+  "mypy>=1.18,<3",
+  "pytest>=9,<10",
+  "pytest-cov>=7,<8",
+  "ruff>=0.14,<1",
+]
+oracle = [
+  "dishka==1.10.1",
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deadtrace"]
+
+[tool.deadtrace]
+report-exclude = []
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --basetemp=.pytest-tmp -ra"
+testpaths = ["tests"]
+markers = [
+  "oracle: executes trusted reference applications in the pinned oracle environment",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["deadtrace"]
+omit = ["src/deadtrace/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["fixtures/cases", "fixtures/known-violations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+line-ending = "lf"

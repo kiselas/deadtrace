@@ -1,0 +1,225 @@
+{
+  "counters": {
+    "collect.attempts": 1,
+    "collect.characters": 5175182,
+    "collect.files_read": 195,
+    "collect.read_errors": 0,
+    "edges": 33532,
+    "files": 195,
+    "findings": 0,
+    "frameworks.edges": 0,
+    "frameworks.requirements": 0,
+    "frontend.boundaries": 6806,
+    "frontend.edges": 33532,
+    "frontend.import_bindings": 5826,
+    "frontend.modules": 195,
+    "frontend.parse_failures": 0,
+    "frontend.symbols": 7084,
+    "graph.boundaries": 6806,
+    "graph.requirements": 0,
+    "lines": 128969,
+    "nodes": 7279,
+    "worlds": 3
+  },
+  "descriptor": {
+    "config_digest": "21c55b782b7635a3735b44661777d3b8787f31b8d8c5a6ae2323af879d3148ab",
+    "deadtrace_version": "0.1.0a0",
+    "model_revision": "python-fastapi-dishka/10",
+    "parser": "ast/3.12",
+    "source_digest": "d4db3d0c960a965939097bb0d0eeb7e0bd3c128abd430320d7f143e0884b5ba3"
+  },
+  "host": {
+    "machine": "AMD64",
+    "python_implementation": "CPython",
+    "python_version": "3.12.14",
+    "release": "11",
+    "system": "Windows"
+  },
+  "kind": "deadtrace-benchmark",
+  "notes": {
+    "memory": "process_peak_rss_bytes is the process lifetime peak reported by the OS; timings run without tracemalloc instrumentation.",
+    "privacy": "The artifact contains no paths, source text, symbol names, configuration values, user names, or host names.",
+    "timing": "total_seconds covers collect, frontend, and solve of one analysis. report_seconds measures rendering the JSON semantic report afterwards and is not part of total_seconds. Sub-stage seconds are nested inside their parent stage and never exceed it."
+  },
+  "process_peak_rss_bytes": 296976384,
+  "runs": 1,
+  "samples": [
+    {
+      "collect_seconds": 1.5359465000074124,
+      "frontend_seconds": 2.791681399990921,
+      "report_seconds": 0.23466139999800362,
+      "solve_seconds": 0.3347328999952879,
+      "stages": {
+        "collect.discover": 0.039358900001388974,
+        "collect.inventory_visit": 0.10898149995773565,
+        "collect.parse": 1.2430727000028128,
+        "collect.read": 0.05873299999802839,
+        "collect.verify_discover": 0.04243200000200886,
+        "collect.verify_read": 0.03772789999493398,
+        "frontend.class_fields": 0.10888420000264887,
+        "frontend.declaration_flow": 0.057585600021411665,
+        "frontend.entry_points": 0.0002060999977402389,
+        "frontend.frameworks_discover": 0.023695799987763166,
+        "frontend.frameworks_graph": 0.06997300000512041,
+        "frontend.frameworks_plans": 0.023688200002652593,
+        "frontend.graph": 0.0858550999982981,
+        "frontend.imports": 0.013180800000554882,
+        "frontend.parse": 0.0,
+        "frontend.pytest": 0.0647910999978194,
+        "frontend.symbol_flow": 1.8718011000019033,
+        "frontend.symbols": 0.42184020004060585,
+        "frontend.target_environment": 0.000836799998069182,
+        "report.render": 0.23466139999800362,
+        "solve.findings": 0.009450099998502992,
+        "solve.reachability": 0.3252524999988964
+      },
+      "total_seconds": 4.662360799993621
+    }
+  ],
+  "schema_version": 4,
+  "summary": {
+    "collect_seconds": {
+      "max": 1.5359465000074124,
+      "median": 1.5359465000074124,
+      "min": 1.5359465000074124
+    },
+    "frontend_seconds": {
+      "max": 2.791681399990921,
+      "median": 2.791681399990921,
+      "min": 2.791681399990921
+    },
+    "report_seconds": {
+      "max": 0.23466139999800362,
+      "median": 0.23466139999800362,
+      "min": 0.23466139999800362
+    },
+    "solve_seconds": {
+      "max": 0.3347328999952879,
+      "median": 0.3347328999952879,
+      "min": 0.3347328999952879
+    },
+    "stages": {
+      "collect.discover": {
+        "max": 0.039358900001388974,
+        "median": 0.039358900001388974,
+        "min": 0.039358900001388974
+      },
+      "collect.inventory_visit": {
+        "max": 0.10898149995773565,
+        "median": 0.10898149995773565,
+        "min": 0.10898149995773565
+      },
+      "collect.parse": {
+        "max": 1.2430727000028128,
+        "median": 1.2430727000028128,
+        "min": 1.2430727000028128
+      },
+      "collect.read": {
+        "max": 0.05873299999802839,
+        "median": 0.05873299999802839,
+        "min": 0.05873299999802839
+      },
+      "collect.verify_discover": {
+        "max": 0.04243200000200886,
+        "median": 0.04243200000200886,
+        "min": 0.04243200000200886
+      },
+      "collect.verify_read": {
+        "max": 0.03772789999493398,
+        "median": 0.03772789999493398,
+        "min": 0.03772789999493398
+      },
+      "frontend.class_fields": {
+        "max": 0.10888420000264887,
+        "median": 0.10888420000264887,
+        "min": 0.10888420000264887
+      },
+      "frontend.declaration_flow": {
+        "max": 0.057585600021411665,
+        "median": 0.057585600021411665,
+        "min": 0.057585600021411665
+      },
+      "frontend.entry_points": {
+        "max": 0.0002060999977402389,
+        "median": 0.0002060999977402389,
+        "min": 0.0002060999977402389
+      },
+      "frontend.frameworks_discover": {
+        "max": 0.023695799987763166,
+        "median": 0.023695799987763166,
+        "min": 0.023695799987763166
+      },
+      "frontend.frameworks_graph": {
+        "max": 0.06997300000512041,
+        "median": 0.06997300000512041,
+        "min": 0.06997300000512041
+      },
+      "frontend.frameworks_plans": {
+        "max": 0.023688200002652593,
+        "median": 0.023688200002652593,
+        "min": 0.023688200002652593
+      },
+      "frontend.graph": {
+        "max": 0.0858550999982981,
+        "median": 0.0858550999982981,
+        "min": 0.0858550999982981
+      },
+      "frontend.imports": {
+        "max": 0.013180800000554882,
+        "median": 0.013180800000554882,
+        "min": 0.013180800000554882
+      },
+      "frontend.parse": {
+        "max": 0.0,
+        "median": 0.0,
+        "min": 0.0
+      },
+      "frontend.pytest": {
+        "max": 0.0647910999978194,
+        "median": 0.0647910999978194,
+        "min": 0.0647910999978194
+      },
+      "frontend.symbol_flow": {
+        "max": 1.8718011000019033,
+        "median": 1.8718011000019033,
+        "min": 1.8718011000019033
+      },
+      "frontend.symbols": {
+        "max": 0.42184020004060585,
+        "median": 0.42184020004060585,
+        "min": 0.42184020004060585
+      },
+      "frontend.target_environment": {
+        "max": 0.000836799998069182,
+        "median": 0.000836799998069182,
+        "min": 0.000836799998069182
+      },
+      "report.render": {
+        "max": 0.23466139999800362,
+        "median": 0.23466139999800362,
+        "min": 0.23466139999800362
+      },
+      "solve.findings": {
+        "max": 0.009450099998502992,
+        "median": 0.009450099998502992,
+        "min": 0.009450099998502992
+      },
+      "solve.reachability": {
+        "max": 0.3252524999988964,
+        "median": 0.3252524999988964,
+        "min": 0.3252524999988964
+      }
+    },
+    "total_seconds": {
+      "max": 4.662360799993621,
+      "median": 4.662360799993621,
+      "min": 4.662360799993621
+    }
+  },
+  "volatile_fields": [
+    "host",
+    "samples",
+    "summary",
+    "process_peak_rss_bytes"
+  ]
+}

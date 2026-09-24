@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "live-di-chain"
+description = "An application entry point requests a service and reaches its repository."
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "endpoint"
+expectation = "live"
+
+[[targets]]
+path = "target.py"
+kind = "class"
+qualified_name = "Service"
+expectation = "live"

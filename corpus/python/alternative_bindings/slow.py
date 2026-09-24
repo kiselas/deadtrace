@@ -1,0 +1,2 @@
+def speedup() -> None:
+    pass

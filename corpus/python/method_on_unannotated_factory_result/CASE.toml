@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "method-on-unannotated-factory-result"
+description = "A method called on the result of an unannotated factory may run."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Repository.fetch"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Repository"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "make_repository"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

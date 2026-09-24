@@ -1,0 +1,53 @@
+name: Performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: Lines per generated fixture
+        default: "50000"
+      runs:
+        description: Benchmark runs per fixture
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  budget:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv python install 3.12
+      - run: uv build
+      - name: Generate fixtures outside the repository
+        shell: bash
+        run: |
+          work="$RUNNER_TEMP/deadtrace-performance"
+          uv run --isolated --no-project --python 3.12 python benchmarks/generate_scale_fixture.py \
+            "$work/scale" --lines "${{ inputs.lines }}"
+          uv run --isolated --no-project --python 3.12 python benchmarks/generate_service_fixture.py \
+            "$work/service" --lines "${{ inputs.lines }}"
+      - name: Benchmark from the built wheel
+        shell: bash
+        run: |
+          work="$RUNNER_TEMP/deadtrace-performance"
+          wheel="$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)"
+          mkdir -p "$GITHUB_WORKSPACE/performance"
+          cd "$work"
+          for fixture in scale service; do
+            uv run --isolated --no-project --python 3.12 --with "$wheel" deadtrace benchmark \
+              "$work/$fixture" --runs "${{ inputs.runs }}" --format json \
+              --output "$GITHUB_WORKSPACE/performance/$fixture-${{ runner.os }}.json"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: performance-${{ runner.os }}
+          path: performance/*.json
+      - name: Check the budget
+        run: uv run --isolated --no-project --python 3.12 python benchmarks/check_budget.py performance/scale-${{ runner.os }}.json performance/service-${{ runner.os }}.json

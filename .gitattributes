@@ -1,0 +1,4 @@
+# Normalize every text file to LF in the repository and in each working tree.
+# Ruff is configured with line-ending = "lf", so a Windows checkout made with
+# core.autocrlf=true would otherwise fail `ruff format --check` on unmodified files.
+* text=auto eol=lf

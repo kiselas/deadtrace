@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "historical-migration-callback"
+description = "RunPython retains a historical callback and its transitive helper."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "app/migrations/0001_data.py"
+kind = "function"
+qualified_name = "forwards"
+expectation = "protected"
+
+[[targets]]
+path = "app/migrations/0001_data.py"
+kind = "function"
+qualified_name = "migration_helper"
+expectation = "protected"
+
+[[targets]]
+path = "app/migrations/0001_data.py"
+kind = "class"
+qualified_name = "Migration"
+expectation = "protected"

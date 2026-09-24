@@ -1,0 +1,11 @@
+[tool.deadtrace]
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "web"
+roots = ["main:app"]
+
+[[tool.deadtrace.keep]]
+target = "main:external_hook"
+reason = "Loaded by a deployment platform callback registry"
+profiles = ["production"]

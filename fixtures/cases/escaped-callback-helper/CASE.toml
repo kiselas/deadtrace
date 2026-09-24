@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "escaped-callback-helper"
+description = "An escaped callback protects itself and the helper it may invoke."
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "callback"
+expectation = "protected"
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "callback_helper"
+expectation = "protected"

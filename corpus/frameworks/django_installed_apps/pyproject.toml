@@ -1,0 +1,9 @@
+[project]
+name = "deadtrace-case-django-installed-apps"
+version = "0.0.0"
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "manage"
+roots = ["manage:main"]
+frameworks = ["python"]

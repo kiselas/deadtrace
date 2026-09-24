@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "class-passed-to-external-code"
+description = "External code that receives a project class may call its methods."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Point.from_param"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Unused.from_param"
+expectation = "candidate"

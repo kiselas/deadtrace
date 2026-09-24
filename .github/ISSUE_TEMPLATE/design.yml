@@ -1,0 +1,32 @@
+name: Design proposal
+description: Propose a language, framework capability, schema, or architectural change
+title: "[design] "
+labels: ["needs-design"]
+body:
+  - type: textarea
+    id: user_result
+    attributes:
+      label: User result
+      description: Which concrete decision becomes possible?
+    validations:
+      required: true
+  - type: textarea
+    id: case
+    attributes:
+      label: Real pattern and negative case
+      description: Show both the desired behavior and the unsafe false-positive boundary.
+    validations:
+      required: true
+  - type: textarea
+    id: evaluation
+    attributes:
+      label: Independent evaluation
+      description: How can the outcome be checked without trusting Deadtrace's own report?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+    validations:
+      required: true

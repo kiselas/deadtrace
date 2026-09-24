@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "multiple-fastapi-apps"
+description = "Routes for two applications remain isolated by world."
+
+[analysis]
+complete = true
+worlds = ["production:web:main.first", "production:web:main.second"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "first_endpoint"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "second_endpoint"
+expectation = "live"

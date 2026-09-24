@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "fastapi-native-lifecycle"
+description = "Native dependencies, lifespan, background task, and Pydantic hook stay live."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "token"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "cleanup_helper"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "background_job"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Payload.validate_value"
+expectation = "live"

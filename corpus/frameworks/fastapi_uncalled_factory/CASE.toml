@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "fastapi-uncalled-factory"
+description = "A FastAPI factory that no module calls is an application root."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "create_app"
+expectation = "live"
+
+[[targets]]
+path = "routes.py"
+kind = "function"
+qualified_name = "list_items"
+expectation = "live"
+
+[[targets]]
+path = "routes.py"
+kind = "function"
+qualified_name = "load_items"
+expectation = "live"
+
+[[targets]]
+path = "routes.py"
+kind = "function"
+qualified_name = "unused_endpoint_helper"
+expectation = "candidate"

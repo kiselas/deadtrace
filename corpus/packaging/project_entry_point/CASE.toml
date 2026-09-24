@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "pep621-project-entry-point"
+description = "A console script becomes a provenanced execution world."
+
+[analysis]
+complete = true
+worlds = ["production:entrypoint:console_scripts:deadtrace-case"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "src/acme/cli.py"
+kind = "function"
+qualified_name = "main"
+expectation = "live"
+
+[[targets]]
+path = "src/acme/cli.py"
+kind = "function"
+qualified_name = "helper"
+expectation = "live"
+
+[[targets]]
+path = "src/acme/cli.py"
+kind = "function"
+qualified_name = "candidate"
+expectation = "candidate"

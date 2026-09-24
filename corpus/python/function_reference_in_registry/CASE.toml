@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "function-reference-in-registry"
+description = "Functions stored in a module-level registry and called through it may run."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "handle_create"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "handle_delete"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "dispatch"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

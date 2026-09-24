@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest --cov
+      - run: uv run deadtrace cases validate fixtures/cases
+      - run: uv run deadtrace cases validate corpus
+
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups
+      - run: uv run pytest
+
+  wheel-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv python install 3.12
+      - run: uv build
+      - name: Install wheel outside the source tree (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          wheel="$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)"
+          cd "$(mktemp -d)"
+          uv run --isolated --no-project --python 3.12 --with "$wheel" deadtrace --version
+      - name: Install wheel outside the source tree (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem "$env:GITHUB_WORKSPACE\dist\*.whl")[0].FullName
+          $smoke = Join-Path $env:RUNNER_TEMP "deadtrace-wheel-smoke"
+          New-Item -ItemType Directory -Force $smoke | Out-Null
+          Set-Location $smoke
+          uv run --isolated --no-project --python 3.12 --with $wheel deadtrace --version

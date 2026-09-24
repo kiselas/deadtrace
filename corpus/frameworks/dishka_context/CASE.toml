@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "dishka-context"
+description = "Request and explicit application context satisfy a demanded provider."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "AppProvider.service"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Service"
+expectation = "live"

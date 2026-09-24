@@ -1,0 +1,23 @@
+schema_version = 1
+case_id = "multiple-fastapi-dishka-containers"
+description = "Two apps resolve the same type through separate attached containers."
+
+[analysis]
+complete = true
+worlds = ["production:web:main.first", "production:web:main.second"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "FirstProvider.service"
+expectation = "live"
+worlds = ["production:web:main.first"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "SecondProvider.service"
+expectation = "live"
+worlds = ["production:web:main.second"]

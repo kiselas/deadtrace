@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "legacy-shared-helper"
+description = "A legacy service is unused while its helper remains shared with live code."
+
+[[targets]]
+path = "target.py"
+kind = "class"
+qualified_name = "LegacyService"
+expectation = "candidate"
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "normalize"
+expectation = "live"

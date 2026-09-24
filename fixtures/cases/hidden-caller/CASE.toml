@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "hidden-caller"
+description = "A report-excluded caller still keeps its callee in the source universe."
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "kept_helper"
+expectation = "live"
+
+[[targets]]
+path = "hidden.py"
+kind = "function"
+qualified_name = "hidden_caller"
+expectation = "live"

@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "package-reexport"
+description = "Names a package re-exports resolve to the definitions they import."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "helper"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "class"
+qualified_name = "Service"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "Service.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

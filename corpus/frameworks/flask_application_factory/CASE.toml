@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "flask-application-factory"
+description = "A Flask application factory is a root; blueprint routes are protected."
+
+[analysis]
+complete = true
+worlds = ["production:flask"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "shop/__init__.py"
+kind = "function"
+qualified_name = "create_app"
+expectation = "live"
+
+[[targets]]
+path = "shop/views.py"
+kind = "function"
+qualified_name = "index"
+expectation = "protected"
+
+[[targets]]
+path = "shop/views.py"
+kind = "function"
+qualified_name = "render_page"
+expectation = "protected"
+
+[[targets]]
+path = "shop/views.py"
+kind = "function"
+qualified_name = "unused_helper"
+expectation = "candidate"

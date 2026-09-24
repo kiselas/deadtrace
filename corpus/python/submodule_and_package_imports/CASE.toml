@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "submodule-and-package-imports"
+description = "import a.b runs a and a.b; running a submodule first runs its package."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "jobs/__init__.py"
+kind = "function"
+qualified_name = "configure_logging"
+expectation = "not_candidate"
+
+[[targets]]
+path = "jobs/nightly.py"
+kind = "function"
+qualified_name = "register"
+expectation = "not_candidate"
+
+[[targets]]
+path = "jobs/nightly.py"
+kind = "function"
+qualified_name = "unused_job"
+expectation = "candidate"

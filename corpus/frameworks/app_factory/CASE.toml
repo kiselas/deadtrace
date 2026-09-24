@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "fastapi-dishka-app-factory"
+description = "A bounded create_app function connects its returned app, router, and container."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "create_app"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "endpoint"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "AppProvider.service"
+expectation = "live"

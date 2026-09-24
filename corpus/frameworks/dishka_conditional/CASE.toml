@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "dishka-conditional-activation"
+description = "Conditional activation creates an explicit guard instead of a guessed binding."
+
+[analysis]
+complete = false
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = ["DT2002", "DT3106"]
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Service"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "ConditionalProvider.service"
+expectation = "protected"

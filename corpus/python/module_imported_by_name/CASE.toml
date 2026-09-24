@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "module-imported-by-name"
+description = "Modules imported by a string name run their top-level code."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "plugins/alpha.py"
+kind = "function"
+qualified_name = "setup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "plugins/beta.py"
+kind = "function"
+qualified_name = "setup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tools/unused.py"
+kind = "function"
+qualified_name = "helper"
+expectation = "candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

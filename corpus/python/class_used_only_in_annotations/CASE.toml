@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "class-used-only-in-annotations"
+description = "A class named in an evaluated annotation is needed."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Settings"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "configure"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

@@ -1,0 +1,29 @@
+name: Bug report
+description: Report incorrect behavior or a false positive/negative
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include source, config, command, and report state. Remove secrets.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Deadtrace version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Relevant framework and environment details

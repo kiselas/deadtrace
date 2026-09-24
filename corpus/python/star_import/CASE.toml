@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "star-import"
+description = "from module import * runs the module and binds its public names."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "helpers.py"
+kind = "function"
+qualified_name = "greet"
+expectation = "not_candidate"
+
+[[targets]]
+path = "helpers.py"
+kind = "function"
+qualified_name = "_format"
+expectation = "not_candidate"
+
+[[targets]]
+path = "helpers.py"
+kind = "function"
+qualified_name = "unused_helper"
+expectation = "candidate"

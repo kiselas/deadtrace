@@ -1,0 +1,9 @@
+[project]
+name = "deadtrace-case-nested-function-in-one-branch"
+version = "0.0.0"
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "script"
+roots = ["main:main"]
+frameworks = ["python"]

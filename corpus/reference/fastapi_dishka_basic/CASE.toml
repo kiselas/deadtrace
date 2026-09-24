@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "reference-fastapi-dishka-basic"
+description = "Executable reference app with one demanded service and one legacy binding."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH003"]
+limitation_codes = []
+
+[[targets]]
+path = "app/routes.py"
+kind = "function"
+qualified_name = "get_dish"
+expectation = "live"
+
+[[targets]]
+path = "app/providers.py"
+kind = "function"
+qualified_name = "AppProvider.service"
+expectation = "live"
+
+[[targets]]
+path = "app/providers.py"
+kind = "function"
+qualified_name = "AppProvider.legacy"
+expectation = "candidate"
+
+[[targets]]
+path = "app/domain.py"
+kind = "function"
+qualified_name = "normalize"
+expectation = "live"

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.pytest-tmp/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments and builds
+.venv/
+build/
+dist/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# CodeGraph local index
+.codegraph/
+.benchmark-work/

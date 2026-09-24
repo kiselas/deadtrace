@@ -1,0 +1,45 @@
+schema_version = 1
+case_id = "function-level-import"
+description = "An import inside a function runs the module and binds names in that scope."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tasks.py"
+kind = "function"
+qualified_name = "register_defaults"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tasks.py"
+kind = "function"
+qualified_name = "schedule"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tasks.py"
+kind = "function"
+qualified_name = "_plan"
+expectation = "not_candidate"
+
+[[targets]]
+path = "reports.py"
+kind = "function"
+qualified_name = "build"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tasks.py"
+kind = "function"
+qualified_name = "unused_task"
+expectation = "candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

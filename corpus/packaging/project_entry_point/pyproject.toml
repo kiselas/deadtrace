@@ -1,0 +1,7 @@
+[project]
+name = "deadtrace-entry-point-case"
+version = "0.0.0"
+requires-python = ">=3.12"
+
+[project.scripts]
+deadtrace-case = "acme.cli:main"

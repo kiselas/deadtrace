@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "override-called-through-base-annotation"
+description = "A call through a base-class annotation may run the subclass override."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "EmailNotifier.send"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Notifier"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "EmailNotifier"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "make_notifier"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

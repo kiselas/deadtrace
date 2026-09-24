@@ -1,0 +1,9 @@
+[project]
+name = "deadtrace-case-alternative-bindings"
+version = "0.0.0"
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "script"
+roots = ["main:main"]
+frameworks = ["python"]

@@ -1,0 +1,43 @@
+schema_version = 1
+case_id = "scripts-and-main-modules"
+description = "Modules with a main guard and __main__ modules are roots of a scripts world."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001", "RCH004"]
+limitation_codes = []
+
+[[targets]]
+path = "_formatting.py"
+kind = "function"
+qualified_name = "format_row"
+expectation = "live"
+worlds = ["production:library", "production:scripts"]
+
+[[targets]]
+path = "_formatting.py"
+kind = "function"
+qualified_name = "strip_rows"
+expectation = "live"
+worlds = ["production:scripts"]
+
+[[targets]]
+path = "_formatting.py"
+kind = "function"
+qualified_name = "print_usage"
+expectation = "live"
+worlds = ["production:scripts"]
+
+[[targets]]
+path = "_formatting.py"
+kind = "function"
+qualified_name = "debug_dump"
+expectation = "test_only"
+worlds = ["tests:pytest"]
+
+[[targets]]
+path = "_formatting.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

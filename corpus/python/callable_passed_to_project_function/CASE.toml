@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "callable-passed-to-project-function"
+description = "A callback handed to a project function that stores it stays protected."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = []
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "callback"
+expectation = "protected"
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "callback_helper"
+expectation = "protected"

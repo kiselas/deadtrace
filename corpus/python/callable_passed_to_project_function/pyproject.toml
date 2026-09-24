@@ -1,0 +1,9 @@
+[project]
+name = "deadtrace-case-callable-passed-to-project-function"
+version = "0.0.0"
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "script"
+roots = ["target"]
+frameworks = ["python"]

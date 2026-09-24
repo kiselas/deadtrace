@@ -1,0 +1,121 @@
+# Changelog
+
+All notable changes will be documented here. The project follows Semantic Versioning once public
+compatibility commitments are defined; pre-alpha schemas may change between releases.
+
+## Unreleased
+
+### Added
+
+- A manually dispatched `Performance` workflow that benchmarks the generated 50k-line scale and
+  service fixtures from the built wheel on Linux and Windows, uploads the artifacts, and fails
+  above the 30-second or 1-GiB budget (`benchmarks/check_budget.py`).
+- Installable Python package and `deadtrace` CLI.
+- Read-only inventory of functions and classes.
+- World-local reachability, conservative unknown propagation, retention, and negative gates.
+- FastAPI, Dishka, Pydantic, and pytest semantic capabilities with guarded unsupported patterns.
+- Stable review groups `RCH001`–`RCH004`, saved explanations, and schema-1 semantic reports.
+- Explicit baselines, report comparison, CI finding policies, doctor, and benchmark commands.
+- Safe baseline updates and three-state report comparability with explicit source/input changes.
+- Privacy-conscious troubleshooting bundles with a pre-write content preview.
+- Static PEP 621 entry-point worlds with root provenance and guarded dynamic metadata.
+- Automatic worlds without configuration (ADR-0011): `production:scripts` for main guards
+  and `__main__` modules, one world per application of Flask, Celery, Starlette, Litestar,
+  aiohttp, Sanic, Quart, Falcon, Bottle, or Typer, and `production:library` for the public
+  API of projects without applications or entry points, each with its root provenance.
+- Executable semantic corpus and pinned FastAPI/Dishka oracle application.
+- Safety retention for static Django `RunPython` migrations and implicit Python
+  property/protocol/metaclass hooks.
+- Whole-source snapshot retry with `DT1002` fallback when files keep changing during a scan.
+- Experimental inventory schema 0 remains available through `--inventory-only`.
+- Strict `[tool.deadtrace]` configuration and report exclusions that do not alter analysis scope.
+- Six independently described seed cases and a lexical manifest validator.
+- Windows/Linux CI, wheel smoke testing, contribution, governance, and security policies.
+- Architecture decision records under `docs/adr/`, starting with the decision to keep them in
+  the repository and the acceptance of Rich 15.
+- Sub-stage timings and deterministic size counters for every analysis run
+  (`deadtrace.timing`), threaded through source collection, inventory, the Python frontend,
+  and framework modeling without changing what any stage computes.
+- `benchmarks/profile_scan.py` and the first committed 50k-line profile under
+  `benchmarks/results/`.
+- `benchmarks/generate_service_fixture.py`, a deterministic FastAPI/Dishka/Pydantic service whose
+  size grows with symbols, calls, routes, and bindings, and `benchmarks/stage_installed_sources.py`,
+  which copies the sources of locked third-party packages as scan targets without importing them.
+  The scale fixture alone produces no edges or framework objects and could not show those costs.
+- `fixtures/known-violations/`: cases where a complete world reports code that may run as
+  unreached, pinned by `tests/test_known_violations.py` (ADR-0006), and the safety-only case
+  expectation `not_candidate`. Twenty-eight were recorded and are now met.
+
+### Changed
+
+- Text reports and `doctor` count identical limitations once and summarize worlds with many
+  kinds of `DT2002` guard in one line; the JSON report still lists every guard.
+- A world's `frameworks` list accepts every modeled framework and is documented as declarative
+  (ADR-0014): every capability applies to every world.
+- Model revision `python-fastapi-dishka/10` (ADR-0013): a module assigning `INSTALLED_APPS`
+  is a Django settings module that imports its applications' packages and `apps`, `models`,
+  `admin`, template-tag, and management-command modules, registers model classes, and
+  instantiates commands; without configuration each settings module roots a
+  `production:django` world. A string may name a module through an attribute it binds.
+- Model revision `python-fastapi-dishka/9` (ADR-0012): `@overload` signatures belong to
+  their implementation; single-underscore hooks such as `_repr_html_` are protected like
+  special methods; a nested function bound in one branch is reachable through its name; a
+  class that escapes exposes its methods, except to `isinstance`, `issubclass`, and
+  consumers a capability models.
+- Model revision `python-fastapi-dishka/8` (ADR-0011): FastAPI factories that no module
+  calls are applications, and a factory's constructor resolves in its own module; Celery
+  `autodiscover_tasks()` may import every `tasks` module. Without `max-steps`, the solver
+  budget is twice the node count instead of 100,000 steps.
+- Model revision `python-fastapi-dishka/7` (ADR-0010): an import statement runs the project
+  modules on its path wherever it executes, whatever it binds, except under
+  `if TYPE_CHECKING:`; a module runs after its package; imports in nested blocks and in
+  functions bind names; star imports and package re-exports resolve, for configured roots
+  and entry points too; a name bound in alternative branches reaches every alternative.
+- Model revision `python-fastapi-dishka/6` (ADR-0009): every special method of a used class,
+  and the methods of classes with an external base that may call them, are protected
+  conservatively, with builtins, `abc`, `typing`, `pydantic.BaseModel`, and `dishka.Provider`
+  exempt; strings that name a project module or symbol are references; `importlib`
+  imports by literal, f-string prefix, or unknown name reach those modules. `DT2002` appears
+  only for boundaries that protect a node not otherwise resolved.
+- Model revision `python-fastapi-dishka/5` (ADR-0008): references to project functions and
+  classes, member-to-owner and inheritance edges, method resolution order and `super()`, class
+  hierarchy dispatch, conservative dispatch on values of unknown type, decorator application and
+  registration, evaluated annotations, Python name scoping with local shadowing, and Pydantic
+  hooks whenever their model is used. The thirteen recorded known violations are met and moved
+  to `corpus/`; `EdgeKind` gains `member`, `inherit`, and `annotation`. `Service` in two Dishka
+  corpus cases is now live through its endpoint annotation.
+- The analysis parses with the standard-library `ast` module instead of LibCST, which is no
+  longer a dependency (ADR-0007). The 50k-line fixtures scan in 0.6 and 1.2 instead of 11.8 and
+  16.3 seconds and mypy's 129k lines in 2.6 instead of 65.8, with peak RSS roughly halved.
+  Reports are byte-identical; `DT1001` messages for unparseable
+  files now read `syntax error at line L, column C: <message>`. The benchmark artifact is schema 4:
+  `descriptor.libcst_version` is replaced by `descriptor.parser`.
+- Symbol, member, container-binding, and adjacency lookups use indexes built once per analysis
+  instead of scanning whole collections per query, and the frontend walks each called function's
+  body once instead of once per call site (ADR-0005). On the 50k-line service fixture the affected
+  stages take 2.2 instead of 15.9 seconds at the median, and they no longer grow faster than the
+  source. Reports are byte-identical.
+- Each module is parsed once and its source positions are resolved once; inventory, the
+  Python frontend, and framework discovery share the result (ADR-0004). The 50k-line
+  benchmark is 2.7 times faster at the median with byte-identical reports.
+- The benchmark artifact is schema 3: `collect.inventory_parse` is replaced by
+  `collect.parse`, which covers the single parse and position pass.
+- The benchmark artifact is schema 2: it records host and tool versions, deterministic
+  counters, per-sub-stage seconds, a separate `report_seconds`, and the list of volatile
+  fields. `memory_note` moved to `notes.memory`.
+
+### Fixed
+
+- Repository-wide LF normalization through `.gitattributes`, so a Windows checkout made with
+  `core.autocrlf=true` no longer fails `ruff format --check` on unmodified files.
+- The documented wheel smoke command selects Python 3.12 explicitly instead of relying on the
+  default interpreter on PATH.
+- Strict mypy no longer fails on Linux. The Windows-only peak working set helper now declares
+  its platform precondition instead of relying on a runtime `AttributeError`, which `ctypes`
+  raises only at runtime and which mypy reports as `Module has no attribute "WinDLL"`.
+
+### Safety
+
+- Static scans never import or execute target modules.
+- Unsupported target versions and unresolved framework assembly block strong negative findings.
+- Baselines annotate findings but never suppress blockers or alter semantic analysis.

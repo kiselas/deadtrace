@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "invalid-assembly"
+description = "A semantically invalid root blocks strong negative findings."
+
+[[targets]]
+path = "target.py"
+kind = "function"
+qualified_name = "unresolved_entry"
+expectation = "unknown"
+
+[[targets]]
+path = "target.py"
+kind = "class"
+qualified_name = "ApparentlyUnused"
+expectation = "unknown"

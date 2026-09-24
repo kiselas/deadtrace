@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "world-isolation"
+description = "Production and test worlds keep separate dependency bindings."
+
+[[targets]]
+path = "target.py"
+kind = "class"
+qualified_name = "ProductionGateway"
+expectation = "live"
+
+[[targets]]
+path = "target.py"
+kind = "class"
+qualified_name = "TestGateway"
+expectation = "live"

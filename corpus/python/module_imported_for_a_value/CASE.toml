@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "module-imported-for-a-value"
+description = "Importing a value from a module runs that module's top level."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "config.py"
+kind = "function"
+qualified_name = "load"
+expectation = "not_candidate"
+
+[[targets]]
+path = "config.py"
+kind = "function"
+qualified_name = "unused_loader"
+expectation = "candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused_control"
+expectation = "candidate"

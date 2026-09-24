@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "celery-autodiscover-tasks"
+description = "A Celery application is a root and autodiscover_tasks imports tasks modules."
+
+[analysis]
+complete = true
+worlds = ["production:celery"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "orders/tasks.py"
+kind = "function"
+qualified_name = "send_receipt"
+expectation = "protected"
+
+[[targets]]
+path = "orders/receipts.py"
+kind = "function"
+qualified_name = "render_receipt"
+expectation = "protected"
+
+[[targets]]
+path = "orders/receipts.py"
+kind = "function"
+qualified_name = "unused_template"
+expectation = "candidate"
+
+[[targets]]
+path = "orders/legacy_tasks.py"
+kind = "function"
+qualified_name = "resend_all"
+expectation = "candidate"

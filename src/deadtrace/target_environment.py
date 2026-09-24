@@ -1,0 +1,144 @@
+"""Read target dependency versions as data without importing the target."""
+
+from __future__ import annotations
+
+import tomllib
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
+
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import Version
+
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES
+
+_SUPPORTED_EXACT = {
+    "fastapi": frozenset({Version("0.141.1")}),
+    "dishka": frozenset({Version("1.10.1")}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class TargetPackage:
+    name: str
+    version: str
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompatibilityIssue:
+    code: str
+    package: str
+    version: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class TargetEnvironment:
+    packages: tuple[TargetPackage, ...]
+    issues: tuple[CompatibilityIssue, ...]
+    digest: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "packages": [
+                {"name": item.name, "version": item.version, "source": item.source}
+                for item in self.packages
+            ],
+            "issues": [
+                {
+                    "code": item.code,
+                    "package": item.package,
+                    "version": item.version,
+                    "message": item.message,
+                }
+                for item in self.issues
+            ],
+            "digest": self.digest,
+        }
+
+
+def read_target_environment(root: Path, imported_packages: set[str]) -> TargetEnvironment:
+    """Read exact versions from uv.lock, then exact project requirements."""
+
+    versions = _versions_from_uv_lock(root / "uv.lock")
+    for name, version in _versions_from_pyproject(root / "pyproject.toml").items():
+        versions.setdefault(name, version)
+    packages = tuple(
+        TargetPackage(name, str(version), source)
+        for name, (version, source) in sorted(versions.items())
+        if name in imported_packages
+    )
+    issues = tuple(
+        CompatibilityIssue(
+            code="DT4001",
+            package=package.name,
+            version=package.version,
+            message=(
+                f"{package.name} {package.version} is not in the oracle-tested set: "
+                f"{', '.join(str(item) for item in sorted(_SUPPORTED_EXACT[package.name]))}"
+            ),
+        )
+        for package in packages
+        if package.name in _SUPPORTED_EXACT
+        and Version(package.version) not in _SUPPORTED_EXACT[package.name]
+    )
+    canonical = "\n".join(f"{item.name}=={item.version}@{item.source}" for item in packages)
+    return TargetEnvironment(packages, issues, sha256(canonical.encode()).hexdigest())
+
+
+def _versions_from_uv_lock(path: Path) -> dict[str, tuple[Version, str]]:
+    document = _read_toml(path)
+    if document is None:
+        return {}
+    packages = document.get("package", [])
+    if not isinstance(packages, list):
+        return {}
+    result: dict[str, tuple[Version, str]] = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        name = package.get("name")
+        version = package.get("version")
+        if isinstance(name, str) and isinstance(version, str):
+            result[_canonical_name(name)] = (Version(version), "uv.lock")
+    return result
+
+
+def _versions_from_pyproject(path: Path) -> dict[str, tuple[Version, str]]:
+    document = _read_toml(path)
+    if document is None:
+        return {}
+    project = document.get("project", {})
+    if not isinstance(project, dict):
+        return {}
+    dependencies = project.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        return {}
+    result: dict[str, tuple[Version, str]] = {}
+    for dependency in dependencies:
+        if not isinstance(dependency, str):
+            continue
+        try:
+            requirement = Requirement(dependency)
+        except InvalidRequirement:
+            continue
+        exact = [item.version for item in requirement.specifier if item.operator in {"==", "==="}]
+        if len(exact) == 1 and "*" not in exact[0]:
+            result[_canonical_name(requirement.name)] = (Version(exact[0]), "pyproject.toml")
+    return result
+
+
+def _read_toml(path: Path) -> dict[str, object] | None:
+    try:
+        if not path.is_file() or path.stat().st_size > MAX_ARTIFACT_BYTES:
+            return None
+        with path.open("rb") as stream:
+            document = tomllib.load(stream)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    return document
+
+
+def _canonical_name(name: str) -> str:
+    return name.lower().replace("_", "-")

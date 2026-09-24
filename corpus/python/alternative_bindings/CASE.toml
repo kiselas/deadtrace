@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "alternative-bindings"
+description = "Names bound in alternative branches may refer to either definition."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "fast.py"
+kind = "function"
+qualified_name = "speedup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "slow.py"
+kind = "function"
+qualified_name = "speedup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "clear_screen"
+expectation = "not_candidate"
+
+[[targets]]
+path = "fast.py"
+kind = "function"
+qualified_name = "unused_fast"
+expectation = "candidate"

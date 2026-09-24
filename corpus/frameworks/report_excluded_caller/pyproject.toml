@@ -1,0 +1,16 @@
+[project]
+name = "deadtrace-case-report-excluded-caller"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.141.1",
+]
+
+[tool.deadtrace]
+report-exclude = ["hidden.py"]
+
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "web"
+roots = ["hidden:app"]
+frameworks = ["python", "fastapi"]

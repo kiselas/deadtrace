@@ -1,0 +1,75 @@
+schema_version = 1
+case_id = "library-public-api"
+description = "Without applications or entry points, a package's public API is the root set."
+
+[analysis]
+complete = true
+worlds = ["production:library"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "textkit/_impl.py"
+kind = "function"
+qualified_name = "parse"
+expectation = "live"
+
+[[targets]]
+path = "textkit/_impl.py"
+kind = "function"
+qualified_name = "_tokenize"
+expectation = "live"
+
+[[targets]]
+path = "textkit/_impl.py"
+kind = "function"
+qualified_name = "not_reexported"
+expectation = "candidate"
+
+[[targets]]
+path = "textkit/_impl.py"
+kind = "function"
+qualified_name = "_orphan"
+expectation = "candidate"
+
+[[targets]]
+path = "textkit/models.py"
+kind = "function"
+qualified_name = "Document.render"
+expectation = "live"
+
+[[targets]]
+path = "textkit/models.py"
+kind = "function"
+qualified_name = "Document._body"
+expectation = "live"
+
+[[targets]]
+path = "textkit/models.py"
+kind = "function"
+qualified_name = "Document._unused_private"
+expectation = "candidate"
+
+[[targets]]
+path = "textkit/utils.py"
+kind = "function"
+qualified_name = "slugify"
+expectation = "live"
+
+[[targets]]
+path = "textkit/utils.py"
+kind = "function"
+qualified_name = "normalize"
+expectation = "live"
+
+[[targets]]
+path = "textkit/utils.py"
+kind = "function"
+qualified_name = "_legacy_slugify"
+expectation = "live"
+
+[[targets]]
+path = "textkit/utils.py"
+kind = "function"
+qualified_name = "_unlisted"
+expectation = "candidate"

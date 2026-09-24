@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "external-task-decorator-without-reference"
+description = "A function registered only by an unmodeled framework decorator may run."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = []
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "nightly_cleanup"
+expectation = "not_candidate"

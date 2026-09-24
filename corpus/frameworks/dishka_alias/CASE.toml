@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "dishka-class-provider-alias"
+description = "Class providers and aliases resolve a demanded interface to its concrete class."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = []
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "Service"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "class"
+qualified_name = "SqlRepository"
+expectation = "live"

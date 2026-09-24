@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "unpublished-fastapi-router"
+description = "An unincluded router produces RCH002 without becoming an application root."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH002"]
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "hidden_endpoint"
+expectation = "candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "live_endpoint"
+expectation = "live"

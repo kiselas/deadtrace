@@ -1,0 +1,81 @@
+schema_version = 1
+case_id = "django-automatic-worlds"
+description = "Without configured worlds, Django settings root a django world instead of a library world."
+
+[analysis]
+complete = true
+worlds = ["production:django", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "polls/admin.py"
+kind = "function"
+qualified_name = "QuestionAdmin.get_queryset"
+expectation = "not_candidate"
+
+[[targets]]
+path = "polls/management/commands/closepoll.py"
+kind = "function"
+qualified_name = "Command.handle"
+expectation = "not_candidate"
+
+[[targets]]
+path = "polls/management/commands/closepoll.py"
+kind = "function"
+qualified_name = "close_all"
+expectation = "not_candidate"
+
+[[targets]]
+path = "polls/templatetags/poll_extras.py"
+kind = "function"
+qualified_name = "shout"
+expectation = "not_candidate"
+
+[[targets]]
+path = "blog/models.py"
+kind = "function"
+qualified_name = "Post.published"
+expectation = "not_candidate"
+
+[[targets]]
+path = "mysite/wsgi.py"
+kind = "function"
+qualified_name = "configure_monitoring"
+expectation = "not_candidate"
+
+[[targets]]
+path = "polls/views.py"
+kind = "function"
+qualified_name = "index"
+expectation = "not_candidate"
+
+[[targets]]
+path = "polls/models.py"
+kind = "function"
+qualified_name = "Question.was_published_recently"
+expectation = "not_candidate"
+
+[[targets]]
+path = "polls/models.py"
+kind = "function"
+qualified_name = "unused_model_helper"
+expectation = "candidate"
+
+[[targets]]
+path = "polls/views.py"
+kind = "function"
+qualified_name = "unused_view"
+expectation = "candidate"
+
+[[targets]]
+path = "polls/utils.py"
+kind = "function"
+qualified_name = "unused_util"
+expectation = "candidate"
+
+[[targets]]
+path = "blog/drafts.py"
+kind = "function"
+qualified_name = "unused_draft"
+expectation = "candidate"
