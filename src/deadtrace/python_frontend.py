@@ -120,6 +120,10 @@ PATH_IMPORTS = frozenset(
     }
 )
 """Calls that load a module from a file path, which may be any project file (ADR-0017)."""
+LOADED_MODULE_NAMES = frozenset({"__module__", "__name__", "__package__"})
+BUILTIN_MANAGERS = frozenset({"open", "memoryview"})
+"""Builtins whose results used as context managers are objects from outside the project."""
+"""Names of modules that are loaded already when code can read them (ADR-0018)."""
 OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
 INSPECTING_CONSUMERS = frozenset({"isinstance", "issubclass"})
 """Consumers that inspect a class they receive without calling anything on it."""
@@ -504,6 +508,7 @@ class _Resolver:
         self._project_roots = frozenset(name.split(".")[0] for name in modules)
         self.import_roots = ImportRoots(modules)
         self._top_level: dict[str, tuple[NodeId, ...]] | None = None
+        self._stand_ins: dict[str, tuple[NodeId, ...]] | None = None
         self._through_imports: dict[str, PythonSymbol | None] = {}
         self._scope_imports: dict[NodeId, dict[str, ImportBinding]] = {}
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
@@ -713,6 +718,23 @@ class _Resolver:
 
     def methods_named(self, name: str) -> tuple[NodeId, ...]:
         return self._methods.get(name, ())
+
+    def stand_in_methods_named(self, name: str) -> tuple[NodeId, ...]:
+        """Methods named ``name`` of classes in test code (ADR-0018)."""
+
+        if self._stand_ins is None:
+            found: dict[str, list[NodeId]] = {}
+            for symbol in self.symbols.values():
+                owner = self.symbols.get(symbol.owner) if symbol.owner is not None else None
+                if (
+                    owner is not None
+                    and owner.kind is NodeKind.CLASS
+                    and is_function(symbol)
+                    and is_test_path(symbol.path)
+                ):
+                    found.setdefault(symbol.name, []).append(symbol.id)
+            self._stand_ins = {key: tuple(sorted(value)) for key, value in found.items()}
+        return self._stand_ins.get(name, ())
 
     def top_level_named(self, name: str) -> tuple[NodeId, ...]:
         """Functions and classes of every module defined at its top level under ``name``."""
@@ -1129,6 +1151,8 @@ class _ExecutionVisitor:
         self._escaped: set[NodeId] = set()
         self._dispatched: set[str] = set()
         self._dynamic_modules: set[str] = set()
+        self._stand_ins: set[str] = set()
+        """Methods called on values from outside the project, which tests may replace."""
         """Locals bound to a module imported by a computed name."""
         self._names = resolver.names.get(module.name, frozenset())
         self._locals = resolver.local_names(current) if current is not None else frozenset()
@@ -1179,6 +1203,38 @@ class _ExecutionVisitor:
                 )
             )
             self._dispatched = set()
+        if self._stand_ins:
+            names = sorted(self._stand_ins)
+            self.boundaries.append(
+                UnknownBoundary(
+                    source=self.source,
+                    domain="test_stand_in_dispatch",
+                    reason=(
+                        "test stand-ins may replace values from outside the project for methods "
+                        + ", ".join(names[:5])
+                        + (f", and {len(names) - 5} more" if len(names) > 5 else "")
+                    ),
+                    targets=tuple(
+                        sorted(
+                            {
+                                target
+                                for name in names
+                                for target in self.resolver.stand_in_methods_named(name)
+                            }
+                        )
+                    ),
+                )
+            )
+            self._stand_ins = set()
+
+    def _receiver_is_project(self, receiver: ast.expr) -> bool:
+        """Whether a receiver's type is a project class, so its methods are already resolved."""
+
+        dotted = _dotted_name(receiver)
+        if dotted is None:
+            return False
+        first = dotted.split(".")[0]
+        return first in self.local_types or first in {"self", "cls"}
 
     def visit_definition_header(self, node: DefinitionNode) -> None:
         """Effects of executing a ``def`` or ``class`` statement: decorators and defaults."""
@@ -1232,6 +1288,8 @@ class _ExecutionVisitor:
             ast.Import: self._visit_import,
             ast.ImportFrom: self._visit_import,
             ast.If: self._visit_if,
+            ast.With: self._visit_with,
+            ast.AsyncWith: self._visit_with,
         }
         handled = self._handled
         for node in nodes:
@@ -1324,6 +1382,10 @@ class _ExecutionVisitor:
     def _record_dynamic_import(self, call: ast.Call) -> None:
         arguments = positional_arguments(call)
         name = arguments[0] if arguments else keyword_argument(call, "name")
+        if (isinstance(name, ast.Attribute) and name.attr in LOADED_MODULE_NAMES) or (
+            isinstance(name, ast.Name) and name.id in LOADED_MODULE_NAMES
+        ):
+            return  # ``obj.__module__`` names a module already loaded; importing it runs nothing
         modules = self.resolver.modules
         if isinstance(name, ast.Constant) and isinstance(name.value, str):
             module = modules.get(name.value)
@@ -1571,6 +1633,10 @@ class _ExecutionVisitor:
                 break
             prefix = prefix.value if isinstance(prefix, ast.Attribute) else None
         if self._known_receiver(receiver):
+            if self.resolver.stand_in_methods_named(attribute.attr) and not (
+                self._infer_expression_type(receiver) or self._receiver_is_project(receiver)
+            ):
+                self._stand_ins.add(attribute.attr)
             return
         if self.resolver.methods_named(attribute.attr):
             self._dispatched.add(attribute.attr)
@@ -1705,6 +1771,33 @@ class _ExecutionVisitor:
                 targets=(decorated.id,),
             )
         )
+
+    def _visit_with(self, node: ast.With | ast.AsyncWith) -> None:
+        """``with open(path) as stream``: a manager from outside the project yields its value.
+
+        The value is what the manager's ``__enter__`` returns, which a manager outside the
+        project takes from outside it too, so methods called on it are not project methods of
+        the same name (ADR-0018).
+        """
+
+        for item in node.items:
+            target = item.optional_vars
+            if not isinstance(target, ast.Name):
+                continue
+            manager = item.context_expr
+            if not isinstance(manager, ast.Call) or self._resolve(manager.func) is not None:
+                continue
+            function = manager.func
+            builtin = (
+                isinstance(function, ast.Name)
+                and function.id not in self._names
+                and function.id not in self._locals
+                and function.id not in self._local_imports
+                and function.id in BUILTIN_MANAGERS
+            )
+            if builtin or self.resolver.is_external(function, self.module):
+                self.external_locals.add(target.id)
+                self.local_types.pop(target.id, None)
 
     def _visit_assign(self, node: ast.Assign) -> None:
         if (

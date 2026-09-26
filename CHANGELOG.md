@@ -7,6 +7,10 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Added
 
+- `[tool.deadtrace].exclude` leaves data directories out of the source universe; reports list
+  the excluded files (ADR-0018).
+- `cli.commands` capability: Typer commands and callbacks, and Click subcommands and groups.
+- `DT4002` reports a pinned FastAPI or Dishka version that is supported but not oracle-tested.
 - Text reports and `doctor` name the widest guards of production worlds, with the number of
   definitions only they keep possibly running and where they are, when unknown boundaries
   protect much of the project.
@@ -55,6 +59,14 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/12` (ADR-0018): FastAPI `>=0.100,<1` and Dishka
+  `>=1.0,<2` are supported, and only versions outside those ranges weaken worlds (`DT4001`);
+  methods of test stand-ins for values from outside the project, fixtures requested with
+  `getfixturevalue` or lazy fixtures, and fixtures of `pytest11` plugins are reachable;
+  importing a module that is loaded already and `with` targets of outside managers add no
+  unknown dispatch; a project without roots reports `DT3004`.
+- The solver marks each distinct boundary target set once per world, and the pytest model no
+  longer records per-test fixture visibility; results are unchanged.
 - Model revision `python-fastapi-dishka/11` (ADR-0017), from an audit of six real projects:
   `include_router` in helpers and loops over literal router lists; entry points naming a
   top-level value such as a Typer application; calls inside annotations; attribute chains

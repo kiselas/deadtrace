@@ -32,7 +32,9 @@ instead of treating “no textual references” as proof that code can be delete
   tags, management commands, and `AppConfig`, the ASGI and WSGI modules, relocated
   migrations, and the modules settings name by string; nested `Meta` and Pydantic `Config`
   classes; Alembic environments and revisions;
-- PEP 621 console, GUI, and plugin entry points as statically read, provenanced production roots;
+- PEP 621 console, GUI, and plugin entry points as statically read, provenanced production roots,
+  including values such as a Typer application, and the hooks and fixtures of `pytest11`
+  plugins; Typer and Click commands;
 - automatic worlds when none are configured: scripts with a main guard and `__main__`
   modules, applications of Flask, Celery, Starlette, Litestar, aiohttp, Sanic, Quart,
   Falcon, Bottle, and Typer, uncalled FastAPI factories, Celery task autodiscovery, and
@@ -89,6 +91,7 @@ the project cannot silently change the explanation.
 ```toml
 [tool.deadtrace]
 require-complete = true
+exclude = ["testdata/**"] # data the project never runs; excluded code protects nothing
 report-exclude = ["generated/**"] # affects presentation, never the source universe
 max-steps = 100000 # optional; by default the budget is sized from the graph
 
@@ -167,9 +170,11 @@ When `--output` is used, Deadtrace prints a privacy/content preview before writi
 
 ## Supported and guarded behavior
 
-The oracle environment currently pins FastAPI 0.141.1, Dishka 1.10.1, and HTTPX 0.28.1. An exact,
-different version found in `uv.lock` or `pyproject.toml` creates `DT4001` and blocks strong negative
-findings. An unpinned dependency is not presented as version-verified.
+The oracle environment currently pins FastAPI 0.141.1, Dishka 1.10.1, and HTTPX 0.28.1. The
+modeled subset is supported for FastAPI `>=0.100,<1` and Dishka `>=1.0,<2` (ADR-0018): an exact,
+different version found in `uv.lock` or `pyproject.toml` inside the range is reported as `DT4002`,
+and one outside it creates `DT4001` and blocks strong negative findings. An unpinned dependency is
+not presented as version-verified.
 
 A pattern for which a complete world reports code that may run as unreached is a contract
 violation. It is recorded under [fixtures/known-violations](fixtures/known-violations/README.md)

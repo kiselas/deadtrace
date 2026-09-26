@@ -111,7 +111,7 @@ def test_doctor_reports_incomplete_rootless_project(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "production:application: invalid" in result.stdout
-    assert "DT3001" in result.stdout
+    assert "DT3004" in result.stdout
 
 
 def test_inventory_only_and_require_complete_modes(tmp_path: Path) -> None:

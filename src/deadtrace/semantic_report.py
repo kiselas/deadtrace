@@ -49,6 +49,7 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
             "root": str(result.collection.root),
             "files": list(result.collection.files),
             "skipped_directories": list(result.collection.skipped_directories),
+            "excluded_files": list(result.collection.excluded_files),
         },
         "inventory": {
             "definitions": [item.to_dict() for item in result.inventory.definitions],
@@ -103,6 +104,11 @@ def render_semantic_text(result: AnalysisResult) -> str:
             f"| Worlds: {result.metrics.worlds} | Findings: {len(result.findings)}"
         ),
         *_skipped_directory_lines(result.collection.skipped_directories),
+        *(
+            [f"Excluded by configuration: {len(result.collection.excluded_files)} files"]
+            if result.collection.excluded_files
+            else []
+        ),
         "",
     ]
     shared = _shared_limitations(result)

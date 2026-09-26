@@ -1,0 +1,49 @@
+schema_version = 1
+case_id = "cli-commands"
+description = "Typer and Click register the commands their applications and groups run."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "production:typer"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tool.py"
+kind = "function"
+qualified_name = "sync"
+expectation = "live"
+worlds = ["production:typer"]
+
+[[targets]]
+path = "tool.py"
+kind = "function"
+qualified_name = "main"
+expectation = "live"
+worlds = ["production:typer"]
+
+[[targets]]
+path = "manage.py"
+kind = "function"
+qualified_name = "export"
+expectation = "live"
+worlds = ["production:scripts"]
+
+[[targets]]
+path = "manage.py"
+kind = "function"
+qualified_name = "admin"
+expectation = "live"
+worlds = ["production:scripts"]
+
+[[targets]]
+path = "tool.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"
+
+[[targets]]
+path = "manage.py"
+kind = "function"
+qualified_name = "orphan"
+expectation = "candidate"

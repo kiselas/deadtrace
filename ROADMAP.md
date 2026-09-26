@@ -31,11 +31,11 @@ status date:
 
 | Area | Current evidence |
 | --- | --- |
-| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/11` |
+| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/12` |
 | Unit/integration/oracle tests | 273 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
 | Coverage | 91.29% branch-aware total; configured floor 90% |
 | Static quality | Ruff format/check, strict mypy, and `uv lock --check` pass |
-| Semantic corpus | 61 projects, 222 lexical targets, 61 semantic manifests |
+| Semantic corpus | 62 projects, 228 lexical targets, 62 semantic manifests |
 | Seed fixtures | 6 projects, 12 lexical targets |
 | Known violations | none pinned; the 28 recorded cases are met and moved to `corpus/` (SOUND-01 to SOUND-04, DJANGO-01) |
 | Distribution | wheel and sdist build; the wheel installs without LibCST and has been scanned outside the checkout |
@@ -295,6 +295,13 @@ tests world was partial on every project, and all 25 `RCH002` findings on the se
 After: every audited world that can be complete is, and each remaining finding was confirmed as
 code that does not run under the analyzed inputs. This is private field evidence without
 recorded source; it is not the P3 pilot, which needs labeled review groups.
+
+### FIELD-02 — second field pass
+
+**Status:** implemented on 2026-09-26 (ADR-0018, model revision 12): supported FastAPI and
+Dishka version ranges, source `exclude`, test stand-ins, run-time fixture requests, `pytest11`
+exports, Typer and Click commands, and solver and pytest-model costs on a 624k-line monorepo.
+Memory on such a monorepo, about 2.2 GiB, remains the next lever (PERF-03).
 
 ### ORACLE-01 — capability-to-oracle inventory
 

@@ -59,3 +59,5 @@ each other. Typo and link fixes are fine.
   pytest's own name resolution. Accepted.
 - [ADR-0017](0017-conventions-found-by-the-field-audit.md) — Conventions found by the field audit
   (model revision 11). Accepted.
+- [ADR-0018](0018-second-field-audit.md) — Source exclusions, supported version ranges, and
+  CLI commands (model revision 12). Accepted.

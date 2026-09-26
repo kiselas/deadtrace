@@ -284,6 +284,8 @@ def apply_pytest_model(
         }
         requested.update(_usefixtures_names(program, module, test))
         requested.update(fixture.name for fixture in visible.values() if fixture.autouse)
+        requested.update(_fixture_values(module, test, visible))
+        requested.update(_lazy_fixtures(program, module, test))
         _connect_fixture_requests(
             source=test.id,
             requested=requested,
@@ -294,15 +296,6 @@ def apply_pytest_model(
             world=world,
             all_nodes=all_nodes,
         )
-        for fixture in visible.values():
-            requirements.append(
-                Requirement(
-                    source=program.modules[test.module].node_id,
-                    target=fixture.symbol,
-                    kind=EdgeKind.FRAMEWORK,
-                    detail=f"pytest fixture {fixture.name} is visible to {test.qualified_name}",
-                )
-            )
 
     fixture_limitations: dict[NodeId, list[Limitation]] = {}
     for fixture in fixtures:
@@ -311,9 +304,14 @@ def apply_pytest_model(
         _connect_fixture_requests(
             source=fixture.symbol,
             requested={
-                name
-                for name in fixture.dependencies
-                if name in visible or not (name in parametrized_anywhere or generated)
+                *(
+                    name
+                    for name in fixture.dependencies
+                    if name in visible or not (name in parametrized_anywhere or generated)
+                ),
+                *_fixture_values(
+                    program.modules[fixture.module], program.symbols[fixture.symbol], visible
+                ),
             },
             visible=visible,
             edges=edges,
@@ -427,6 +425,7 @@ class _FixtureScopes:
             if path.name == "conftest.py":
                 self.conftests.append((path.parent, name))
         self.conftests.sort(key=lambda item: len(item[0].parts))
+        self._directory_cache: dict[str, dict[str, Fixture]] = {}
         self.generators = {
             name
             for name, module in program.modules.items()
@@ -435,6 +434,21 @@ class _FixtureScopes:
                 for symbol in module.symbols
             )
         }
+
+    def directory_fixtures(
+        self, directory: str, global_fixtures: dict[str, Fixture]
+    ) -> dict[str, Fixture]:
+        """Plugin fixtures and those of the conftests at or above ``directory``, outside in."""
+
+        cached = self._directory_cache.get(directory)
+        if cached is not None:
+            return cached
+        visible: dict[str, Fixture] = dict(global_fixtures)
+        for conftest_directory, module in self.conftests:
+            if _is_parent(conftest_directory, PurePosixPath(directory)):
+                visible.update(self.namespaces.get(module, {}))
+        self._directory_cache[directory] = visible
+        return visible
 
     def generates_tests(self, consumer_path: str, consumer_module: str) -> bool:
         """Whether a ``pytest_generate_tests`` hook may parametrize the consumer's arguments.
@@ -460,11 +474,7 @@ def _visible_fixtures(
 ) -> dict[str, Fixture]:
     """Fixtures a consumer sees: plugins', then conftests' from the outside in, then its own."""
 
-    consumer_parent = PurePosixPath(consumer_path).parent
-    visible: dict[str, Fixture] = dict(global_fixtures)
-    for directory, module in scopes.conftests:
-        if _is_parent(directory, consumer_parent):
-            visible.update(scopes.namespaces.get(module, {}))
+    visible = dict(scopes.directory_fixtures(consumer_path.rpartition("/")[0], global_fixtures))
     visible.update(scopes.namespaces.get(consumer_module, {}))
     return visible
 
@@ -665,6 +675,32 @@ def _hook_implementations(program: PythonProgram, plugins: set[str]) -> set[Node
     }
 
 
+def _fixture_values(
+    module: PythonModule, symbol: PythonSymbol, visible: dict[str, Fixture]
+) -> set[str]:
+    """Fixtures a body requests with ``request.getfixturevalue``.
+
+    A literal name requests that fixture; a computed one may request any fixture the body sees.
+    """
+
+    names: set[str] = set()
+    if "getfixturevalue" not in module.unit.source:
+        return names
+    for node in ast.walk(symbol.node):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "getfixturevalue"
+        ):
+            continue
+        argument = node.args[0] if node.args else keyword_argument(node, "argname")
+        value = single_string_literal(argument, module.text) if argument is not None else None
+        if value is None:
+            return set(visible)
+        names.add(value)
+    return names
+
+
 def _reachable(roots: set[NodeId], edges: list[ExecutionEdge]) -> set[NodeId]:
     """Nodes that the fixture-resolution edges reach from the given roots."""
 
@@ -793,6 +829,28 @@ def _parameterized_names(
         if _dotted_name(indirect) == "True":
             continue
         names.update(parsed - _argument_names(indirect, module))
+    return names
+
+
+LAZY_FIXTURES = ("lazy_fixture", "lazy_fixtures.lf", "lazy_fixtures.lfc", "lazyfixture")
+"""Callables of pytest-lazy-fixture and pytest-lazy-fixtures that request a fixture by name."""
+
+
+def _lazy_fixtures(program: PythonProgram, module: PythonModule, symbol: PythonSymbol) -> set[str]:
+    """Fixtures that parametrize values request lazily, as ``lf("name")`` does."""
+
+    names: set[str] = set()
+    for expression in _marks(program, module, symbol):
+        if not _expanded_name(module, expression.func).endswith("pytest.mark.parametrize"):
+            continue
+        for node in ast.walk(expression):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            called = _expanded_name(module, node.func)
+            if called.endswith(LAZY_FIXTURES) or called.rpartition(".")[2] == "lf":
+                value = single_string_literal(node.args[0], module.text)
+                if value is not None:
+                    names.update(part.strip() for part in value.split(".")[:1])
     return names
 
 

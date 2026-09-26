@@ -4,8 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from deadtrace.config import KNOWN_FRAMEWORKS, ConfigurationError, discover_config, load_config
+from deadtrace.analysis import analyze
+from deadtrace.config import (
+    KNOWN_FRAMEWORKS,
+    Config,
+    ConfigurationError,
+    discover_config,
+    load_config,
+)
 from deadtrace.frameworks import APPLICATION_CONSTRUCTORS
+from deadtrace.semantic_report import render_semantic_text
 
 
 def test_no_config_uses_defaults() -> None:
@@ -241,3 +249,34 @@ def test_every_modeled_framework_can_be_listed_by_a_world(tmp_path: Path) -> Non
 
     assert load_config(path).worlds[0].frameworks == tuple(names)
     assert set(names) <= KNOWN_FRAMEWORKS
+
+
+def test_exclude_removes_data_directories_from_the_source_universe(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.deadtrace]\nexclude = ["corpus/**", "*.generated.py"]\n', encoding="utf-8"
+    )
+    for name in ("app.py", "corpus/case/main.py", "schema.generated.py"):
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("def f() -> None:\n    pass\n", encoding="utf-8")
+
+    config = load_config(discover_config(tmp_path, None))
+    result = analyze(tmp_path, config)
+
+    assert config.exclude == ("corpus/**", "*.generated.py")
+    assert result.collection.files == ("app.py",)
+    assert result.collection.excluded_files == ("corpus/case/main.py", "schema.generated.py")
+    assert "Excluded by configuration: 2 files" in render_semantic_text(result)
+
+
+def test_an_unused_exclude_keeps_the_configuration_digest(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("def f() -> None:\n    pass\n", encoding="utf-8")
+
+    assert (
+        analyze(tmp_path, Config()).config_digest
+        == analyze(tmp_path, Config(exclude=())).config_digest
+    )
+    assert (
+        analyze(tmp_path, Config()).config_digest
+        != analyze(tmp_path, Config(exclude=("x/**",))).config_digest
+    )

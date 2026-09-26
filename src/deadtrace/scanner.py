@@ -6,6 +6,7 @@ import os
 import tokenize
 from collections.abc import Mapping
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -37,9 +38,16 @@ class SourceCollection:
     issues: tuple[ScanIssue, ...]
     skipped_directories: tuple[str, ...] = ()
     """Environments and tool directories left out of the source universe (ADR-0015)."""
+    excluded_files: tuple[str, ...] = ()
+    """Python files that configured ``exclude`` patterns leave out (ADR-0018)."""
 
 
-def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> SourceCollection:
+def collect_sources(
+    scan_path: Path,
+    *,
+    timings: StageTimings | None = None,
+    exclude: tuple[str, ...] = (),
+) -> SourceCollection:
     """Read a stable source snapshot without importing or executing target code."""
 
     timings = timings if timings is not None else StageTimings()
@@ -49,14 +57,18 @@ def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> 
     last_files: tuple[str, ...] = ()
     last_issues: tuple[ScanIssue, ...] = ()
     last_skipped: tuple[str, ...] = ()
+    last_excluded: tuple[str, ...] = ()
     for _attempt in range(2):
         timings.count("collect.attempts")
-        collection, stable = _collect_source_attempt(absolute_input, root, canonical_root, timings)
+        collection, stable = _collect_source_attempt(
+            absolute_input, root, canonical_root, timings, exclude
+        )
         if stable:
             return collection
         last_files = collection.files
         last_issues = collection.issues
         last_skipped = collection.skipped_directories
+        last_excluded = collection.excluded_files
 
     issue = ScanIssue(
         code="DT1002",
@@ -71,6 +83,7 @@ def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> 
             sorted({*last_issues, issue}, key=lambda item: (item.path, item.code, item.message))
         ),
         skipped_directories=last_skipped,
+        excluded_files=last_excluded,
     )
 
 
@@ -79,9 +92,11 @@ def _collect_source_attempt(
     root: Path,
     canonical_root: Path,
     timings: StageTimings,
+    exclude: tuple[str, ...] = (),
 ) -> tuple[SourceCollection, bool]:
     with timings.stage("collect.discover"):
-        files, discovery_issues, skipped = _discover_python_files(absolute_input, canonical_root)
+        found, discovery_issues, skipped = _discover_python_files(absolute_input, canonical_root)
+    files, excluded = _apply_exclude(found, root, exclude)
     issues = list(discovery_issues)
     inventory_files: list[str] = []
     units: list[SourceUnit] = []
@@ -109,13 +124,14 @@ def _collect_source_attempt(
         units=tuple(sorted(units, key=lambda item: item.path)),
         issues=tuple(sorted(issues, key=lambda item: (item.path, item.code, item.message))),
         skipped_directories=skipped,
+        excluded_files=excluded,
     )
     with timings.stage("collect.verify_discover"):
         verified_files, verified_discovery_issues, verified_skipped = _discover_python_files(
             absolute_input, canonical_root
         )
     stable = (
-        files == verified_files
+        found == verified_files
         and discovery_issues == verified_discovery_issues
         and skipped == verified_skipped
     )
@@ -157,7 +173,7 @@ def parse_collection(
 def scan(scan_path: Path, config: Config) -> InventoryReport:
     """Build schema-0 inventory from a file or directory without executing it."""
 
-    collection = collect_sources(scan_path)
+    collection = collect_sources(scan_path, exclude=config.exclude)
     return inventory_collection(collection, config)
 
 
@@ -241,6 +257,28 @@ def _discover_python_files(
         )
     accepted, issues = _accept_paths(tuple(candidates), scan_path, canonical_root)
     return accepted, issues, tuple(sorted(skipped))
+
+
+def _apply_exclude(
+    files: tuple[Path, ...], root: Path, patterns: tuple[str, ...]
+) -> tuple[tuple[Path, ...], tuple[str, ...]]:
+    """Split discovered files into source and those an ``exclude`` pattern names.
+
+    A pattern is a glob over the path relative to the scan root, with ``/`` separators, as in
+    ``report-exclude``; ``corpus/**`` names everything below ``corpus``.
+    """
+
+    if not patterns:
+        return files, ()
+    kept: list[Path] = []
+    excluded: list[str] = []
+    for file_path in files:
+        relative = file_path.relative_to(root).as_posix()
+        if any(fnmatchcase(relative, pattern) for pattern in patterns):
+            excluded.append(relative)
+        else:
+            kept.append(file_path)
+    return tuple(kept), tuple(sorted(excluded))
 
 
 def _is_skipped_directory(parent: Path, name: str) -> bool:
