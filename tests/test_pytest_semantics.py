@@ -377,3 +377,26 @@ def unused_helper() -> None:
     assert world.state_of(_node(result, "plugin_pkg.plugin:exported")) is not None
     assert world.state_of(_node(result, "plugin_pkg.plugin:pytest_configure")) is not None
     assert world.state_of(_node(result, "plugin_pkg.plugin:unused_helper")) is None
+
+
+def test_nested_test_classes_are_collected(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "test_nested.py",
+        """
+class TestOuter:
+    class TestInner:
+        def test_inner(self) -> None:
+            pass
+
+    class Helper:
+        def test_not_collected(self) -> None:
+            pass
+""",
+    )
+
+    result = analyze(tmp_path, Config())
+    tests = result.snapshot.world(WorldId("tests", "pytest"))
+
+    assert tests.state_of(_node(result, "test_nested:TestOuter.TestInner.test_inner")) is not None
+    assert tests.state_of(_node(result, "test_nested:TestOuter.Helper.test_not_collected")) is None

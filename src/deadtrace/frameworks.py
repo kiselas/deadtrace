@@ -215,6 +215,8 @@ class _BuildState:
     auto_provenance: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
     """How automatic worlds found their roots: (scenario, root) to (kind, detail)."""
     app_factories: dict[NodeId, str] = field(default_factory=dict)
+    factory_entry_callers: dict[str, set[NodeId]] = field(default_factory=dict)
+    """Uncalled functions that call an application factory, by application key."""
     factory_app_locals: dict[str, tuple[NodeId, str]] = field(default_factory=dict)
     provider_instances: dict[str, NodeId] = field(default_factory=dict)
     app_containers: dict[str, str] = field(default_factory=dict)
@@ -740,10 +742,10 @@ def _discover_uncalled_fastapi_factories(state: _BuildState) -> None:
     """A top-level ``create_app`` no module calls is an application, as ``--factory`` runs it."""
 
     for module in state.program.modules.values():
-        if not any(
+        if is_test_path(module.path) or not any(
             binding.target.partition(".")[0] == "fastapi" for binding in module.imports.values()
         ):
-            continue
+            continue  # a test that builds an application is not one a server runs
         for factory in module.symbols:
             if (
                 factory.owner is not None
@@ -751,7 +753,7 @@ def _discover_uncalled_fastapi_factories(state: _BuildState) -> None:
                 or factory.id in state.app_factories
             ):
                 continue
-            factory_app = _fastapi_factory_app(state, factory)
+            factory_app = _fastapi_factory_app(state, factory, wrapped=True)
             if factory_app is None:
                 continue
             local_name, constructor = factory_app
@@ -773,6 +775,30 @@ def _discover_uncalled_fastapi_factories(state: _BuildState) -> None:
             )
             state.app_factories[factory.id] = key
             state.factory_app_locals[key] = (factory.id, local_name)
+    _discover_factory_entry_callers(state)
+
+
+def _discover_factory_entry_callers(state: _BuildState) -> None:
+    """Uncalled functions that call an application factory: a server runs them by name.
+
+    ``uvicorn app.main:create_default --factory`` runs ``create_default``, which calls the
+    factory that builds the application. No project code calls it, so it is a root of the
+    application's world with the factory (ADR-0019).
+    """
+
+    factories = {factory_id: key for key, (factory_id, _local) in state.factory_app_locals.items()}
+    if not factories:
+        return
+    sites = _function_call_sites(state)
+    for factory_id, key in factories.items():
+        for _module, _call, caller in sites.get(factory_id, ()):
+            if (
+                caller is not None
+                and caller.owner is None
+                and caller.id not in sites
+                and caller.id not in state.app_factories
+            ):
+                state.factory_entry_callers.setdefault(key, set()).add(caller.id)
 
 
 def _discover_factory_assembly(state: _BuildState) -> None:
@@ -1061,6 +1087,8 @@ def _discover_indirect_includes(state: _BuildState) -> None:
 
 def _include_calls(state: _BuildState) -> Iterator[_CallSite]:
     for module in state.program.modules.values():
+        if "include_router" not in module.unit.source:
+            continue
         scopes: list[tuple[PythonSymbol | None, list[ast.stmt]]] = [(None, module.tree.body)]
         scopes.extend(
             (symbol, symbol.node.body) for symbol in module.symbols if is_function(symbol)
@@ -1615,8 +1643,17 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
         for app in apps
     )
     worlds = [*app_worlds, *_application_worlds(state), *entry_worlds]
+    # A pytest plugin's package is a library its users' tests import, whatever else the project
+    # provides (ADR-0019).
+    plugin_packages = {
+        entry.target.partition(":")[0].split(".")[0]
+        for entry in state.entry_points
+        if entry.group == "pytest11"
+    }
     if not worlds:
         worlds.extend(_library_world(state))
+    elif plugin_packages:
+        worlds.extend(_library_world(state, plugin_packages))
     worlds.extend(_script_world(state))
     if not worlds:
         return (WorldConfig("production", "application", (AUTO_ROOT,)),)
@@ -1631,12 +1668,20 @@ def _plugin_hooks(state: _BuildState, entry_point: ProjectEntryPoint) -> tuple[s
     module = state.program.modules.get(entry_point.target.partition(":")[0])
     if module is None:
         return ()
-    hooks = tuple(
-        f"{module.name}:{symbol.name}"
+    exports = [
+        symbol
         for symbol in module.symbols
         if symbol.owner is None
         and is_function(symbol)
         and (symbol.name.startswith("pytest_") or _is_fixture(module, symbol))
+    ]
+    hooks = tuple(
+        dict.fromkeys(
+            (
+                *(f"{module.name}:{symbol.name}" for symbol in exports),
+                *_returned_api(state, module, exports),
+            )
+        )
     )
     for hook in hooks:
         state.auto_provenance[(entry_point.scenario, hook)] = (
@@ -1644,6 +1689,39 @@ def _plugin_hooks(state: _BuildState, entry_point: ProjectEntryPoint) -> tuple[s
             f"pyproject.toml {entry_point.group}:{entry_point.name} hook",
         )
     return hooks
+
+
+def _returned_api(
+    state: _BuildState, module: PythonModule, exports: list[PythonSymbol]
+) -> list[str]:
+    """Public methods of the project classes a plugin fixture's return annotation names.
+
+    A fixture hands its value to the plugin's users, whose tests call its public methods, as the
+    library world treats an API class (ADR-0019).
+    """
+
+    program = state.program
+    roots: list[str] = []
+    for symbol in exports:
+        if symbol.return_annotation is None:
+            continue
+        for name in _annotation_names(symbol.return_annotation, module.text):
+            first, _, rest = name.partition(".")
+            binding = module.imports.get(first)
+            full = (
+                (f"{binding.target}.{rest}" if rest else binding.target)
+                if binding is not None
+                else f"{module.name}.{name}"
+            )
+            target = program.resolve_symbol(full)
+            if target is None or target.kind is not NodeKind.CLASS:
+                continue
+            roots.extend(
+                f"{member.module}:{member.qualified_name}"
+                for member in program.index.members(target.id)
+                if is_function(member) and not member.name.startswith("_")
+            )
+    return roots
 
 
 def _is_fixture(module: PythonModule, symbol: PythonSymbol) -> bool:
@@ -1686,7 +1764,7 @@ def _script_world(state: _BuildState) -> tuple[WorldConfig, ...]:
     return (WorldConfig("production", "scripts", tuple(scripts), ("python",)),) if scripts else ()
 
 
-def _library_world(state: _BuildState) -> tuple[WorldConfig, ...]:
+def _library_world(state: _BuildState, packages: set[str] | None = None) -> tuple[WorldConfig, ...]:
     """Roots for a project without applications or entry points: its public API.
 
     Public modules are those whose dotted name has no part starting with an underscore, outside
@@ -1701,6 +1779,8 @@ def _library_world(state: _BuildState) -> tuple[WorldConfig, ...]:
     roots: dict[str, None] = {}
     for name, module in sorted(program.modules.items()):
         if _is_non_library_module(module) or any(part.startswith("_") for part in name.split(".")):
+            continue
+        if packages is not None and name.split(".")[0] not in packages:
             continue
         roots[name] = None
         exports = declared_exports(module) or frozenset()
@@ -1937,6 +2017,8 @@ def _django_server_modules(state: _BuildState) -> list[PythonModule]:
 
     found: list[PythonModule] = []
     for module in state.program.modules.values():
+        if "_application" not in module.unit.source:
+            continue
         for node in flow_nodes(module.tree.body):
             if isinstance(node, ast.Call) and _expanded_name(module, node.func).endswith(
                 ("get_asgi_application", "get_wsgi_application")
@@ -2062,6 +2144,7 @@ def _roots_for_app(
     roots, limitations = _roots_for_router(state, app_key, world, app_key=app_key)
     app = state.objects[app_key]
     roots.add(state.program.modules[app.module].node_id)
+    roots.update(state.factory_entry_callers.get(app_key, ()))
     container_key = state.app_containers.get(app_key)
     if container_key is not None:
         container = state.objects[container_key]
@@ -2779,8 +2862,14 @@ def _top_level_assignments(
 def _fastapi_factory_app(
     state: _BuildState,
     factory: PythonSymbol,
+    *,
+    wrapped: bool = False,
 ) -> tuple[str, ast.Call] | None:
-    """Recognize one local FastAPI construction that is returned unchanged."""
+    """Recognize one local FastAPI construction that is returned unchanged.
+
+    With ``wrapped``, a factory that constructs exactly one FastAPI application and returns
+    something else, such as an ASGI wrapper around it, counts as well.
+    """
 
     assert not isinstance(factory.node, ast.ClassDef)
     constructors: dict[str, ast.Call] = {}
@@ -2799,6 +2888,8 @@ def _fastapi_factory_app(
         elif isinstance(small, ast.Return) and isinstance(small.value, ast.Name):
             returned.add(small.value.id)
     matches = sorted(set(constructors).intersection(returned))
+    if not matches and len(constructors) == 1 and wrapped:
+        matches = sorted(constructors)  # the application is returned inside a wrapper
     if len(matches) != 1:
         return None
     name = matches[0]

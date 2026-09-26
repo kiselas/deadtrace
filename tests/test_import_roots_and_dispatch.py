@@ -322,3 +322,25 @@ def test_importing_the_module_of_a_loaded_object_runs_nothing_new() -> None:
     world = _world(program, "main:main")
 
     assert program.modules["other"].node_id not in world.conservative_may_run
+
+
+def test_a_package_under_a_source_directory_imports_its_submodules_by_name() -> None:
+    program = _program(
+        **{
+            "backend/app/__init__.py": "",
+            "backend/app/main.py": (
+                "from app.handlers import build\n\ndef main() -> None:\n    build()\n"
+            ),
+            "backend/app/handlers/__init__.py": (
+                "from app.handlers import poll\n\ndef build() -> None:\n    poll.start()\n"
+            ),
+            "backend/app/handlers/poll.py": (
+                "from app.handlers.shared import helper\n\ndef start() -> None:\n    helper()\n"
+            ),
+            "backend/app/handlers/shared.py": "def helper() -> None:\n    pass\n",
+        }
+    )
+    world = _world(program, "backend.app.main:main")
+
+    assert _state(program, world, "backend.app.handlers.poll:start") is not None
+    assert _state(program, world, "backend.app.handlers.shared:helper") is not None

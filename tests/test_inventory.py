@@ -90,6 +90,8 @@ def test_environments_and_tool_directories_are_not_source(tmp_path: Path) -> Non
         "vendor/site-packages/lib.py",
         "__pypackages__/3.12/lib/pkg.py",
         "scripts-dev/run.py",
+        "build/lib/app/main.py",
+        "tools/build/steps.py",
     ):
         target = tmp_path / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -99,11 +101,12 @@ def test_environments_and_tool_directories_are_not_source(tmp_path: Path) -> Non
 
     collection = collect_sources(tmp_path)
 
-    assert collection.files == ("app/main.py", "scripts-dev/run.py")
+    assert collection.files == ("app/main.py", "scripts-dev/run.py", "tools/build/steps.py")
     assert collection.skipped_directories == (
         ".pytest-tmp",
         ".venv-old",
         "__pypackages__",
+        "build",
         "env",
         "frontend/node_modules",
         "vendor/site-packages",

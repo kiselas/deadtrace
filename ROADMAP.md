@@ -31,11 +31,11 @@ status date:
 
 | Area | Current evidence |
 | --- | --- |
-| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/12` |
-| Unit/integration/oracle tests | 273 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
-| Coverage | 91.29% branch-aware total; configured floor 90% |
+| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/13` |
+| Unit/integration/oracle tests | 287 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
+| Coverage | 91.90% branch-aware total; configured floor 90% |
 | Static quality | Ruff format/check, strict mypy, and `uv lock --check` pass |
-| Semantic corpus | 62 projects, 228 lexical targets, 62 semantic manifests |
+| Semantic corpus | 63 projects, 231 lexical targets, 63 semantic manifests |
 | Seed fixtures | 6 projects, 12 lexical targets |
 | Known violations | none pinned; the 28 recorded cases are met and moved to `corpus/` (SOUND-01 to SOUND-04, DJANGO-01) |
 | Distribution | wheel and sdist build; the wheel installs without LibCST and has been scanned outside the checkout |
@@ -302,6 +302,12 @@ recorded source; it is not the P3 pilot, which needs labeled review groups.
 Dishka version ranges, source `exclude`, test stand-ins, run-time fixture requests, `pytest11`
 exports, Typer and Click commands, and solver and pytest-model costs on a 624k-line monorepo.
 Memory on such a monorepo, about 2.2 GiB, remains the next lever (PERF-03).
+
+### FIELD-03 — third field pass
+
+**Status:** implemented on 2026-09-26 (ADR-0019, model revision 13): wrapped FastAPI factories,
+package-own submodule imports, pytest plugin libraries, setuptools build copies, and nested test
+classes; reports are byte-identical across runs on real projects.
 
 ### ORACLE-01 — capability-to-oracle inventory
 

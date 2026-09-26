@@ -295,7 +295,19 @@ def _is_skipped_directory(parent: Path, name: str) -> bool:
     if name.startswith(".") or name in _UNIMPORTABLE_DIRECTORIES or name == "site-packages":
         return True
     directory = parent / name
+    if name == "build" and _is_setuptools_build(directory):
+        return True
     return any((directory / marker).exists() for marker in _ENVIRONMENT_MARKERS)
+
+
+def _is_setuptools_build(directory: Path) -> bool:
+    """A ``build`` directory that holds setuptools copies of packages (``lib``, ``bdist.*``)."""
+
+    try:
+        children = [entry.name for entry in directory.iterdir() if entry.is_dir()]
+    except OSError:
+        return False
+    return any(child == "lib" or child.startswith(("lib.", "bdist.")) for child in children)
 
 
 def _accept_paths(

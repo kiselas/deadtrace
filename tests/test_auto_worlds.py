@@ -250,3 +250,19 @@ def test_type_checking_import_guard_is_not_mistaken_for_a_main_guard() -> None:
 
     assert not has_main_guard(module)
     assert isinstance(module.tree.body[1], ast.If)
+
+
+def test_an_application_built_in_a_test_roots_no_production_world() -> None:
+    _, model = _model(
+        **{
+            "app.py": "from fastapi import FastAPI\n\napp = FastAPI()\n",
+            "tests/test_app.py": (
+                "from fastapi import FastAPI\n\n"
+                "def test_lifespan() -> None:\n"
+                "    api = FastAPI()\n"
+                "    assert api\n"
+            ),
+        }
+    )
+
+    assert [plan.id.key for plan in model.plans] == ["production:web"]

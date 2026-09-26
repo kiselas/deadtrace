@@ -129,6 +129,29 @@ _PLUGIN_FIXTURES = frozenset(
         # pytest-xdist
         "testrun_uid",
         "worker_id",
+        # pytest-playwright and pytest-base-url
+        "base_url",
+        "browser",
+        "browser_channel",
+        "browser_context_args",
+        "browser_name",
+        "browser_type",
+        "browser_type_launch_args",
+        "context",
+        "device",
+        "is_chromium",
+        "is_firefox",
+        "is_webkit",
+        "launch_browser",
+        "new_context",
+        "output_path",
+        "page",
+        "playwright",
+        # pytest-aiohttp
+        "aiohttp_client",
+        "aiohttp_raw_server",
+        "aiohttp_server",
+        "aiohttp_unused_port",
     }
 )
 """Fixtures of widely used third-party plugins (ADR-0016). A test that requests one does not
@@ -602,11 +625,14 @@ def _collected_classes(program: PythonProgram, collection: PytestCollection) -> 
     """
 
     collected: dict[NodeId, bool] = {}
-    for symbol in program.symbols.values():
-        if (
-            symbol.kind is not NodeKind.CLASS
-            or symbol.owner is not None
-            or not _is_test_path(symbol.path, collection)
+    classes = sorted(
+        (symbol for symbol in program.symbols.values() if symbol.kind is NodeKind.CLASS),
+        key=lambda item: item.qualified_name.count("."),
+    )
+    for symbol in classes:
+        # pytest also collects a matching class nested in a collected one.
+        if (symbol.owner is not None and symbol.owner not in collected) or not _is_test_path(
+            symbol.path, collection
         ):
             continue
         ancestry = _project_ancestry(program, symbol)

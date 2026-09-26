@@ -59,6 +59,11 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/13` (ADR-0019): a FastAPI factory that returns its
+  application inside a wrapper, and the uncalled function that calls it, root a web world; a
+  package imports its own submodules by absolute name; a `pytest11` plugin's package is also a
+  library, and the classes its fixtures return expose their public methods; setuptools `build`
+  copies are skipped; nested test classes are collected.
 - Model revision `python-fastapi-dishka/12` (ADR-0018): FastAPI `>=0.100,<1` and Dishka
   `>=1.0,<2` are supported, and only versions outside those ranges weaken worlds (`DT4001`);
   methods of test stand-ins for values from outside the project, fixtures requested with
