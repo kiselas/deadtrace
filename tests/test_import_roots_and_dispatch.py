@@ -344,3 +344,36 @@ def test_a_package_under_a_source_directory_imports_its_submodules_by_name() -> 
 
     assert _state(program, world, "backend.app.handlers.poll:start") is not None
     assert _state(program, world, "backend.app.handlers.shared:helper") is not None
+
+
+def test_an_inherited_member_used_through_a_subclass_uses_the_subclass() -> None:
+    program = _program(
+        **{
+            "factories.py": (
+                "import factory\n\n"
+                "class BaseFactory(factory.Factory):\n"
+                "    @classmethod\n"
+                "    def build_one(cls) -> object:\n"
+                "        return cls._create(dict)\n\n"
+                "class ItemFactory(BaseFactory):\n"
+                "    @classmethod\n"
+                "    def _create(cls, model: type) -> object:\n"
+                "        return model()\n\n"
+                "class OtherFactory(BaseFactory):\n"
+                "    @classmethod\n"
+                "    def _create(cls, model: type) -> object:\n"
+                "        return model()\n"
+            ),
+            "main.py": (
+                "from factories import ItemFactory\n\n"
+                "def run() -> None:\n"
+                "    ItemFactory.build_one()\n"
+                "    print(ItemFactory.build_one)\n"
+            ),
+        }
+    )
+    world = _world(program, "main:run")
+
+    assert _state(program, world, "factories:ItemFactory") is not None
+    assert _state(program, world, "factories:ItemFactory._create") is not None
+    assert _state(program, world, "factories:OtherFactory") is None

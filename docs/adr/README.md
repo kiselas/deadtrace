@@ -63,3 +63,5 @@ each other. Typo and link fixes are fine.
   CLI commands (model revision 12). Accepted.
 - [ADR-0019](0019-third-field-audit.md) — Wrapped application factories, plugin libraries, and
   build copies (model revision 13). Accepted.
+- [ADR-0020](0020-inherited-members-through-subclasses.md) — Inherited members used through a
+  subclass use the subclass (model revision 14). Accepted.

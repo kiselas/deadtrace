@@ -147,6 +147,9 @@ _PLUGIN_FIXTURES = frozenset(
         "output_path",
         "page",
         "playwright",
+        # pytest-click
+        "cli_runner",
+        "isolated_cli_runner",
         # pytest-aiohttp
         "aiohttp_client",
         "aiohttp_raw_server",

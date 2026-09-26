@@ -31,8 +31,8 @@ status date:
 
 | Area | Current evidence |
 | --- | --- |
-| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/13` |
-| Unit/integration/oracle tests | 287 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
+| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/14` |
+| Unit/integration/oracle tests | 288 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
 | Coverage | 91.90% branch-aware total; configured floor 90% |
 | Static quality | Ruff format/check, strict mypy, and `uv lock --check` pass |
 | Semantic corpus | 63 projects, 231 lexical targets, 63 semantic manifests |

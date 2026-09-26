@@ -1519,6 +1519,7 @@ class _ExecutionVisitor:
             self._call_edges(node, alternative, through_instance=False)
         if target is not None:
             self._call_edges(node, target, through_instance=through_instance)
+            self._inherited_through_class(func, target)
         elif _is_getattr_call(func):
             assert isinstance(func, ast.Call)
             self._record_dynamic_getattr(func)
@@ -1539,6 +1540,28 @@ class _ExecutionVisitor:
             self._record_escaped_project_callables(node)
             if isinstance(func, ast.Attribute):
                 self._reference_receiver(func)
+
+    def _inherited_through_class(self, func: ast.expr, target: PythonSymbol) -> None:
+        """``Sub.create()`` with ``create`` inherited uses ``Sub``, which ``cls`` then is.
+
+        The member runs with the subclass as its class, so the subclass is used: its own
+        hooks and the members that bases outside the project call are reached with it
+        (ADR-0020).
+        """
+
+        if not isinstance(func, ast.Attribute) or target.owner is None:
+            return
+        receiver = self._resolve(func.value) if _dotted_name(func.value) is not None else None
+        if receiver is None or receiver.kind is not NodeKind.CLASS or receiver.id == target.owner:
+            return
+        self.edges.append(
+            ExecutionEdge(
+                self.source,
+                receiver.id,
+                EdgeKind.FIELD_LOAD,
+                f"calls an inherited member through {receiver.module}.{receiver.qualified_name}",
+            )
+        )
 
     def _call_edges(self, node: ast.Call, target: PythonSymbol, *, through_instance: bool) -> None:
         """Edges of calling ``target``: the call, its initializer, and possible overrides."""
@@ -1593,6 +1616,7 @@ class _ExecutionVisitor:
         self._escaped.update(item.id for item in self._alternative_targets(node, target))
         if target is not None:
             self._escaped.add(target.id)
+            self._inherited_through_class(node, target)
             if isinstance(node, ast.Attribute) and self._through_instance(node):
                 owner = self.resolver.symbols.get(target.owner) if target.owner else None
                 if owner is not None and owner.kind is NodeKind.CLASS:
