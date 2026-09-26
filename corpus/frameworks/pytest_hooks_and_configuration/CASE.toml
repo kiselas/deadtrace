@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "pytest-hooks-and-configuration"
+description = "Hooks, plugin-requested fixtures, and configured test files are pytest roots."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "conftest.py"
+kind = "function"
+qualified_name = "pytest_configure"
+expectation = "not_candidate"
+
+[[targets]]
+path = "conftest.py"
+kind = "function"
+qualified_name = "event_loop"
+expectation = "not_candidate"
+
+[[targets]]
+path = "checks/check_orders.py"
+kind = "function"
+qualified_name = "test_total"
+expectation = "not_candidate"
+
+[[targets]]
+path = "checks/test_legacy.py"
+kind = "function"
+qualified_name = "test_never_collected"
+expectation = "candidate"

@@ -15,9 +15,10 @@ from deadtrace.inventory import ParsedSource, inventory_source, parse_source
 from deadtrace.model import Definition, InventoryReport, ScanIssue
 from deadtrace.timing import StageTimings
 
-_SKIPPED_DIRECTORIES = frozenset(
-    {".git", ".hg", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".venv", "__pycache__"}
-)
+_UNIMPORTABLE_DIRECTORIES = frozenset({"__pycache__", "__pypackages__", "node_modules"})
+"""Directories whose contents belong to tools or other ecosystems, never to the project."""
+_ENVIRONMENT_MARKERS = ("pyvenv.cfg", "conda-meta")
+"""Files or directories that mark a Python environment: a virtual environment or a conda one."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,8 @@ class SourceCollection:
     files: tuple[str, ...]
     units: tuple[SourceUnit, ...]
     issues: tuple[ScanIssue, ...]
+    skipped_directories: tuple[str, ...] = ()
+    """Environments and tool directories left out of the source universe (ADR-0015)."""
 
 
 def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> SourceCollection:
@@ -45,6 +48,7 @@ def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> 
     canonical_root = root.resolve()
     last_files: tuple[str, ...] = ()
     last_issues: tuple[ScanIssue, ...] = ()
+    last_skipped: tuple[str, ...] = ()
     for _attempt in range(2):
         timings.count("collect.attempts")
         collection, stable = _collect_source_attempt(absolute_input, root, canonical_root, timings)
@@ -52,6 +56,7 @@ def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> 
             return collection
         last_files = collection.files
         last_issues = collection.issues
+        last_skipped = collection.skipped_directories
 
     issue = ScanIssue(
         code="DT1002",
@@ -65,6 +70,7 @@ def collect_sources(scan_path: Path, *, timings: StageTimings | None = None) -> 
         issues=tuple(
             sorted({*last_issues, issue}, key=lambda item: (item.path, item.code, item.message))
         ),
+        skipped_directories=last_skipped,
     )
 
 
@@ -75,7 +81,7 @@ def _collect_source_attempt(
     timings: StageTimings,
 ) -> tuple[SourceCollection, bool]:
     with timings.stage("collect.discover"):
-        files, discovery_issues = _discover_python_files(absolute_input, canonical_root)
+        files, discovery_issues, skipped = _discover_python_files(absolute_input, canonical_root)
     issues = list(discovery_issues)
     inventory_files: list[str] = []
     units: list[SourceUnit] = []
@@ -102,12 +108,17 @@ def _collect_source_attempt(
         files=tuple(sorted(inventory_files)),
         units=tuple(sorted(units, key=lambda item: item.path)),
         issues=tuple(sorted(issues, key=lambda item: (item.path, item.code, item.message))),
+        skipped_directories=skipped,
     )
     with timings.stage("collect.verify_discover"):
-        verified_files, verified_discovery_issues = _discover_python_files(
+        verified_files, verified_discovery_issues, verified_skipped = _discover_python_files(
             absolute_input, canonical_root
         )
-    stable = files == verified_files and discovery_issues == verified_discovery_issues
+    stable = (
+        files == verified_files
+        and discovery_issues == verified_discovery_issues
+        and skipped == verified_skipped
+    )
     if stable:
         with timings.stage("collect.verify_read"):
             for file_path in files:
@@ -203,26 +214,50 @@ def inventory_collection(
 
 def _discover_python_files(
     scan_path: Path, canonical_root: Path
-) -> tuple[tuple[Path, ...], tuple[ScanIssue, ...]]:
+) -> tuple[tuple[Path, ...], tuple[ScanIssue, ...], tuple[str, ...]]:
     if not scan_path.exists():
         issue = ScanIssue(code="DT1000", path=str(scan_path), message="scan path does not exist")
-        return (), (issue,)
+        return (), (issue,), ()
     if scan_path.is_file():
         if scan_path.suffix != ".py":
             issue = ScanIssue(code="DT1000", path=scan_path.name, message="scan file is not Python")
-            return (), (issue,)
-        return _accept_paths((scan_path,), scan_path.parent, canonical_root)
+            return (), (issue,), ()
+        accepted, issues = _accept_paths((scan_path,), scan_path.parent, canonical_root)
+        return accepted, issues, ()
 
     candidates: list[Path] = []
+    skipped: list[str] = []
     for current, directory_names, file_names in os.walk(scan_path, followlinks=False):
-        directory_names[:] = sorted(
-            name for name in directory_names if name not in _SKIPPED_DIRECTORIES
-        )
         current_path = Path(current)
+        kept: list[str] = []
+        for name in sorted(directory_names):
+            if _is_skipped_directory(current_path, name):
+                skipped.append((current_path / name).relative_to(scan_path).as_posix())
+            else:
+                kept.append(name)
+        directory_names[:] = kept
         candidates.extend(
             current_path / name for name in sorted(file_names) if name.endswith(".py")
         )
-    return _accept_paths(tuple(candidates), scan_path, canonical_root)
+    accepted, issues = _accept_paths(tuple(candidates), scan_path, canonical_root)
+    return accepted, issues, tuple(sorted(skipped))
+
+
+def _is_skipped_directory(parent: Path, name: str) -> bool:
+    """Whether a directory below the scan path holds no project source (ADR-0015).
+
+    A name that starts with a dot cannot be a package, so nothing in it is importable as project
+    code; such directories hold tool state, caches, and virtual environments. ``site-packages``,
+    ``node_modules``, ``__pycache__``, and ``__pypackages__`` belong to installers and other
+    tools, and a directory marked as a Python environment holds installed distributions whatever
+    its name. Other unimportable names stay in the universe: their scripts still run when invoked
+    by path.
+    """
+
+    if name.startswith(".") or name in _UNIMPORTABLE_DIRECTORIES or name == "site-packages":
+        return True
+    directory = parent / name
+    return any((directory / marker).exists() for marker in _ENVIRONMENT_MARKERS)
 
 
 def _accept_paths(

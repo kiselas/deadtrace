@@ -24,11 +24,14 @@ instead of treating “no textual references” as proof that code can be delete
   Pydantic hooks, and a bounded `create_app` pattern;
 - Dishka `@provide`, class providers, aliases, `from_context`, `FastapiProvider`, `@inject`,
   `DishkaRoute`, multiple applications/containers, and generator cleanup chains;
-- a separate pytest world with fixtures, `conftest` visibility, `autouse`, `usefixtures`, and
-  parametrization names;
+- a separate pytest world that resolves fixtures, parametrization, `patch` arguments,
+  `pytest_plugins`, imported fixtures, hooks, inherited test methods, and the configured
+  `python_files`, `python_classes`, and `python_functions` the way pytest does;
 - conservative property/protocol/metaclass hooks and historical Django `RunPython` retention;
 - Django settings as application roots: installed applications' `models`, `admin`, template
-  tags, and management commands, and the modules settings name by string;
+  tags, management commands, and `AppConfig`, the ASGI and WSGI modules, relocated
+  migrations, and the modules settings name by string; nested `Meta` and Pydantic `Config`
+  classes; Alembic environments and revisions;
 - PEP 621 console, GUI, and plugin entry points as statically read, provenanced production roots;
 - automatic worlds when none are configured: scripts with a main guard and `__main__`
   modules, applications of Flask, Celery, Starlette, Litestar, aiohttp, Sanic, Quart,
@@ -41,6 +44,10 @@ instead of treating “no textual references” as proof that code can be delete
 Unknown assembly, conditional activation, Dishka components/decorators, unresolved plugins, and
 untested pinned framework versions weaken the affected world instead of generating stronger
 negative findings.
+
+Source discovery skips virtual environments, `site-packages`, `node_modules`, and hidden
+directories, and names what it skipped. When a scan reports little because unknown
+boundaries protect most code, the report names the widest ones and where they are.
 
 ## Install from this repository
 

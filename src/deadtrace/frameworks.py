@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -40,9 +41,11 @@ from deadtrace.python_frontend import (
     flow_nodes,
     has_main_guard,
     is_function,
+    is_test_path,
     keyword_argument,
     positional_arguments,
     simple_block_statements,
+    single_string_literal,
     subscript_elements,
     subscript_items,
 )
@@ -77,8 +80,7 @@ DJANGO_APP_MODULES = ("apps", "models", "admin")
 """Modules of an installed application that Django imports when it starts."""
 DJANGO_APP_PACKAGES = ("management.commands", "templatetags")
 """Packages of an installed application whose modules Django loads by name on demand."""
-_TEST_DIRECTORIES = frozenset({"test", "testing", "tests"})
-_NON_LIBRARY_DIRECTORIES = frozenset({"benchmarks", "docs", "examples", *_TEST_DIRECTORIES})
+_NON_LIBRARY_DIRECTORIES = frozenset({"benchmarks", "docs", "examples"})
 
 
 @dataclass(slots=True)
@@ -175,6 +177,10 @@ class FrameworkModel:
     context_bindings: tuple[ContextBinding, ...]
     app_containers: dict[str, str]
     capabilities: tuple[FrameworkCapability, ...]
+    unknown_includes: tuple[tuple[str, int], ...] = ()
+    """``include_router`` calls whose application or router is not resolved: (path, line)."""
+    escaping_routers: frozenset[str] = frozenset()
+    """Routers referenced other than by their route decorators, so that any include may add them."""
 
 
 @dataclass(slots=True)
@@ -187,6 +193,9 @@ class _BuildState:
     routes: list[RouteRegistration] = field(default_factory=list)
     hooks: list[FrameworkHook] = field(default_factory=list)
     includes: list[RouterInclude] = field(default_factory=list)
+    handled_include_calls: set[int] = field(default_factory=set)
+    """Identities of the ``include_router`` calls the direct patterns already modeled."""
+    unknown_includes: list[tuple[str, int]] = field(default_factory=list)
     bindings: list[ProviderBinding] = field(default_factory=list)
     context_bindings: list[ContextBinding] = field(default_factory=list)
     provider_aliases: list[ProviderAlias] = field(default_factory=list)
@@ -269,6 +278,7 @@ def build_framework_model(
         _discover_factory_assembly(state)
         _discover_routes(state)
         _discover_includes_and_setup(state)
+        _discover_indirect_includes(state)
         _discover_migration_contracts(state)
         _discover_application_factories(state)
         _discover_task_autodiscovery(state)
@@ -314,9 +324,11 @@ def build_framework_model(
         bindings=tuple(sorted(state.bindings, key=_binding_sort_key)),
         context_bindings=tuple(sorted(state.context_bindings, key=_context_binding_sort_key)),
         app_containers=dict(sorted(state.app_containers.items())),
+        unknown_includes=tuple(sorted(set(state.unknown_includes))),
+        escaping_routers=_escaping_routers(state),
         capabilities=(
-            FrameworkCapability("python.direct-flow", 5, "modeled"),
-            FrameworkCapability("fastapi.routes", 2, "modeled"),
+            FrameworkCapability("python.direct-flow", 6, "modeled"),
+            FrameworkCapability("fastapi.routes", 3, "modeled"),
             FrameworkCapability("fastapi.depends", 1, "modeled"),
             FrameworkCapability("dishka.fastapi", 1, "modeled"),
             FrameworkCapability("dishka.provider-method", 1, "modeled"),
@@ -328,13 +340,14 @@ def build_framework_model(
             FrameworkCapability("fastapi.lifecycle", 1, "modeled"),
             FrameworkCapability("fastapi.background-task", 1, "modeled"),
             FrameworkCapability("pydantic.hooks", 2, "modeled"),
-            FrameworkCapability("django.migrations-runpython", 1, "modeled"),
-            FrameworkCapability("python.project-entry-points", 1, "modeled"),
+            FrameworkCapability("django.migrations-runpython", 2, "modeled"),
+            FrameworkCapability("python.project-entry-points", 2, "modeled"),
             FrameworkCapability("python.script-roots", 1, "modeled"),
             FrameworkCapability("python.library-roots", 1, "modeled"),
             FrameworkCapability("frameworks.application-roots", 1, "guarded"),
             FrameworkCapability("celery.autodiscover-tasks", 1, "guarded"),
-            FrameworkCapability("django.installed-apps", 1, "modeled"),
+            FrameworkCapability("django.installed-apps", 2, "modeled"),
+            FrameworkCapability("alembic.migrations", 1, "modeled"),
         ),
     )
 
@@ -787,6 +800,7 @@ def _connect_factory_assembly(
                 router is not None
                 and state.objects[router].kind is FrameworkObjectKind.FASTAPI_ROUTER
             ):
+                state.handled_include_calls.add(id(call))
                 state.includes.append(
                     RouterInclude(
                         owner=app_key,
@@ -956,6 +970,7 @@ def _discover_includes_and_setup(state: _BuildState) -> None:
                     in {FrameworkObjectKind.FASTAPI_APP, FrameworkObjectKind.FASTAPI_ROUTER}
                     and state.objects[router].kind is FrameworkObjectKind.FASTAPI_ROUTER
                 ):
+                    state.handled_include_calls.add(id(call))
                     state.includes.append(
                         RouterInclude(
                             owner=owner,
@@ -990,14 +1005,342 @@ def _discover_includes_and_setup(state: _BuildState) -> None:
                     state.app_containers[app] = container
 
 
+type _CallSite = tuple[PythonModule, ast.Call, PythonSymbol | None]
+"""A call, the module it is in, and the function whose body holds it (``None`` at top level)."""
+
+_INDIRECT_DEPTH = 3
+"""How many helper calls an application may be passed through before an include is unknown."""
+
+
+def _discover_indirect_includes(state: _BuildState) -> None:
+    """Router includes that the direct patterns miss (ADR-0017).
+
+    An ``include_router`` call in a nested block, in a helper function that receives the
+    application as a parameter, or over a ``for`` loop through a literal list of routers is
+    modeled when every application it may run on and every router it may include resolve. Any
+    other ``include_router`` call is recorded as unknown, so that no router it may include is
+    reported as unpublished.
+    """
+
+    sites: dict[NodeId, list[_CallSite]] | None = None
+    for module, call, scope in _include_calls(state):
+        if id(call) in state.handled_include_calls:
+            continue
+        assert isinstance(call.func, ast.Attribute)
+        receiver = call.func.value
+        if sites is None and _needs_call_sites(state, module, scope, receiver):
+            sites = _function_call_sites(state)
+        owners = _include_owners(state, module, scope, receiver, sites or {}, _INDIRECT_DEPTH)
+        router_expression = _call_argument(call, "router", 0)
+        routers = (
+            _router_values(state, module, scope, router_expression)
+            if router_expression is not None
+            else None
+        )
+        if not owners or not routers:
+            state.unknown_includes.append((module.path, call.lineno))
+            continue
+        state.handled_include_calls.add(id(call))
+        dependencies = _dependencies_from_call(state.program, module, call)
+        for owner in sorted(owners):
+            for router in sorted(routers):
+                state.includes.append(
+                    RouterInclude(
+                        owner=owner,
+                        router=router,
+                        dependencies=dependencies,
+                        path=module.path,
+                        line=call.lineno,
+                    )
+                )
+
+
+def _include_calls(state: _BuildState) -> Iterator[_CallSite]:
+    for module in state.program.modules.values():
+        scopes: list[tuple[PythonSymbol | None, list[ast.stmt]]] = [(None, module.tree.body)]
+        scopes.extend(
+            (symbol, symbol.node.body) for symbol in module.symbols if is_function(symbol)
+        )
+        for scope, body in scopes:
+            for node in flow_nodes(body):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "include_router"
+                ):
+                    yield module, node, scope
+
+
+def _needs_call_sites(
+    state: _BuildState, module: PythonModule, scope: PythonSymbol | None, receiver: ast.expr
+) -> bool:
+    return (
+        scope is not None
+        and isinstance(receiver, ast.Name)
+        and _object_key(state, module, receiver) is None
+        and any(parameter.name == receiver.id for parameter in scope.parameters)
+    )
+
+
+def _function_call_sites(state: _BuildState) -> dict[NodeId, list[_CallSite]]:
+    """Every call of a project function, by the function it calls; built once when needed."""
+
+    program = state.program
+    sites: dict[NodeId, list[_CallSite]] = defaultdict(list)
+    for module in program.modules.values():
+        scopes: list[tuple[PythonSymbol | None, list[ast.stmt]]] = [(None, module.tree.body)]
+        scopes.extend(
+            (symbol, symbol.node.body) for symbol in module.symbols if is_function(symbol)
+        )
+        for scope, body in scopes:
+            for node in flow_nodes(body):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = _expanded_name(module, node.func)
+                target = program.resolve_symbol(name) if name else None
+                if target is not None and is_function(target):
+                    sites[target.id].append((module, node, scope))
+    return sites
+
+
+def _include_owners(
+    state: _BuildState,
+    module: PythonModule,
+    scope: PythonSymbol | None,
+    expression: ast.expr,
+    sites: dict[NodeId, list[_CallSite]],
+    depth: int,
+) -> set[str] | None:
+    """The applications and routers an ``include_router`` receiver may be, or ``None``."""
+
+    key = _object_key(state, module, expression)
+    if key is not None:
+        kind = state.objects[key].kind
+        routable = {FrameworkObjectKind.FASTAPI_APP, FrameworkObjectKind.FASTAPI_ROUTER}
+        return {key} if kind in routable else None
+    if scope is None or not isinstance(expression, ast.Name):
+        return None
+    factory_app = state.app_factories.get(scope.id)
+    if factory_app is not None and state.factory_app_locals[factory_app][1] == expression.id:
+        return {factory_app}
+    if depth == 0 or scope.owner is not None:
+        return None
+    names = [parameter.name for parameter in scope.parameters]
+    if expression.id not in names:
+        return None
+    position = names.index(expression.id)
+    callers = sites.get(scope.id, [])
+    if not callers:
+        return None
+    owners: set[str] = set()
+    for caller_module, call, caller_scope in callers:
+        argument = _call_argument(call, expression.id, position)
+        if argument is None:
+            return None
+        found = _include_owners(state, caller_module, caller_scope, argument, sites, depth - 1)
+        if found is None:
+            return None
+        owners.update(found)
+    return owners
+
+
+def _router_values(
+    state: _BuildState,
+    module: PythonModule,
+    scope: PythonSymbol | None,
+    expression: ast.expr,
+) -> set[str] | None:
+    """The routers an ``include_router`` argument may be, or ``None`` when that is unknown."""
+
+    if isinstance(expression, ast.Name):
+        body = scope.node.body if scope is not None else module.tree.body
+        loops = [
+            node
+            for node in flow_nodes(body)
+            if isinstance(node, (ast.For, ast.AsyncFor))
+            and isinstance(node.target, ast.Name)
+            and node.target.id == expression.id
+            and any(child is expression for child in ast.walk(node))
+        ]
+        if loops:
+            innermost = max(loops, key=lambda node: (node.lineno, node.col_offset))
+            return _router_list(state, module, innermost.iter, _INDIRECT_DEPTH)
+    key = _object_key(state, module, expression)
+    if key is None:
+        return None
+    return {key} if state.objects[key].kind is FrameworkObjectKind.FASTAPI_ROUTER else None
+
+
+def _router_list(
+    state: _BuildState, module: PythonModule, expression: ast.expr, depth: int
+) -> set[str] | None:
+    """The routers of a literal list or tuple, of a concatenation, or of a name bound to one."""
+
+    if isinstance(expression, (ast.List, ast.Tuple)):
+        routers: set[str] = set()
+        for item in expression.elts:
+            found = (
+                _router_list(state, module, item.value, depth)
+                if isinstance(item, ast.Starred)
+                else _router_values(state, module, None, item)
+            )
+            if found is None:
+                return None
+            routers.update(found)
+        return routers
+    if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Add):
+        left = _router_list(state, module, expression.left, depth)
+        right = _router_list(state, module, expression.right, depth)
+        return left | right if left is not None and right is not None else None
+    if depth == 0 or not isinstance(expression, (ast.Name, ast.Attribute)):
+        return None
+    module_name, _, name = _expanded_name(module, expression).rpartition(".")
+    target_module = state.program.modules.get(module_name)
+    if target_module is None:
+        return None
+    value = _single_module_assignment(target_module, name)
+    return _router_list(state, target_module, value, depth - 1) if value is not None else None
+
+
+def _single_module_assignment(module: PythonModule, name: str) -> ast.expr | None:
+    """The value of the one top-level assignment to ``name``, if the module never changes it."""
+
+    values: list[ast.expr] = []
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Assign):
+            if any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+                values.append(node.value)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            if isinstance(node.target, ast.Name) and node.target.id == name:
+                values.append(node.value)
+        elif isinstance(node, ast.AugAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == name:
+                return None
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == name
+            and node.attr in {"append", "extend", "insert", "__iadd__"}
+        ):
+            return None
+    if len(values) != 1 or not any(
+        isinstance(statement, (ast.Assign, ast.AnnAssign)) and statement.value is values[0]
+        for statement in module.tree.body
+    ):
+        return None
+    return values[0]
+
+
+def _escaping_routers(state: _BuildState) -> frozenset[str]:
+    """Routers that code refers to other than through their own route decorators.
+
+    Only these may be passed to an ``include_router`` call that is not resolved; a router that
+    no import names and its module uses only to decorate routes cannot be.
+    """
+
+    routers = {
+        key: obj
+        for key, obj in state.objects.items()
+        if obj.kind is FrameworkObjectKind.FASTAPI_ROUTER
+    }
+    if not routers:
+        return frozenset()
+    imported = {
+        binding.target
+        for module in state.program.modules.values()
+        for binding in module.imports.values()
+    }
+    escaping: set[str] = set()
+    for key, obj in routers.items():
+        if f"{obj.module}.{obj.name}" in imported:
+            escaping.add(key)
+            continue
+        module = state.program.modules[obj.module]
+        loads = sum(
+            1
+            for node in ast.walk(module.tree)
+            if isinstance(node, ast.Name) and node.id == obj.name and isinstance(node.ctx, ast.Load)
+        )
+        decorations = sum(
+            1
+            for symbol in module.symbols
+            for expression in symbol.decorators
+            if isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Attribute)
+            and isinstance(expression.func.value, ast.Name)
+            and expression.func.value.id == obj.name
+        )
+        if loads > decorations:
+            escaping.add(key)
+    return frozenset(escaping)
+
+
 def _discover_migration_contracts(state: _BuildState) -> None:
     """Retain RunPython callbacks as external historical execution contracts."""
 
+    packages = _django_migration_packages(state)
     for module in state.program.modules.values():
         path_parts = module.path.replace("\\", "/").split("/")
-        if "migrations" not in path_parts:
+        if "migrations" not in path_parts and not module.name.startswith(packages):
             continue
         _discover_module_migration_contracts(state, module)
+    _discover_alembic_contracts(state)
+
+
+def _django_migration_packages(state: _BuildState) -> tuple[str, ...]:
+    """Packages that ``MIGRATION_MODULES`` settings name, as ``"pkg."`` prefixes."""
+
+    packages: set[str] = set()
+    for module in state.program.modules.values():
+        for statement in module.tree.body:
+            if not (
+                isinstance(statement, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "MIGRATION_MODULES"
+                    for target in statement.targets
+                )
+                and isinstance(statement.value, ast.Dict)
+            ):
+                continue
+            for value in statement.value.values:
+                package = single_string_literal(value, module.text)
+                if package:
+                    packages.add(f"{package}.")
+    return tuple(sorted(packages))
+
+
+def _discover_alembic_contracts(state: _BuildState) -> None:
+    """Alembic runs its environment script and the revision functions of its scripts.
+
+    An environment is a module named ``env`` that imports ``alembic``; Alembic executes it by
+    path. It calls ``upgrade`` and ``downgrade`` functions, and their ``*_<name>`` variants of
+    multi-database templates, in the modules of the ``versions`` directory beside it. They are
+    external execution contracts like Django's historical migrations (ADR-0017).
+    """
+
+    for module in state.program.modules.values():
+        directory, _, file_name = module.path.rpartition("/")
+        if file_name != "env.py" or not any(
+            binding.target == "alembic" or binding.target.startswith("alembic.")
+            for binding in module.imports.values()
+        ):
+            continue
+        state.migration_declarations.add(module.node_id)
+        prefix = f"{directory}/versions/" if directory else "versions/"
+        for candidate in state.program.modules.values():
+            if not candidate.path.startswith(prefix):
+                continue
+            state.migration_declarations.add(candidate.node_id)
+            state.migration_callbacks.update(
+                symbol.id
+                for symbol in candidate.symbols
+                if symbol.owner is None
+                and is_function(symbol)
+                and (
+                    symbol.name in {"upgrade", "downgrade"}
+                    or symbol.name.startswith(("upgrade_", "downgrade_"))
+                )
+            )
 
 
 def _discover_module_migration_contracts(state: _BuildState, module: PythonModule) -> None:
@@ -1109,7 +1452,21 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
                 found.add(module.node_id)
             else:
                 object_key = _configured_object_key(state, root)
-                if object_key is None:
+                value_root = _module_value_root(state, root) if object_key is None else None
+                if value_root is not None:
+                    module_name, name = value_root
+                    found.add(state.program.modules[module_name].node_id)
+                    if f"{module_name}:{name}" not in state.applications:
+                        if assembly is not AssemblyState.INVALID:
+                            assembly = AssemblyState.PARTIAL
+                        limitations.append(
+                            Limitation(
+                                code="DT3005",
+                                message=f"root names a value whose call is not modeled: {root}",
+                                world=world_id,
+                            )
+                        )
+                elif object_key is None:
                     assembly = AssemblyState.INVALID
                     limitations.append(
                         Limitation(
@@ -1118,32 +1475,32 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
                             world=world_id,
                         )
                     )
-                    continue
-                obj = state.objects[object_key]
-                found.add(state.program.modules[obj.module].node_id)
-                if obj.kind is FrameworkObjectKind.FASTAPI_APP:
-                    app_roots, app_limits = _roots_for_app(state, object_key, world_id)
-                    found.update(app_roots)
-                    limitations.extend(app_limits)
-                    if app_limits:
-                        assembly = AssemblyState.PARTIAL
-                elif obj.kind is FrameworkObjectKind.FASTAPI_ROUTER:
-                    router_roots, router_limits = _roots_for_router(
-                        state, object_key, world_id, app_key=None
-                    )
-                    found.update(router_roots)
-                    limitations.extend(router_limits)
-                    if router_limits:
-                        assembly = AssemblyState.PARTIAL
                 else:
-                    assembly = AssemblyState.INVALID
-                    limitations.append(
-                        Limitation(
-                            code="DT3002",
-                            message=f"container is not an executable application root: {root}",
-                            world=world_id,
+                    obj = state.objects[object_key]
+                    found.add(state.program.modules[obj.module].node_id)
+                    if obj.kind is FrameworkObjectKind.FASTAPI_APP:
+                        app_roots, app_limits = _roots_for_app(state, object_key, world_id)
+                        found.update(app_roots)
+                        limitations.extend(app_limits)
+                        if app_limits:
+                            assembly = AssemblyState.PARTIAL
+                    elif obj.kind is FrameworkObjectKind.FASTAPI_ROUTER:
+                        router_roots, router_limits = _roots_for_router(
+                            state, object_key, world_id, app_key=None
                         )
-                    )
+                        found.update(router_roots)
+                        limitations.extend(router_limits)
+                        if router_limits:
+                            assembly = AssemblyState.PARTIAL
+                    else:
+                        assembly = AssemblyState.INVALID
+                        limitations.append(
+                            Limitation(
+                                code="DT3002",
+                                message=f"container is not an executable application root: {root}",
+                                world=world_id,
+                            )
+                        )
             for node_id in found:
                 if node_id not in root_provenance:
                     root_provenance[node_id] = RootProvenance(
@@ -1230,7 +1587,7 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
         WorldConfig(
             profile="production",
             scenario=entry_point.scenario,
-            roots=(entry_point.target,),
+            roots=(entry_point.target, *_plugin_hooks(state, entry_point)),
             frameworks=("python",),
         )
         for entry_point in state.entry_points
@@ -1250,6 +1607,27 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
     if not worlds:
         return (WorldConfig("production", "application", ("<auto>",)),)
     return tuple(worlds)
+
+
+def _plugin_hooks(state: _BuildState, entry_point: ProjectEntryPoint) -> tuple[str, ...]:
+    """The ``pytest_*`` hook functions of a ``pytest11`` plugin module; pytest calls them."""
+
+    if entry_point.group != "pytest11":
+        return ()
+    module = state.program.modules.get(entry_point.target.partition(":")[0])
+    if module is None:
+        return ()
+    hooks = tuple(
+        f"{module.name}:{symbol.name}"
+        for symbol in module.symbols
+        if symbol.owner is None and is_function(symbol) and symbol.name.startswith("pytest_")
+    )
+    for hook in hooks:
+        state.auto_provenance[(entry_point.scenario, hook)] = (
+            "project_entry_point",
+            f"pyproject.toml {entry_point.group}:{entry_point.name} hook",
+        )
+    return hooks
 
 
 def _application_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
@@ -1339,13 +1717,7 @@ def _library_world(state: _BuildState) -> tuple[WorldConfig, ...]:
 
 
 def _is_test_module(module: PythonModule) -> bool:
-    *directories, file_name = module.path.split("/")
-    return (
-        any(directory in _TEST_DIRECTORIES for directory in directories)
-        or file_name.startswith("test_")
-        or file_name.endswith("_test.py")
-        or file_name == "conftest.py"
-    )
+    return is_test_path(module.path)
 
 
 def _is_non_library_module(module: PythonModule) -> bool:
@@ -1439,6 +1811,50 @@ def _discover_django_applications(state: _BuildState) -> None:
                                 "Django instantiates the management command",
                             )
                         )
+                if name == f"{package}.apps":
+                    state.edges.extend(
+                        ExecutionEdge(
+                            candidate.node_id,
+                            symbol.id,
+                            EdgeKind.CONSTRUCT,
+                            "Django instantiates the application configuration",
+                        )
+                        for symbol in candidate.symbols
+                        if symbol.owner is None
+                        and symbol.kind is NodeKind.CLASS
+                        and any(
+                            _expanded_name(candidate, _unstarred(base)).endswith("AppConfig")
+                            for base in symbol.bases
+                        )
+                    )
+        for server_module in _django_server_modules(state):
+            state.edges.append(
+                ExecutionEdge(
+                    module.node_id,
+                    server_module.node_id,
+                    EdgeKind.IMPORT,
+                    f"an application server loads {server_module.name}",
+                )
+            )
+
+
+def _django_server_modules(state: _BuildState) -> list[PythonModule]:
+    """Modules that build the ASGI or WSGI application an application server loads by name.
+
+    ``asgi.py`` and ``wsgi.py`` call ``get_asgi_application`` or ``get_wsgi_application`` at
+    their top level; a server such as Gunicorn, Uvicorn, or Daphne imports them, whether or not
+    ``WSGI_APPLICATION`` or ``ASGI_APPLICATION`` names them in a branch that runs (ADR-0017).
+    """
+
+    found: list[PythonModule] = []
+    for module in state.program.modules.values():
+        for node in flow_nodes(module.tree.body):
+            if isinstance(node, ast.Call) and _expanded_name(module, node.func).endswith(
+                ("get_asgi_application", "get_wsgi_application")
+            ):
+                found.append(module)
+                break
+    return sorted(found, key=lambda item: item.name)
 
 
 def _django_installed_apps(module: PythonModule) -> list[str] | None:
@@ -2329,7 +2745,30 @@ def _index_object_keys(state: _BuildState) -> None:
 
 
 def _object_key(state: _BuildState, module: PythonModule, expression: ast.expr) -> str | None:
-    return state.object_keys.get(_expanded_name(module, expression))
+    return _object_key_for_name(state, _expanded_name(module, expression), 3)
+
+
+def _object_key_for_name(state: _BuildState, dotted: str, depth: int) -> str | None:
+    """The framework object a dotted name reaches, following re-exports of packages.
+
+    ``from app.container import container`` names the object that ``app/container/__init__.py``
+    imports from its submodule, not the submodule of the same name: the package binding
+    replaces the submodule attribute when the package runs (ADR-0017).
+    """
+
+    key = state.object_keys.get(dotted)
+    if key is not None or depth == 0:
+        return key
+    parts = dotted.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        module = state.program.modules.get(".".join(parts[:cut]))
+        if module is None:
+            continue
+        binding = module.imports.get(parts[cut])
+        if binding is None:
+            return None
+        return _object_key_for_name(state, ".".join((binding.target, *parts[cut + 1 :])), depth - 1)
+    return None
 
 
 def _first_argument_object_key(
@@ -2349,6 +2788,32 @@ def _configured_object_key(state: _BuildState, target: str) -> str | None:
         if f"{module}.{name}" == dotted:
             return key
     return None
+
+
+def _module_value_root(state: _BuildState, target: str, depth: int = 3) -> tuple[str, str] | None:
+    """The module and name of a top-level value that a root such as ``pkg.cli:app`` names.
+
+    An entry point may name an object instead of a function or class: a Typer or Click
+    application, say. Running the module binds it; a name the module imports from another
+    project module is followed there, as ``pkg:app`` re-exporting ``pkg.cli:app``.
+    """
+
+    module_name, _, name = target.partition(":") if ":" in target else target.rpartition(".")
+    module = state.program.modules.get(module_name)
+    if module is None or not name or "." in name:
+        return None
+    for statement in module.tree.body:
+        targets: list[ast.expr] = []
+        if isinstance(statement, ast.Assign):
+            targets = list(statement.targets)
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            targets = [statement.target]
+        if any(isinstance(item, ast.Name) and item.id == name for item in targets):
+            return module_name, name
+    binding = module.imports.get(name)
+    if binding is None or depth == 0:
+        return None
+    return _module_value_root(state, binding.target, depth - 1)
 
 
 def _keyword_expression(call: ast.Call, name: str) -> ast.expr | None:

@@ -7,6 +7,13 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Added
 
+- Text reports and `doctor` name the widest guards of production worlds, with the number of
+  definitions only they keep possibly running and where they are, when unknown boundaries
+  protect much of the project.
+- Reports list the skipped environment and tool directories
+  (`source_universe.skipped_directories`, ADR-0015).
+- `alembic.migrations` capability: Alembic environments and revision functions are external
+  contracts (ADR-0017).
 - A manually dispatched `Performance` workflow that benchmarks the generated 50k-line scale and
   service fixtures from the built wheel on Linux and Windows, uploads the artifacts, and fails
   above the 30-second or 1-GiB budget (`benchmarks/check_budget.py`).
@@ -48,6 +55,21 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/11` (ADR-0017), from an audit of six real projects:
+  `include_router` in helpers and loops over literal router lists; entry points naming a
+  top-level value such as a Typer application; calls inside annotations; attribute chains
+  through enumeration members; nested `Config` and `Meta` classes; Django `AppConfig`,
+  ASGI/WSGI modules, and `MIGRATION_MODULES`; modules loaded from paths or by computed names and
+  their attributes; `Protocol` receivers and test stand-ins; pytest marks and fixtures as
+  transparent decorators; closures of retained declarations.
+- pytest facts are local to the tests world, and the model resolves arguments, parametrization,
+  plugins, fixture imports, collection patterns, inherited test methods, hooks, and xunit setup
+  the way pytest does (ADR-0016).
+- Source discovery skips virtual and conda environments, `site-packages`, `node_modules`,
+  `__pypackages__`, and hidden directories; a `src` directory is a package when code imports it,
+  and absolute imports also resolve against a script's own directory (ADR-0015).
+- Limitations that every world shares, such as an unreadable file, are printed once in text
+  reports.
 - Text reports and `doctor` count identical limitations once and summarize worlds with many
   kinds of `DT2002` guard in one line; the JSON report still lists every guard.
 - A world's `frameworks` list accepts every modeled framework and is documented as declarative

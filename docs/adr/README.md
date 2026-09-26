@@ -53,3 +53,9 @@ each other. Typo and link fixes are fine.
   10). Accepted.
 - [ADR-0014](0014-declarative-world-frameworks.md) — The frameworks of a configured world are
   declarative. Accepted.
+- [ADR-0015](0015-source-discovery-and-import-roots.md) — Source discovery skips environments;
+  `src` packages and script-directory import roots. Accepted.
+- [ADR-0016](0016-world-local-pytest-facts.md) — pytest facts are local to the tests world, and
+  pytest's own name resolution. Accepted.
+- [ADR-0017](0017-conventions-found-by-the-field-audit.md) — Conventions found by the field audit
+  (model revision 11). Accepted.

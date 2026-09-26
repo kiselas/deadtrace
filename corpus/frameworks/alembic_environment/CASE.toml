@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "alembic-environment"
+description = "Alembic runs env.py and the revision functions of its versions directory."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "app/alembic/env.py"
+kind = "function"
+qualified_name = "run_migrations_online"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/alembic/versions/0001_initial.py"
+kind = "function"
+qualified_name = "upgrade"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/alembic/versions/0001_initial.py"
+kind = "function"
+qualified_name = "downgrade"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/alembic/versions/0001_initial.py"
+kind = "function"
+qualified_name = "unused_helper"
+expectation = "candidate"

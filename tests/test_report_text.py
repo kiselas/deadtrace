@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from deadtrace.analysis import AnalysisResult, analyze
+from deadtrace.config import Config
 from deadtrace.core import Limitation
-from deadtrace.semantic_report import limitation_lines
+from deadtrace.semantic_report import limitation_lines, render_semantic_text, widest_guards
 
 
 def _guard(message: str) -> Limitation:
@@ -46,3 +50,55 @@ def test_few_kinds_of_guard_are_listed_by_count() -> None:
     limitations = [_guard("b"), _guard("a"), _guard("b")]
 
     assert limitation_lines(limitations, indent="", label="") == ["DT2002: b (x2)", "DT2002: a"]
+
+
+def _analyze(tmp_path: Path, files: dict[str, str]) -> AnalysisResult:
+    for name, source in files.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(source, encoding="utf-8")
+    return analyze(tmp_path, Config())
+
+
+def test_a_limitation_every_world_has_is_printed_once(tmp_path: Path) -> None:
+    result = _analyze(
+        tmp_path,
+        {
+            "tool.py": "def main() -> None:\n    pass\n\nif __name__ == '__main__':\n    main()\n",
+            "other.py": "if __name__ == '__main__':\n    pass\n",
+            "broken.py": "def (:\n",
+            "test_tool.py": "def test_main() -> None:\n    pass\n",
+        },
+    )
+    text = render_semantic_text(result)
+
+    assert len(result.snapshot.worlds) > 1
+    assert text.count("broken.py: syntax error") == 1
+    assert "Every world:" in text
+
+
+def test_widest_guards_explain_why_little_is_reported(tmp_path: Path) -> None:
+    result = _analyze(
+        tmp_path,
+        {
+            "_runner.py": (
+                "import importlib\nimport sys\n\n"
+                "def main() -> None:\n"
+                "    importlib.import_module(sys.argv[1])\n\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            **{
+                f"_plugin_{index}.py": (
+                    "import atexit\n\n@atexit.register\ndef hook() -> None:\n    pass\n"
+                )
+                for index in range(4)
+            },
+        },
+    )
+    text = render_semantic_text(result)
+    guards = widest_guards(result, 3)
+
+    assert guards and guards[0][2] == "_runner.py:4"
+    assert "may run only through unknown boundaries" in text
+    assert "_runner.py:4  any project module may be imported by name" in text

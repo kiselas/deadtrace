@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ast
+import configparser
+import tomllib
 from dataclasses import dataclass, replace
-from pathlib import PurePosixPath
+from fnmatch import fnmatchcase
+from pathlib import Path, PurePosixPath
 
 from deadtrace.config import Config
 from deadtrace.core import (
@@ -13,6 +16,7 @@ from deadtrace.core import (
     ExecutionEdge,
     Limitation,
     NodeId,
+    NodeKind,
     Requirement,
     SemanticGraph,
     UnknownBoundary,
@@ -51,8 +55,85 @@ _BUILTIN_FIXTURES = frozenset(
         "tmp_path_factory",
         "tmpdir",
         "tmpdir_factory",
+        "pytester",
+        "testdir",
+        "subtests",
+        "capteesys",
     }
 )
+_PLUGIN_FIXTURES = frozenset(
+    {
+        # pytest-mock
+        "mocker",
+        "class_mocker",
+        "module_mocker",
+        "package_mocker",
+        "session_mocker",
+        # pytest-asyncio and anyio
+        "event_loop",
+        "event_loop_policy",
+        "unused_tcp_port",
+        "unused_tcp_port_factory",
+        "unused_udp_port",
+        "unused_udp_port_factory",
+        "anyio_backend",
+        "anyio_backend_name",
+        "anyio_backend_options",
+        "free_tcp_port",
+        "free_tcp_port_factory",
+        "free_udp_port",
+        "free_udp_port_factory",
+        # pytest-django
+        "admin_client",
+        "admin_user",
+        "async_client",
+        "async_rf",
+        "client",
+        "db",
+        "django_assert_max_num_queries",
+        "django_assert_num_queries",
+        "django_capture_on_commit_callbacks",
+        "django_db_blocker",
+        "django_db_setup",
+        "django_user_model",
+        "django_username_field",
+        "live_server",
+        "mailoutbox",
+        "rf",
+        "settings",
+        "transactional_db",
+        # HTTP mocking, time, data, and snapshot plugins
+        "aioresponses",
+        "benchmark",
+        "faker",
+        "freezer",
+        "httpserver",
+        "httpx_mock",
+        "requests_mock",
+        "respx_mock",
+        "snapshot",
+        "time_machine",
+        # Celery's pytest plugin and pytest-celery
+        "celery_app",
+        "celery_config",
+        "celery_enable_logging",
+        "celery_includes",
+        "celery_parameters",
+        "celery_session_app",
+        "celery_session_worker",
+        "celery_setup",
+        "celery_worker",
+        "celery_worker_parameters",
+        "celery_worker_pool",
+        "use_celery_app_trap",
+        # pytest-xdist
+        "testrun_uid",
+        "worker_id",
+    }
+)
+"""Fixtures of widely used third-party plugins (ADR-0016). A test that requests one does not
+run project code through it, so it is not an unknown boundary; a project fixture of the same
+name is found first and wins."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,40 +146,143 @@ class Fixture:
     dependencies: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PytestCollection:
+    """The ``python_files``, ``python_classes``, and ``python_functions`` pytest collects by."""
+
+    files: tuple[str, ...] = ("test_*.py", "*_test.py")
+    classes: tuple[str, ...] = ("Test",)
+    functions: tuple[str, ...] = ("test",)
+
+
+def read_pytest_collection(root: Path) -> PytestCollection:
+    """Read collection patterns from the first pytest configuration file at ``root``.
+
+    pytest uses the first of ``pytest.ini``, ``pyproject.toml`` with
+    ``[tool.pytest.ini_options]``, ``tox.ini`` with ``[pytest]``, and ``setup.cfg`` with
+    ``[tool:pytest]``. Files are read as data; an unreadable one leaves pytest's defaults.
+    """
+
+    sections: list[tuple[str, str]] = [
+        ("pytest.ini", "pytest"),
+        ("pyproject.toml", ""),
+        ("tox.ini", "pytest"),
+        ("setup.cfg", "tool:pytest"),
+    ]
+    for file_name, section in sections:
+        path = root / file_name
+        if not path.is_file():
+            continue
+        values = _pytest_options(path, section)
+        if values is None:
+            continue
+        default = PytestCollection()
+        return PytestCollection(
+            files=values.get("python_files", default.files),
+            classes=values.get("python_classes", default.classes),
+            functions=values.get("python_functions", default.functions),
+        )
+    return PytestCollection()
+
+
+def _pytest_options(path: Path, section: str) -> dict[str, tuple[str, ...]] | None:
+    """Collection options of one configuration file, or ``None`` if it configures no pytest."""
+
+    options: dict[str, tuple[str, ...]] = {}
+    names = ("python_files", "python_classes", "python_functions")
+    try:
+        if not section:
+            with path.open("rb") as stream:
+                document = tomllib.load(stream)
+            table = document.get("tool", {}).get("pytest", {})
+            table = table.get("ini_options", table) if isinstance(table, dict) else None
+            if not isinstance(table, dict):
+                return None
+            for name in names:
+                value = table.get(name)
+                if isinstance(value, str):
+                    options[name] = tuple(value.split())
+                elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+                    options[name] = tuple(value)
+            return options
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(path, encoding="utf-8")
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, configparser.Error):
+        return None
+    if not parser.has_section(section):
+        return None
+    for name in names:
+        if parser.has_option(section, name):
+            options[name] = tuple(parser.get(section, name).split())
+    return options
+
+
 def apply_pytest_model(
-    program: PythonProgram, model: FrameworkModel, config: Config
+    program: PythonProgram,
+    model: FrameworkModel,
+    config: Config,
+    *,
+    plugin_modules: tuple[str, ...] = (),
+    collection: PytestCollection | None = None,
 ) -> FrameworkModel:
-    """Add one isolated pytest world when statically collectable tests exist."""
+    """Add one isolated pytest world when statically collectable tests exist.
+
+    Fixture resolution and unresolved fixtures are facts of the tests world only (ADR-0016): the
+    edges and boundaries they produce live in its plan, not in the shared graph, so that a
+    production world that reaches a test conservatively does not inherit them. ``plugin_modules``
+    names project modules registered as ``pytest11`` plugins, whose fixtures every test sees.
+    ``collection`` gives the configured test file, class, and function patterns.
+    """
 
     del config
+    collection = collection if collection is not None else PytestCollection()
+    classes = _collected_classes(program, collection)
     tests = tuple(
         symbol
         for symbol in program.symbols.values()
-        if _is_test_symbol(symbol) and _is_test_path(symbol.path)
+        if _is_test_symbol(program, symbol, collection, classes)
     )
     if not tests:
         return model
 
     fixtures = _discover_fixtures(program)
-    edges = list(model.graph.edges)
     requirements = list(model.graph.requirements)
-    boundaries = list(model.graph.boundaries)
+    edges: list[ExecutionEdge] = []
+    boundaries: list[UnknownBoundary] = []
     roots: set[NodeId] = set()
     limitations: list[Limitation] = []
     world = WorldId("tests", "pytest")
     all_nodes = tuple(node.id for node in model.graph.nodes)
+    plugins, plugin_limitations = _pytest_plugins(program, world, plugin_modules)
+    global_fixtures = {fixture.name: fixture for fixture in fixtures if fixture.module in plugins}
+    scopes = _FixtureScopes(program, fixtures)
+    roots.update(_hook_implementations(program, plugins))
+    roots.update(classes)
+    roots.update(_xunit_fixtures(program, collection, classes))
+    # Plugins request the fixtures they define themselves, and a project fixture of such a name
+    # overrides theirs: pytest-asyncio's ``event_loop``, pytest-django's ``django_db_setup``.
+    roots.update(fixture.symbol for fixture in fixtures if fixture.name in _PLUGIN_FIXTURES)
 
+    # A parametrize mark may also give a value to an argument of a fixture the test requests,
+    # which then runs no fixture code for it.
+    parametrized_anywhere = {
+        name
+        for test in tests
+        for name in _parameterized_names(program, program.modules[test.module], test)
+    }
     for test in tests:
+        module = program.modules[test.module]
         roots.add(test.id)
-        roots.add(program.modules[test.module].node_id)
-        visible = _visible_fixtures(test.path, test.module, fixtures)
-        parameterized = _parameterized_names(program.modules[test.module], test)
+        roots.add(module.node_id)
+        visible = _visible_fixtures(test.path, test.module, scopes, global_fixtures)
+        parameterized = _parameterized_names(program, module, test)
+        generated = scopes.generates_tests(test.path, test.module)
         requested = {
-            parameter.name
-            for parameter in test.parameters
-            if parameter.name not in {"self", "cls"} and parameter.name not in parameterized
+            name
+            for name in _requested_argument_names(program, module, test)
+            if name not in parameterized and not (generated and name not in visible)
         }
-        requested.update(_usefixtures_names(program.modules[test.module], test))
+        requested.update(_usefixtures_names(program, module, test))
         requested.update(fixture.name for fixture in visible.values() if fixture.autouse)
         _connect_fixture_requests(
             source=test.id,
@@ -120,20 +304,30 @@ def apply_pytest_model(
                 )
             )
 
+    fixture_limitations: dict[NodeId, list[Limitation]] = {}
     for fixture in fixtures:
-        visible = _visible_fixtures(fixture.path, fixture.module, fixtures)
+        visible = _visible_fixtures(fixture.path, fixture.module, scopes, global_fixtures)
+        generated = scopes.generates_tests(fixture.path, fixture.module)
         _connect_fixture_requests(
             source=fixture.symbol,
-            requested=set(fixture.dependencies),
+            requested={
+                name
+                for name in fixture.dependencies
+                if name in visible or not (name in parametrized_anywhere or generated)
+            },
             visible=visible,
             edges=edges,
             boundaries=boundaries,
-            limitations=limitations,
+            limitations=fixture_limitations.setdefault(fixture.symbol, []),
             world=world,
             all_nodes=all_nodes,
         )
+    # A fixture no test can request never runs, so an argument it cannot resolve limits nothing.
+    requested_fixtures = _reachable(roots, edges)
+    for symbol, found in fixture_limitations.items():
+        if symbol in requested_fixtures:
+            limitations.extend(found)
 
-    plugin_limitations = _pytest_plugin_limitations(program, world)
     limitations.extend(plugin_limitations)
     assembly = AssemblyState.PARTIAL if limitations else AssemblyState.COMPLETE
     test_plan = WorldPlan(
@@ -141,13 +335,15 @@ def apply_pytest_model(
         roots=tuple(sorted(roots)),
         assembly_state=assembly,
         limitations=tuple(sorted(set(limitations), key=_limitation_sort_key)),
+        edges=tuple(sorted(set(edges), key=_edge_sort_key)),
+        boundaries=tuple(sorted(set(boundaries), key=_boundary_sort_key)),
     )
     plans = (*(plan for plan in model.plans if plan.id != world), test_plan)
     graph = SemanticGraph(
         nodes=model.graph.nodes,
-        edges=tuple(sorted(set(edges), key=_edge_sort_key)),
+        edges=model.graph.edges,
         requirements=tuple(sorted(set(requirements), key=_requirement_sort_key)),
-        boundaries=tuple(sorted(set(boundaries), key=_boundary_sort_key)),
+        boundaries=model.graph.boundaries,
     )
     return replace(
         model,
@@ -155,7 +351,7 @@ def apply_pytest_model(
         plans=tuple(sorted(plans, key=lambda item: item.id)),
         capabilities=(
             *model.capabilities,
-            FrameworkCapability("pytest.fixtures", 1, "modeled"),
+            FrameworkCapability("pytest.fixtures", 2, "modeled"),
         ),
     )
 
@@ -197,21 +393,79 @@ def _discover_fixtures(program: PythonProgram) -> tuple[Fixture, ...]:
     return tuple(sorted(fixtures, key=lambda item: (item.path, item.name, str(item.symbol))))
 
 
+class _FixtureScopes:
+    """The fixtures of each module's namespace, and the conftest modules by directory.
+
+    pytest registers the fixture functions a module's namespace holds, so a fixture imported into
+    a test module or a conftest, by name or with ``*``, is visible there as if defined in it.
+    """
+
+    def __init__(self, program: PythonProgram, fixtures: tuple[Fixture, ...]) -> None:
+        by_symbol = {fixture.symbol: fixture for fixture in fixtures}
+        defined: dict[str, dict[str, Fixture]] = {}
+        for fixture in fixtures:
+            defined.setdefault(fixture.module, {})[fixture.name] = fixture
+        self.namespaces: dict[str, dict[str, Fixture]] = {}
+        self.conftests: list[tuple[PurePosixPath, str]] = []
+        for name, module in program.modules.items():
+            namespace: dict[str, Fixture] = {}
+            for base in module.star_imports:
+                namespace.update(
+                    (fixture_name, fixture)
+                    for fixture_name, fixture in defined.get(base, {}).items()
+                    if not fixture_name.startswith("_")
+                )
+            for local, binding in module.imports.items():
+                target = program.resolve_symbol(binding.target)
+                imported = by_symbol.get(target.id) if target is not None else None
+                if target is not None and imported is not None:
+                    namespace[imported.name if local == target.name else local] = imported
+            namespace.update(defined.get(name, {}))
+            if namespace:
+                self.namespaces[name] = namespace
+            path = PurePosixPath(module.path)
+            if path.name == "conftest.py":
+                self.conftests.append((path.parent, name))
+        self.conftests.sort(key=lambda item: len(item[0].parts))
+        self.generators = {
+            name
+            for name, module in program.modules.items()
+            if any(
+                symbol.owner is None and symbol.name == "pytest_generate_tests"
+                for symbol in module.symbols
+            )
+        }
+
+    def generates_tests(self, consumer_path: str, consumer_module: str) -> bool:
+        """Whether a ``pytest_generate_tests`` hook may parametrize the consumer's arguments.
+
+        Such a hook in the consumer's module or a conftest above it may give any argument a value
+        at collection time; an argument no fixture provides is then taken to be one of those.
+        """
+
+        if consumer_module in self.generators:
+            return True
+        parent = PurePosixPath(consumer_path).parent
+        return any(
+            module in self.generators and _is_parent(directory, parent)
+            for directory, module in self.conftests
+        )
+
+
 def _visible_fixtures(
     consumer_path: str,
     consumer_module: str,
-    fixtures: tuple[Fixture, ...],
+    scopes: _FixtureScopes,
+    global_fixtures: dict[str, Fixture],
 ) -> dict[str, Fixture]:
+    """Fixtures a consumer sees: plugins', then conftests' from the outside in, then its own."""
+
     consumer_parent = PurePosixPath(consumer_path).parent
-    visible: dict[str, Fixture] = {}
-    for fixture in fixtures:
-        fixture_path = PurePosixPath(fixture.path)
-        same_module = fixture.module == consumer_module
-        conftest_visible = fixture_path.name == "conftest.py" and _is_parent(
-            fixture_path.parent, consumer_parent
-        )
-        if same_module or conftest_visible:
-            visible[fixture.name] = fixture
+    visible: dict[str, Fixture] = dict(global_fixtures)
+    for directory, module in scopes.conftests:
+        if _is_parent(directory, consumer_parent):
+            visible.update(scopes.namespaces.get(module, {}))
+    visible.update(scopes.namespaces.get(consumer_module, {}))
     return visible
 
 
@@ -237,7 +491,7 @@ def _connect_fixture_requests(
                     f"pytest resolves fixture {name}",
                 )
             )
-        elif name not in _BUILTIN_FIXTURES:
+        elif name not in _BUILTIN_FIXTURES and name not in _PLUGIN_FIXTURES:
             limitations.append(
                 Limitation(
                     code="DT3201",
@@ -256,27 +510,260 @@ def _connect_fixture_requests(
             )
 
 
-def _is_test_symbol(symbol: PythonSymbol) -> bool:
+def _is_test_symbol(
+    program: PythonProgram,
+    symbol: PythonSymbol,
+    collection: PytestCollection,
+    classes: dict[NodeId, bool],
+) -> bool:
+    """A test function or method as pytest collects it with the configured name patterns.
+
+    A function counts in a test module. A method counts in a class that ``classes`` collects,
+    whether that class is itself a test class or a project base class a test class inherits it
+    from; in ``unittest.TestCase`` hierarchies method names only need to start with ``test``.
+    """
+
     if not is_function(symbol):
         return False
-    if symbol.name.startswith("test_"):
-        return symbol.owner_qualified_name is None or symbol.owner_qualified_name.split(".")[
-            0
-        ].startswith("Test")
-    return False
+    if symbol.owner is None:
+        return _is_test_path(symbol.path, collection) and _matches(
+            symbol.name, collection.functions
+        )
+    unittest_case = classes.get(symbol.owner)
+    if unittest_case is None:
+        return False
+    if unittest_case:
+        return symbol.name.startswith("test")
+    return _matches(symbol.name, collection.functions)
 
 
-def _is_test_path(path: str) -> bool:
-    name = PurePosixPath(path).name
-    return name.startswith("test_") or name.endswith("_test.py")
+XUNIT_METHODS = frozenset(
+    {
+        "setup_method",
+        "teardown_method",
+        "setup_class",
+        "teardown_class",
+        "setUp",
+        "tearDown",
+        "setUpClass",
+        "tearDownClass",
+        "asyncSetUp",
+        "asyncTearDown",
+    }
+)
+XUNIT_FUNCTIONS = frozenset(
+    {
+        "setup_module",
+        "teardown_module",
+        "setup_function",
+        "teardown_function",
+        "setUpModule",
+        "tearDownModule",
+    }
+)
 
 
-def _usefixtures_names(module: PythonModule, symbol: PythonSymbol) -> set[str]:
+def _xunit_fixtures(
+    program: PythonProgram, collection: PytestCollection, classes: dict[NodeId, bool]
+) -> set[NodeId]:
+    """Setup and teardown methods of collected classes and functions of test modules."""
+
+    return {
+        symbol.id
+        for symbol in program.symbols.values()
+        if is_function(symbol)
+        and (
+            (symbol.owner in classes and symbol.name in XUNIT_METHODS)
+            or (
+                symbol.owner is None
+                and symbol.name in XUNIT_FUNCTIONS
+                and _is_test_path(symbol.path, collection)
+            )
+        )
+    }
+
+
+def _collected_classes(program: PythonProgram, collection: PytestCollection) -> dict[NodeId, bool]:
+    """Classes whose methods pytest collects, and whether each is in a ``unittest`` hierarchy.
+
+    pytest collects top-level classes of test modules that match ``python_classes`` or subclass
+    ``unittest.TestCase``, with every method they define or inherit, so the project base classes
+    of such a class are collected too, wherever they are defined.
+    """
+
+    collected: dict[NodeId, bool] = {}
+    for symbol in program.symbols.values():
+        if (
+            symbol.kind is not NodeKind.CLASS
+            or symbol.owner is not None
+            or not _is_test_path(symbol.path, collection)
+        ):
+            continue
+        ancestry = _project_ancestry(program, symbol)
+        unittest_case = any(_is_unittest_case(program, item) for item in ancestry)
+        if not unittest_case and not _matches(symbol.name, collection.classes):
+            continue
+        for item in ancestry:
+            collected[item.id] = collected.get(item.id, False) or unittest_case
+    return collected
+
+
+def _project_ancestry(program: PythonProgram, class_symbol: PythonSymbol) -> list[PythonSymbol]:
+    """A class and the project classes it derives from, each once."""
+
+    found: dict[NodeId, PythonSymbol] = {}
+    stack = [class_symbol]
+    while stack:
+        current = stack.pop()
+        if current.id in found:
+            continue
+        found[current.id] = current
+        module = program.modules[current.module]
+        for base in current.bases:
+            name = _expanded_name(module, base)
+            target = program.resolve_symbol(name) if name else None
+            if target is not None and target.kind is NodeKind.CLASS:
+                stack.append(target)
+    return list(found.values())
+
+
+def _is_unittest_case(program: PythonProgram, class_symbol: PythonSymbol) -> bool:
+    module = program.modules[class_symbol.module]
+    return any(
+        _expanded_name(module, base).endswith(("unittest.TestCase", "IsolatedAsyncioTestCase"))
+        for base in class_symbol.bases
+    )
+
+
+def _matches(name: str, patterns: tuple[str, ...]) -> bool:
+    """pytest's name matching: a pattern with glob characters is a glob, otherwise a prefix."""
+
+    return any(
+        fnmatchcase(name, pattern)
+        if any(char in pattern for char in "*?[")
+        else name.startswith(pattern)
+        for pattern in patterns
+    )
+
+
+def _is_test_path(path: str, collection: PytestCollection) -> bool:
+    posix = PurePosixPath(path)
+    return any(
+        fnmatchcase(path if "/" in pattern else posix.name, pattern) for pattern in collection.files
+    )
+
+
+def _hook_implementations(program: PythonProgram, plugins: set[str]) -> set[NodeId]:
+    """Top-level ``pytest_*`` functions of conftest and plugin modules; pytest calls them."""
+
+    return {
+        symbol.id
+        for name, module in program.modules.items()
+        if name in plugins or module.path.rpartition("/")[2] == "conftest.py"
+        for symbol in module.symbols
+        if symbol.owner is None and is_function(symbol) and symbol.name.startswith("pytest_")
+    }
+
+
+def _reachable(roots: set[NodeId], edges: list[ExecutionEdge]) -> set[NodeId]:
+    """Nodes that the fixture-resolution edges reach from the given roots."""
+
+    successors: dict[NodeId, list[NodeId]] = {}
+    for edge in edges:
+        successors.setdefault(edge.source, []).append(edge.target)
+    reached = set(roots)
+    stack = list(roots)
+    while stack:
+        for target in successors.get(stack.pop(), ()):
+            if target not in reached:
+                reached.add(target)
+                stack.append(target)
+    return reached
+
+
+def _requested_argument_names(
+    program: PythonProgram, module: PythonModule, symbol: PythonSymbol
+) -> list[str]:
+    """The argument names pytest resolves for a test, as ``getfuncargnames`` computes them.
+
+    Positional-or-keyword and keyword-only parameters without a default are requested; a
+    method's first parameter is not, unless it is a static method; and the leading names that
+    ``unittest.mock.patch`` decorators fill with mocks are dropped.
+    """
+
+    node = symbol.node
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    arguments = node.args
+    positional = [*arguments.posonlyargs, *arguments.args]
+    first_default = len(positional) - len(arguments.defaults)
+    names = [
+        argument.arg
+        for index, argument in enumerate(positional)
+        if index >= len(arguments.posonlyargs) and index < first_default
+    ]
+    is_static = any(_dotted_name(item) == "staticmethod" for item in symbol.decorators)
+    if symbol.owner is not None and not is_static:
+        names = names[1:]
+    names.extend(
+        argument.arg
+        for argument, default in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=True)
+        if default is None
+    )
+    decorators = [*symbol.decorators, *_class_decorators(program, symbol)]
+    return names[_mock_patch_arguments(module, decorators) :]
+
+
+def _mock_patch_arguments(module: PythonModule, decorators: list[ast.expr]) -> int:
+    """How many positional mocks ``patch`` and ``patch.object`` decorators pass to a test."""
+
+    count = 0
+    for expression in decorators:
+        if not isinstance(expression, ast.Call):
+            continue
+        name = _expanded_name(module, expression.func)
+        if name.endswith("mock.patch"):
+            replacement = len(expression.args) >= 2
+        elif name.endswith("mock.patch.object"):
+            replacement = len(expression.args) >= 3
+        else:
+            continue
+        if not replacement and keyword_argument(expression, "new") is None:
+            count += 1
+    return count
+
+
+def _class_decorators(program: PythonProgram, symbol: PythonSymbol) -> list[ast.expr]:
+    """Decorators of the classes around a test, innermost first; their marks apply to it."""
+
+    decorators: list[ast.expr] = []
+    owner = symbol.owner
+    while owner is not None and owner in program.symbols:
+        owner_symbol = program.symbols[owner]
+        decorators.extend(owner_symbol.decorators)
+        owner = owner_symbol.owner
+    return decorators
+
+
+def _marks(program: PythonProgram, module: PythonModule, symbol: PythonSymbol) -> list[ast.Call]:
+    """Mark calls that apply to a test: its decorators, its classes', and ``pytestmark``."""
+
+    expressions = [*symbol.decorators, *_class_decorators(program, symbol)]
+    for statement in module.tree.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "pytestmark"
+            for target in statement.targets
+        ):
+            value = statement.value
+            expressions.extend(value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value])
+    return [expression for expression in expressions if isinstance(expression, ast.Call)]
+
+
+def _usefixtures_names(
+    program: PythonProgram, module: PythonModule, symbol: PythonSymbol
+) -> set[str]:
     names: set[str] = set()
-    for expression in symbol.decorators:
-        if not isinstance(expression, ast.Call) or not _expanded_name(
-            module, expression.func
-        ).endswith("pytest.mark.usefixtures"):
+    for expression in _marks(program, module, symbol):
+        if not _expanded_name(module, expression.func).endswith("pytest.mark.usefixtures"):
             continue
         for argument in call_arguments(expression):
             value = single_string_literal(argument.value, module.text)
@@ -285,21 +772,53 @@ def _usefixtures_names(module: PythonModule, symbol: PythonSymbol) -> set[str]:
     return names
 
 
-def _parameterized_names(module: PythonModule, symbol: PythonSymbol) -> set[str]:
+def _parameterized_names(
+    program: PythonProgram, module: PythonModule, symbol: PythonSymbol
+) -> set[str]:
+    """Argument names that ``parametrize`` marks fill with values rather than fixtures.
+
+    Names are a comma-separated string or a list or tuple of strings, given positionally or as
+    ``argnames``. Names that ``indirect`` sends to fixtures remain fixture requests.
+    """
+
     names: set[str] = set()
-    for expression in symbol.decorators:
-        if not isinstance(expression, ast.Call) or not _expanded_name(
-            module, expression.func
-        ).endswith("pytest.mark.parametrize"):
+    for expression in _marks(program, module, symbol):
+        if not _expanded_name(module, expression.func).endswith("pytest.mark.parametrize"):
             continue
-        arguments = call_arguments(expression)
-        evaluated = single_string_literal(arguments[0].value, module.text) if arguments else None
-        if evaluated is not None:
-            names.update(part.strip() for part in evaluated.split(",") if part.strip())
+        argnames = keyword_argument(expression, "argnames")
+        if argnames is None and expression.args:
+            argnames = expression.args[0]
+        parsed = _argument_names(argnames, module)
+        indirect = keyword_argument(expression, "indirect")
+        if _dotted_name(indirect) == "True":
+            continue
+        names.update(parsed - _argument_names(indirect, module))
     return names
 
 
-def _pytest_plugin_limitations(program: PythonProgram, world: WorldId) -> list[Limitation]:
+def _argument_names(expression: ast.expr | None, module: PythonModule) -> set[str]:
+    if expression is None:
+        return set()
+    value = single_string_literal(expression, module.text)
+    if value is not None:
+        return {part.strip() for part in value.split(",") if part.strip()}
+    if isinstance(expression, (ast.List, ast.Tuple)):
+        items = (single_string_literal(item, module.text) for item in expression.elts)
+        return {item.strip() for item in items if item is not None and item.strip()}
+    return set()
+
+
+def _pytest_plugins(
+    program: PythonProgram, world: WorldId, plugin_modules: tuple[str, ...]
+) -> tuple[set[str], list[Limitation]]:
+    """Project modules loaded as pytest plugins, and the plugin lists that cannot be read.
+
+    ``pytest_plugins`` names plugins by module; pytest imports each and registers its fixtures
+    for every test. Names of modules outside the project belong to installed plugins. A list
+    that is not literal strings may load anything, which leaves the world partial.
+    """
+
+    plugins = {name for name in plugin_modules if name in program.modules}
     limitations: list[Limitation] = []
     for module in program.modules.values():
         for small in module.tree.body:
@@ -311,15 +830,21 @@ def _pytest_plugin_limitations(program: PythonProgram, world: WorldId) -> list[L
                 )
             ):
                 continue
-            limitations.append(
-                Limitation(
-                    code="DT3202",
-                    message="pytest_plugins collection is not modeled yet",
-                    origin=module.node_id,
-                    world=world,
+            value = small.value
+            items = value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value]
+            names = [single_string_literal(item, module.text) for item in items]
+            if any(name is None for name in names):
+                limitations.append(
+                    Limitation(
+                        code="DT3202",
+                        message="pytest_plugins is not a literal list of module names",
+                        origin=module.node_id,
+                        world=world,
+                    )
                 )
-            )
-    return limitations
+                continue
+            plugins.update(name for name in names if name is not None and name in program.modules)
+    return plugins, limitations
 
 
 def _expanded_name(module: PythonModule, expression: ast.AST | None) -> str:

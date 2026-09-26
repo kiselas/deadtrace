@@ -15,7 +15,7 @@ from deadtrace.entry_points import read_project_entry_points
 from deadtrace.findings import Finding, build_findings
 from deadtrace.frameworks import FrameworkModel, build_framework_model
 from deadtrace.model import InventoryReport
-from deadtrace.pytest_semantics import apply_pytest_model
+from deadtrace.pytest_semantics import apply_pytest_model, read_pytest_collection
 from deadtrace.python_frontend import PythonProgram, build_python_program
 from deadtrace.scanner import (
     SourceCollection,
@@ -26,7 +26,7 @@ from deadtrace.scanner import (
 from deadtrace.target_environment import TargetEnvironment, read_target_environment
 from deadtrace.timing import StageTimings
 
-MODEL_REVISION = "python-fastapi-dishka/10"
+MODEL_REVISION = "python-fastapi-dishka/11"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +94,17 @@ def analyze(scan_path: Path, config: Config) -> AnalysisResult:
         timings=timings,
     )
     with timings.stage("frontend.pytest"):
-        model = apply_pytest_model(program, model, config)
+        model = apply_pytest_model(
+            program,
+            model,
+            config,
+            plugin_modules=tuple(
+                entry_point.target.partition(":")[0]
+                for entry_point in entry_points
+                if entry_point.group == "pytest11"
+            ),
+            collection=read_pytest_collection(collection.root),
+        )
     with timings.stage("frontend.target_environment"):
         target_environment = read_target_environment(
             collection.root,

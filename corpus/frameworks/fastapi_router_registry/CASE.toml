@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "fastapi-router-registry"
+description = "Routers from literal lists included by a helper are published with their dependencies."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001", "RCH002"]
+limitation_codes = []
+
+[[targets]]
+path = "api/items.py"
+kind = "function"
+qualified_name = "list_items"
+expectation = "live"
+
+[[targets]]
+path = "api/users.py"
+kind = "function"
+qualified_name = "list_users"
+expectation = "live"
+
+[[targets]]
+path = "helpers.py"
+kind = "function"
+qualified_name = "current_user"
+expectation = "live"
+
+[[targets]]
+path = "api/legacy.py"
+kind = "function"
+qualified_name = "legacy"
+expectation = "candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "fastapi-src-package-imports"
+description = "Imports through a src package reach the included router and its route."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "src/api/routes.py"
+kind = "function"
+qualified_name = "list_items"
+expectation = "live"
+
+[[targets]]
+path = "src/api/routes.py"
+kind = "function"
+qualified_name = "unused_helper"
+expectation = "candidate"

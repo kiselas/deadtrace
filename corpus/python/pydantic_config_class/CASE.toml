@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "pydantic-config-class"
+description = "A Pydantic model's nested Config is read by Pydantic."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Item.Config"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "to_camel"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Plain.Nested"
+expectation = "candidate"

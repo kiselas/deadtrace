@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "fastapi-unknown-include"
+description = "An unresolved include protects routers code refers to, not decorator-only ones."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH002"]
+limitation_codes = []
+
+[[targets]]
+path = "routes.py"
+kind = "function"
+qualified_name = "listed_endpoint"
+expectation = "not_candidate"
+
+[[targets]]
+path = "routes.py"
+kind = "function"
+qualified_name = "hidden_endpoint"
+expectation = "candidate"
+
+[[targets]]
+path = "registry.py"
+kind = "function"
+qualified_name = "discover"
+expectation = "live"
