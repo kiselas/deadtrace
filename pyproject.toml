@@ -55,6 +55,8 @@ oracle = [
 packages = ["src/deadtrace"]
 
 [tool.deadtrace]
+# Corpus and fixture programs are data that tests analyze; the project never runs them.
+exclude = ["corpus/**", "fixtures/**"]
 report-exclude = []
 
 [tool.pytest.ini_options]

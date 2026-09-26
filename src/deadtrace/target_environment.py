@@ -8,6 +8,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 from deadtrace.artifacts import MAX_ARTIFACT_BYTES
@@ -16,6 +17,16 @@ _SUPPORTED_EXACT = {
     "fastapi": frozenset({Version("0.141.1")}),
     "dishka": frozenset({Version("1.10.1")}),
 }
+"""Versions the runtime oracle executes the reference application with."""
+_SUPPORTED_RANGES = {
+    "fastapi": SpecifierSet(">=0.100,<1"),
+    "dishka": SpecifierSet(">=1.0,<2"),
+}
+"""Versions whose behavior for the modeled subset is the oracle-tested one (ADR-0018): FastAPI
+applications, routers, ``include_router``, ``Depends``, lifespan, and background tasks since
+Pydantic 2 support; Dishka 1 providers, ``FromDishka``, ``@inject``, and ``setup_dishka``. A
+version outside the range weakens the analysis; an untested one inside it is only reported."""
+UNTESTED_VERSION = "DT4002"
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,21 +81,37 @@ def read_target_environment(root: Path, imported_packages: set[str]) -> TargetEn
         if name in imported_packages
     )
     issues = tuple(
-        CompatibilityIssue(
-            code="DT4001",
-            package=package.name,
-            version=package.version,
-            message=(
-                f"{package.name} {package.version} is not in the oracle-tested set: "
-                f"{', '.join(str(item) for item in sorted(_SUPPORTED_EXACT[package.name]))}"
-            ),
-        )
+        _compatibility_issue(package)
         for package in packages
         if package.name in _SUPPORTED_EXACT
         and Version(package.version) not in _SUPPORTED_EXACT[package.name]
     )
     canonical = "\n".join(f"{item.name}=={item.version}@{item.source}" for item in packages)
     return TargetEnvironment(packages, issues, sha256(canonical.encode()).hexdigest())
+
+
+def _compatibility_issue(package: TargetPackage) -> CompatibilityIssue:
+    tested = ", ".join(str(item) for item in sorted(_SUPPORTED_EXACT[package.name]))
+    supported = _SUPPORTED_RANGES[package.name]
+    if Version(package.version) in supported:
+        return CompatibilityIssue(
+            code=UNTESTED_VERSION,
+            package=package.name,
+            version=package.version,
+            message=(
+                f"{package.name} {package.version} is in the supported range {supported} but "
+                f"not in the oracle-tested set: {tested}"
+            ),
+        )
+    return CompatibilityIssue(
+        code="DT4001",
+        package=package.name,
+        version=package.version,
+        message=(
+            f"{package.name} {package.version} is outside the supported range {supported}; "
+            f"the oracle-tested set is {tested}"
+        ),
+    )
 
 
 def _versions_from_uv_lock(path: Path) -> dict[str, tuple[Version, str]]:

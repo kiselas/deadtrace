@@ -251,6 +251,9 @@ def solve(
         boundary_values.sort(key=_fact_sort_key)
 
     all_nodes = tuple(sorted(node_map))
+    target_sets = _TargetSets(all_nodes)
+    for boundary in graph.boundaries:
+        target_sets.add(boundary)
     results = tuple(
         _solve_world(
             graph,
@@ -261,6 +264,7 @@ def solve(
             requirements=requirements,
             boundaries=boundaries,
             max_steps=max_steps,
+            target_sets=target_sets,
         )
         for plan in sorted(plans, key=lambda item: item.id)
     )
@@ -277,8 +281,11 @@ def _solve_world(
     requirements: dict[NodeId, list[Requirement]],
     boundaries: dict[NodeId, list[UnknownBoundary]],
     max_steps: int,
+    target_sets: _TargetSets | None = None,
 ) -> WorldResult:
     state = _MutableWorld(plan=plan, limitations=list(plan.limitations))
+    target_sets = target_sets if target_sets is not None else _TargetSets(all_nodes)
+    marked_sets: set[int] = set()
     local_adjacency: defaultdict[NodeId, list[ExecutionEdge]] = defaultdict(list)
     local_boundaries: defaultdict[NodeId, list[UnknownBoundary]] = defaultdict(list)
     for edge in plan.edges:
@@ -290,6 +297,7 @@ def _solve_world(
         for target in boundary.targets:
             _require_known_node(node_map, target, "world boundary target")
         local_boundaries[boundary.source].append(boundary)
+        target_sets.add(boundary)
     for edge_values in local_adjacency.values():
         edge_values.sort(key=_fact_sort_key)
     for boundary_values in local_boundaries.values():
@@ -366,8 +374,11 @@ def _solve_world(
             )
 
         for boundary in (*boundaries.get(source, ()), *local_boundaries.get(source, ())):
-            targets = boundary.targets or all_nodes
             crossed[(source, boundary)] = None
+            targets = target_sets.of(boundary)
+            if id(targets) in marked_sets:
+                continue  # every target is already conservative in this world
+            marked_sets.add(id(targets))
             for target in targets:
                 _mark(
                     state,
@@ -406,6 +417,31 @@ def _solve_world(
         limitations=tuple(sorted(set(state.limitations), key=_limitation_sort_key)),
         exhausted_budget=state.exhausted_budget,
     )
+
+
+class _TargetSets:
+    """One shared tuple per distinct boundary target set.
+
+    Crossing a boundary marks its targets conservative whatever the source's reachability, so a
+    world that has marked a target set once gains nothing from marking it again. Boundaries whose
+    targets are equal share one tuple, so that the check is a lookup by identity.
+    """
+
+    def __init__(self, all_nodes: tuple[NodeId, ...]) -> None:
+        self._all_nodes = all_nodes
+        self._by_value: dict[tuple[NodeId, ...], tuple[NodeId, ...]] = {all_nodes: all_nodes}
+        self._by_boundary: dict[int, tuple[NodeId, ...]] = {}
+
+    def add(self, boundary: UnknownBoundary) -> None:
+        targets = boundary.targets or self._all_nodes
+        self._by_boundary[id(boundary)] = self._by_value.setdefault(targets, targets)
+
+    def of(self, boundary: UnknownBoundary) -> tuple[NodeId, ...]:
+        found = self._by_boundary.get(id(boundary))
+        if found is None:
+            self.add(boundary)
+            found = self._by_boundary[id(boundary)]
+        return found
 
 
 def _mark(

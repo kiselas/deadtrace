@@ -23,10 +23,14 @@ from deadtrace.scanner import (
     inventory_collection,
     parse_collection,
 )
-from deadtrace.target_environment import TargetEnvironment, read_target_environment
+from deadtrace.target_environment import (
+    UNTESTED_VERSION,
+    TargetEnvironment,
+    read_target_environment,
+)
 from deadtrace.timing import StageTimings
 
-MODEL_REVISION = "python-fastapi-dishka/11"
+MODEL_REVISION = "python-fastapi-dishka/12"
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +81,7 @@ def analyze(scan_path: Path, config: Config) -> AnalysisResult:
 
     timings = StageTimings()
     started = perf_counter()
-    collection = collect_sources(scan_path, timings=timings)
+    collection = collect_sources(scan_path, timings=timings, exclude=config.exclude)
     parsed = parse_collection(collection, timings=timings)
     inventory = inventory_collection(collection, config, timings=timings, parsed=parsed)
     collected_at = perf_counter()
@@ -119,8 +123,9 @@ def analyze(scan_path: Path, config: Config) -> AnalysisResult:
             replace(
                 plan,
                 assembly_state=(
-                    AssemblyState.INVALID
+                    plan.assembly_state
                     if plan.assembly_state is AssemblyState.INVALID
+                    or all(issue.code == UNTESTED_VERSION for issue in target_environment.issues)
                     else AssemblyState.PARTIAL
                 ),
                 limitations=tuple(
@@ -205,7 +210,8 @@ def _source_digest(collection: SourceCollection) -> str:
 
 
 def _config_digest(config: Config) -> str:
-    canonical = json.dumps(
-        asdict(config), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
+    fields = asdict(config)
+    if not fields["exclude"]:
+        del fields["exclude"]  # configurations without it keep their earlier digest
+    canonical = json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return sha256(canonical.encode()).hexdigest()

@@ -260,3 +260,65 @@ def test_pytest_collection_patterns_are_read_from_configuration(
     (tmp_path / file_name).write_text(content, encoding="utf-8")
 
     assert read_pytest_collection(tmp_path).files == expected
+
+
+def test_methods_on_values_from_outside_the_project_may_be_test_stand_ins() -> None:
+    program = _program(
+        **{
+            "client.py": (
+                "import requests\n\n"
+                "def fetch() -> None:\n"
+                "    response = requests.get('x')\n"
+                "    response.raise_for_status()\n"
+            ),
+            "tests/mocks.py": (
+                "class FakeResponse:\n"
+                "    def raise_for_status(self) -> None:\n"
+                "        pass\n\n"
+                "    def json(self) -> None:\n"
+                "        pass\n"
+            ),
+            "service.py": (
+                "class Response:\n    def raise_for_status(self) -> None:\n        pass\n"
+            ),
+        }
+    )
+    world = _world(program, "client:fetch")
+
+    assert _state(program, world, "tests.mocks:FakeResponse.raise_for_status") is not None
+    assert _state(program, world, "tests.mocks:FakeResponse.json") is None
+    assert _state(program, world, "service:Response.raise_for_status") is None
+
+
+def test_a_with_target_of_an_outside_manager_is_from_outside() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "def main(path: str) -> None:\n"
+                "    with open(path) as stream:\n"
+                "        stream.write('x')\n\n"
+                "class Store:\n"
+                "    def write(self, value: str) -> None:\n"
+                "        pass\n"
+            ),
+        }
+    )
+    world = _world(program, "main:main")
+
+    assert _state(program, world, "main:Store.write") is None
+
+
+def test_importing_the_module_of_a_loaded_object_runs_nothing_new() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import importlib\n\n"
+                "def main(value: object) -> None:\n"
+                "    importlib.import_module(type(value).__module__)\n"
+            ),
+            "other.py": "def helper() -> None:\n    pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+
+    assert program.modules["other"].node_id not in world.conservative_may_run

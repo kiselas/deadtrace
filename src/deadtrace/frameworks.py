@@ -81,6 +81,8 @@ DJANGO_APP_MODULES = ("apps", "models", "admin")
 DJANGO_APP_PACKAGES = ("management.commands", "templatetags")
 """Packages of an installed application whose modules Django loads by name on demand."""
 _NON_LIBRARY_DIRECTORIES = frozenset({"benchmarks", "docs", "examples"})
+AUTO_ROOT = "<auto>"
+"""The root of the placeholder world of a project in which no automatic root was found."""
 
 
 @dataclass(slots=True)
@@ -283,6 +285,7 @@ def build_framework_model(
         _discover_application_factories(state)
         _discover_task_autodiscovery(state)
         _discover_django_applications(state)
+        _discover_cli_commands(state)
         _connect_provider_dependencies(state)
         _connect_pydantic_models(state)
     with timings.stage("frontend.frameworks_plans"):
@@ -348,6 +351,7 @@ def build_framework_model(
             FrameworkCapability("celery.autodiscover-tasks", 1, "guarded"),
             FrameworkCapability("django.installed-apps", 2, "modeled"),
             FrameworkCapability("alembic.migrations", 1, "modeled"),
+            FrameworkCapability("cli.commands", 1, "modeled"),
         ),
     )
 
@@ -1470,6 +1474,16 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
                     assembly = AssemblyState.INVALID
                     limitations.append(
                         Limitation(
+                            code="DT3004",
+                            message=(
+                                "no execution roots were found: no application, entry point, "
+                                "script with a main guard, or public module; configure "
+                                "[[tool.deadtrace.worlds]] roots"
+                            ),
+                            world=world_id,
+                        )
+                        if root == AUTO_ROOT
+                        else Limitation(
                             code="DT3001",
                             message=f"configured root cannot be resolved: {root}",
                             world=world_id,
@@ -1605,7 +1619,7 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
         worlds.extend(_library_world(state))
     worlds.extend(_script_world(state))
     if not worlds:
-        return (WorldConfig("production", "application", ("<auto>",)),)
+        return (WorldConfig("production", "application", (AUTO_ROOT,)),)
     return tuple(worlds)
 
 
@@ -1620,7 +1634,9 @@ def _plugin_hooks(state: _BuildState, entry_point: ProjectEntryPoint) -> tuple[s
     hooks = tuple(
         f"{module.name}:{symbol.name}"
         for symbol in module.symbols
-        if symbol.owner is None and is_function(symbol) and symbol.name.startswith("pytest_")
+        if symbol.owner is None
+        and is_function(symbol)
+        and (symbol.name.startswith("pytest_") or _is_fixture(module, symbol))
     )
     for hook in hooks:
         state.auto_provenance[(entry_point.scenario, hook)] = (
@@ -1628,6 +1644,17 @@ def _plugin_hooks(state: _BuildState, entry_point: ProjectEntryPoint) -> tuple[s
             f"pyproject.toml {entry_point.group}:{entry_point.name} hook",
         )
     return hooks
+
+
+def _is_fixture(module: PythonModule, symbol: PythonSymbol) -> bool:
+    """Whether ``pytest.fixture`` decorates a function: a plugin exports it to its users."""
+
+    return any(
+        _expanded_name(
+            module, expression.func if isinstance(expression, ast.Call) else expression
+        ).endswith("pytest.fixture")
+        for expression in symbol.decorators
+    )
 
 
 def _application_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
@@ -1747,6 +1774,68 @@ def _discover_application_factories(state: _BuildState) -> None:
                 if framework is not None:
                     state.applications[key] = (framework, key)
                     break
+
+
+TYPER_REGISTRARS = frozenset({"command", "callback", "result_callback"})
+CLICK_REGISTRARS = frozenset({"command", "group", "result_callback"})
+CLICK_ROOTS = frozenset(
+    {"click.group", "click.command", "click.decorators.group", "click.decorators.command"}
+)
+
+
+def _discover_cli_commands(state: _BuildState) -> None:
+    """Commands that a Typer application or a Click group registers (``cli.commands``).
+
+    ``@app.command()`` and ``@app.callback()`` on a module-level ``typer.Typer()`` register the
+    function when the module runs, and running the application may call any of them; the module
+    reaches them. ``@click.group()`` makes a function a group, and ``@group.command()`` or
+    ``@group.group()`` registers a subcommand that invoking the group may call; the group
+    reaches it.
+    """
+
+    program = state.program
+    typer_apps = {
+        key.replace(":", ".", 1)
+        for key, (framework, _root) in state.applications.items()
+        if framework == "typer"
+    }
+    groups: dict[str, NodeId] = {}
+    for module in program.modules.values():
+        for symbol in module.symbols:
+            if not is_function(symbol):
+                continue
+            for expression in symbol.decorators:
+                function = expression.func if isinstance(expression, ast.Call) else expression
+                if _expanded_name(module, function) in CLICK_ROOTS:
+                    groups[f"{module.name}.{symbol.qualified_name}"] = symbol.id
+    for module in program.modules.values():
+        for symbol in module.symbols:
+            if not is_function(symbol):
+                continue
+            for expression in symbol.decorators:
+                if not (
+                    isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute)
+                ):
+                    continue
+                owner = _expanded_name(module, expression.func.value)
+                if owner in typer_apps and expression.func.attr in TYPER_REGISTRARS:
+                    state.edges.append(
+                        ExecutionEdge(
+                            module.node_id,
+                            symbol.id,
+                            EdgeKind.FRAMEWORK,
+                            f"Typer application {owner} registers the command",
+                        )
+                    )
+                elif owner in groups and expression.func.attr in CLICK_REGISTRARS:
+                    state.edges.append(
+                        ExecutionEdge(
+                            groups[owner],
+                            symbol.id,
+                            EdgeKind.FRAMEWORK,
+                            f"Click group {owner} dispatches to the command",
+                        )
+                    )
 
 
 def _discover_django_applications(state: _BuildState) -> None:

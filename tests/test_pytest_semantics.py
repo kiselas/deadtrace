@@ -270,3 +270,110 @@ class Helper:
     assert tests.state_of(_node(result, "sample_test:TestGroup.test_method")) is not None
     assert tests.state_of(_node(result, "sample_test:value")) is not None
     assert tests.state_of(_node(result, "sample_test:Helper.test_not_collected")) is None
+
+
+def test_fixtures_requested_by_name_at_run_time_are_used(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "conftest.py",
+        """
+import pytest
+
+@pytest.fixture
+def by_lookup() -> int:
+    return 1
+
+@pytest.fixture
+def lazy_value() -> int:
+    return 2
+
+@pytest.fixture
+def never_requested() -> int:
+    return 3
+""",
+    )
+    _write(
+        tmp_path,
+        "test_values.py",
+        """
+import pytest
+from pytest_lazy_fixtures import lf
+
+def test_lookup(request) -> None:
+    assert request.getfixturevalue("by_lookup")
+
+@pytest.mark.parametrize("value", [lf("lazy_value")])
+def test_lazy(value) -> None:
+    assert value
+""",
+    )
+
+    result = analyze(tmp_path, Config())
+    tests = result.snapshot.world(WorldId("tests", "pytest"))
+
+    assert tests.assembly_state is AssemblyState.COMPLETE
+    assert tests.state_of(_node(result, "conftest:by_lookup")) is not None
+    assert tests.state_of(_node(result, "conftest:lazy_value")) is not None
+    assert tests.state_of(_node(result, "conftest:never_requested")) is None
+
+
+def test_a_computed_fixture_lookup_may_request_any_visible_fixture(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "test_values.py",
+        """
+import pytest
+
+@pytest.fixture
+def first() -> int:
+    return 1
+
+def test_lookup(request, name: str = "first") -> None:
+    assert request.getfixturevalue(name)
+""",
+    )
+
+    result = analyze(tmp_path, Config())
+    tests = result.snapshot.world(WorldId("tests", "pytest"))
+
+    assert tests.state_of(_node(result, "test_values:first")) is not None
+
+
+def test_fixtures_of_a_pytest11_plugin_are_exported_to_its_users(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "pyproject.toml",
+        """
+[project]
+name = "plugin"
+version = "0.0.0"
+
+[project.entry-points.pytest11]
+plugin = "plugin_pkg.plugin"
+""",
+    )
+    _write(tmp_path, "plugin_pkg/__init__.py", "")
+    _write(
+        tmp_path,
+        "plugin_pkg/plugin.py",
+        """
+import pytest
+
+def pytest_configure(config) -> None:
+    pass
+
+@pytest.fixture
+def exported() -> int:
+    return 1
+
+def unused_helper() -> None:
+    pass
+""",
+    )
+
+    result = analyze(tmp_path, Config())
+    world = result.snapshot.world(WorldId("production", "entrypoint:pytest11:plugin"))
+
+    assert world.state_of(_node(result, "plugin_pkg.plugin:exported")) is not None
+    assert world.state_of(_node(result, "plugin_pkg.plugin:pytest_configure")) is not None
+    assert world.state_of(_node(result, "plugin_pkg.plugin:unused_helper")) is None

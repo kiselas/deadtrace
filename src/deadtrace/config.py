@@ -30,6 +30,8 @@ class KeepConfig:
 @dataclass(frozen=True, slots=True)
 class Config:
     report_exclude: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = ()
+    """Glob patterns of files that are not source: data the project never runs."""
     worlds: tuple[WorldConfig, ...] = ()
     keep: tuple[KeepConfig, ...] = ()
     max_steps: int | None = None
@@ -37,7 +39,9 @@ class Config:
     require_complete: bool = False
 
 
-_KNOWN_KEYS = frozenset({"report-exclude", "worlds", "keep", "max-steps", "require-complete"})
+_KNOWN_KEYS = frozenset(
+    {"exclude", "report-exclude", "worlds", "keep", "max-steps", "require-complete"}
+)
 KNOWN_FRAMEWORKS = frozenset(
     {
         "aiohttp",
@@ -91,6 +95,7 @@ def load_config(path: Path | None) -> Config:
         raise ConfigurationError(f"unknown [tool.deadtrace] option(s): {names}")
 
     raw_excludes = _string_array(section, "report-exclude")
+    source_excludes = _string_array(section, "exclude")
     worlds = _worlds(section.get("worlds", []))
     keeps = _keeps(section.get("keep", []))
     max_steps = section.get("max-steps")
@@ -103,6 +108,7 @@ def load_config(path: Path | None) -> Config:
         raise ConfigurationError("[tool.deadtrace].require-complete must be a boolean")
     return Config(
         report_exclude=raw_excludes,
+        exclude=source_excludes,
         worlds=worlds,
         keep=keeps,
         max_steps=max_steps,
