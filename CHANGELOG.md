@@ -59,6 +59,8 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/14` (ADR-0020): `Sub.member` with an inherited member
+  uses `Sub`, so the hooks bases call on it are reached; pytest-click fixtures are known.
 - Model revision `python-fastapi-dishka/13` (ADR-0019): a FastAPI factory that returns its
   application inside a wrapper, and the uncalled function that calls it, root a web world; a
   package imports its own submodules by absolute name; a `pytest11` plugin's package is also a

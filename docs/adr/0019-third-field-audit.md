@@ -52,6 +52,7 @@ code, and the branch is no slower than `main` under a profiler.
   `tests/test_import_roots_and_dispatch.py` records the submodule imports.
 - The two pytest plugin projects report 52 and 18 findings instead of 71 and 59; the difference
   is their packages' public API, which their users may call.
+- A control pass afterwards found one more core gap, recorded in ADR-0020.
 - Fingerprints include the worlds of a finding, so a change of worlds, such as a new
   application, renews every fingerprint and a baseline reports them as new. Comparison
   correlates such changed groups; stable fingerprints across world changes are open work.
