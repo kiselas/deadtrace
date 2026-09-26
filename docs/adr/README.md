@@ -61,3 +61,5 @@ each other. Typo and link fixes are fine.
   (model revision 11). Accepted.
 - [ADR-0018](0018-second-field-audit.md) — Source exclusions, supported version ranges, and
   CLI commands (model revision 12). Accepted.
+- [ADR-0019](0019-third-field-audit.md) — Wrapped application factories, plugin libraries, and
+  build copies (model revision 13). Accepted.

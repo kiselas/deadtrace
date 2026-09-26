@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "fastapi-wrapped-factory"
+description = "A factory that wraps its application, and its uncalled caller, root a web world."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/main.py"
+kind = "function"
+qualified_name = "create_default"
+expectation = "live"
+
+[[targets]]
+path = "app/main.py"
+kind = "function"
+qualified_name = "create_application.index"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/main.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

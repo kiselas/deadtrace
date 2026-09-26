@@ -706,13 +706,10 @@ class _Resolver:
             base in {"typing.Protocol", "typing_extensions.Protocol"}
             for base in self.external_bases(class_symbol)
         )
-        for method_id in self.methods_named(name):
+        candidates = self.methods_named(name) if structural else self.stand_in_methods_named(name)
+        for method_id in candidates:
             method = self.symbols[method_id]
-            if (
-                method_id not in found
-                and method.owner != class_symbol.id
-                and (structural or is_test_path(method.path))
-            ):
+            if method_id not in found and method.owner != class_symbol.id:
                 found[method_id] = method
         return tuple(found[key] for key in sorted(found))
 
@@ -2425,8 +2422,9 @@ class ImportRoots:
         while directory:
             if directory not in self.modules:
                 candidate = f"{directory}.{name}"
+                # ``celery.py`` importing ``celery`` means the installed package, not itself.
                 if candidate in self.namespaces and not (
-                    importer.name == candidate or importer.name.startswith(f"{candidate}.")
+                    importer.name == candidate and not is_package
                 ):
                     return candidate
             directory = directory.rpartition(".")[0]
@@ -2906,7 +2904,9 @@ def _imports_src_package(entries: Sequence[tuple[SourceUnit, ParsedSource]]) -> 
 
     if not any(unit.path.startswith("src/") for unit, _entry in entries):
         return False
-    for _unit, entry in entries:
+    for unit, entry in entries:
+        if "src" not in unit.source:
+            continue
         for node in ast.walk(entry.tree):
             if isinstance(node, ast.Import):
                 names = [alias.name for alias in node.names]
