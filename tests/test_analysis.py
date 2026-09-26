@@ -172,7 +172,7 @@ def candidate() -> None:
 
     assert "RCH001" in text
     assert "not a claim that deletion is safe" in text
-    assert "fastapi.routes@2" in doctor
+    assert "fastapi.routes@3" in doctor
     assert finding.fingerprint in explanation
 
 

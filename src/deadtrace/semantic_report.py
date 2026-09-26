@@ -48,6 +48,7 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
         "source_universe": {
             "root": str(result.collection.root),
             "files": list(result.collection.files),
+            "skipped_directories": list(result.collection.skipped_directories),
         },
         "inventory": {
             "definitions": [item.to_dict() for item in result.inventory.definitions],
@@ -101,15 +102,27 @@ def render_semantic_text(result: AnalysisResult) -> str:
             f"Files: {result.metrics.files} | Lines: {result.metrics.lines} "
             f"| Worlds: {result.metrics.worlds} | Findings: {len(result.findings)}"
         ),
+        *_skipped_directory_lines(result.collection.skipped_directories),
         "",
     ]
+    shared = _shared_limitations(result)
+    if shared and len(result.snapshot.worlds) > 1:
+        lines.append("Every world:")
+        lines.extend(limitation_lines(shared, indent="  ", label="limitation "))
     for world in result.snapshot.worlds:
         lines.append(
             f"World {world.id.key}: assembly={world.assembly_state.value}, "
             f"resolved={len(world.resolved_may_run)}, "
             f"conservative={len(world.conservative_may_run)}"
         )
-        lines.extend(limitation_lines(world.limitations, indent="  ", label="limitation "))
+        own = (
+            [item for item in world.limitations if _limitation_key(item) not in shared_keys]
+            if (shared_keys := {_limitation_key(item) for item in shared})
+            and len(result.snapshot.worlds) > 1
+            else list(world.limitations)
+        )
+        lines.extend(limitation_lines(own, indent="  ", label="limitation "))
+    lines.extend(_protection_lines(result))
     if result.findings:
         lines.append("")
         for finding in result.findings:
@@ -126,6 +139,149 @@ def render_semantic_text(result: AnalysisResult) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def _limitation_key(limitation: Limitation) -> tuple[str, str, str]:
+    return (limitation.code, limitation.message, str(limitation.origin or ""))
+
+
+def _shared_limitations(result: AnalysisResult) -> list[Limitation]:
+    """Limitations every world has, such as a file that cannot be read; shown once in text."""
+
+    worlds = result.snapshot.worlds
+    if not worlds:
+        return []
+    common = {_limitation_key(item) for item in worlds[0].limitations}
+    for world in worlds[1:]:
+        common &= {_limitation_key(item) for item in world.limitations}
+    common = {key for key in common if key[0] != GUARD_CODE}
+    seen: set[tuple[str, str, str]] = set()
+    shared: list[Limitation] = []
+    for item in worlds[0].limitations:
+        key = _limitation_key(item)
+        if key in common and key not in seen:
+            seen.add(key)
+            shared.append(item)
+    return shared
+
+
+PROTECTION_SHARE_SHOWN = 0.2
+"""Explain the widest guards when at least this share of production definitions is protected
+only conservatively; below it, the findings speak for themselves."""
+
+
+def widest_guards(result: AnalysisResult, limit: int) -> list[tuple[int, str, str]]:
+    """Unknown boundaries of production worlds by how much code they alone keep possibly running.
+
+    Each definition that production worlds reach only conservatively is attributed to the
+    boundary its derivation crossed first from resolved code, so a dynamic import that makes
+    modules run is credited with what their decorators and calls reach in turn. An entry is the
+    number of definitions attributed to a boundary, its reason, and where it is: the places to
+    model, configure roots around, or declare as keep contracts when a scan reports little.
+    """
+
+    node_map = result.model.graph.node_map()
+    reasons: dict[tuple[NodeId, str], str] = {}
+    for boundary in (
+        *result.model.graph.boundaries,
+        *(boundary for plan in result.model.plans for boundary in plan.boundaries),
+    ):
+        reasons.setdefault((boundary.source, boundary.domain), boundary.reason)
+    production = [world for world in result.snapshot.worlds if world.id.profile != "tests"]
+    resolved = set().union(*(world.resolved_may_run for world in production))
+    widths: dict[tuple[NodeId, str], int] = {}
+    for world in production:
+        counts: dict[tuple[NodeId, str], int] = {}
+        for node_id, cause in _first_boundaries(world).items():
+            if cause is None or node_id in resolved or node_map[node_id].kind.value == "module":
+                continue
+            counts[cause] = counts.get(cause, 0) + 1
+        for cause, count in counts.items():
+            widths[cause] = max(widths.get(cause, 0), count)
+    ranked = sorted(widths.items(), key=lambda item: (-item[1], str(item[0][0]), item[0][1]))
+    prefix = "unknown execution boundary: "
+    return [
+        (
+            width,
+            reasons.get((origin, detail.removeprefix(prefix)), detail.removeprefix(prefix)),
+            f"{node_map[origin].path}:{node_map[origin].line}",
+        )
+        for (origin, detail), width in ranked[:limit]
+    ]
+
+
+def _first_boundaries(world: Any) -> dict[NodeId, tuple[NodeId, str] | None]:
+    """For each conservative node, the boundary its first derivation crossed from resolved code."""
+
+    first: dict[NodeId, Derivation] = {}
+    for derivation in world.derivations:
+        if derivation.reachability.value == "conservative_may_run":
+            first.setdefault(derivation.target, derivation)
+    causes: dict[NodeId, tuple[NodeId, str] | None] = {}
+    for start in world.conservative_may_run:
+        path: list[NodeId] = []
+        node: NodeId | None = start
+        cause: tuple[NodeId, str] | None = None
+        while node is not None and node not in causes:
+            derivation = first.get(node)
+            if derivation is None or derivation.source is None:
+                break
+            path.append(node)
+            if derivation.source in world.resolved_may_run:
+                if derivation.kind.value == "unknown":
+                    cause = (derivation.source, derivation.detail)
+                break
+            node = derivation.source if derivation.source not in path else None
+        else:
+            if node is not None:
+                cause = causes[node]
+        for item in path:
+            causes[item] = cause
+        causes.setdefault(start, cause)
+    return causes
+
+
+def _protection_lines(result: AnalysisResult) -> list[str]:
+    production = [world for world in result.snapshot.worlds if world.id.profile != "tests"]
+    if not production:
+        return []
+    definitions = [node for node in result.model.graph.nodes if node.kind.value != "module"]
+    resolved = set().union(*(world.resolved_may_run for world in production))
+    conservative = set().union(*(world.conservative_may_run for world in production)) - resolved
+    protected = sum(1 for node in definitions if node.id in conservative)
+    if not definitions or protected / len(definitions) < PROTECTION_SHARE_SHOWN:
+        return []
+    lines = [
+        "",
+        (
+            f"{protected} of {len(definitions)} definitions may run only through unknown "
+            "boundaries, so they cannot be reported. The widest guards:"
+        ),
+    ]
+    lines.extend(
+        f"  {location}  {message} ({width} definitions)"
+        for width, message, location in widest_guards(result, 5)
+    )
+    lines.append(
+        "  Configure [[tool.deadtrace.worlds]] roots to leave development scripts out, or declare "
+        "[[tool.deadtrace.keep]] contracts for code loaded by name."
+    )
+    return lines
+
+
+def _skipped_directory_lines(skipped: tuple[str, ...], shown: int = 5) -> list[str]:
+    """Name the skipped environments and tool directories; hidden ones are only counted."""
+
+    visible = [
+        path
+        for path in skipped
+        if not path.rpartition("/")[2].startswith(".") and not path.endswith("__pycache__")
+    ]
+    if not visible:
+        return []
+    names = ", ".join(visible[:shown])
+    more = f" and {len(visible) - shown} more" if len(visible) > shown else ""
+    return [f"Skipped environments and tool directories: {names}{more}"]
 
 
 def explain_fingerprint(report: dict[str, Any], fingerprint: str) -> str:
@@ -169,6 +325,10 @@ def doctor_text(result: AnalysisResult) -> str:
     for world in result.snapshot.worlds:
         lines.append(f"  {world.id.key}: {world.assembly_state.value}")
         lines.extend(limitation_lines(world.limitations, indent="    ", label=""))
+    guards = widest_guards(result, 10)
+    if guards:
+        lines.append("Widest guards (definitions only they keep possibly running):")
+        lines.extend(f"  {width:6d}  {location}  {message}" for width, message, location in guards)
     return "\n".join(lines) + "\n"
 
 

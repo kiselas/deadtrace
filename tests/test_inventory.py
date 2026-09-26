@@ -79,6 +79,40 @@ def test_scan_does_not_open_network_connections(
     assert not report.has_errors
 
 
+def test_environments_and_tool_directories_are_not_source(tmp_path: Path) -> None:
+    for path in (
+        "app/main.py",
+        "venv/Lib/site-packages/fastapi/__init__.py",
+        "env/bin/tool.py",
+        ".venv-old/lib/module.py",
+        ".pytest-tmp/case/broken.py",
+        "frontend/node_modules/pkg/script.py",
+        "vendor/site-packages/lib.py",
+        "__pypackages__/3.12/lib/pkg.py",
+        "scripts-dev/run.py",
+    ):
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("def f():\n    pass\n", encoding="utf-8")
+    (tmp_path / "venv" / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+    (tmp_path / "env" / "conda-meta").mkdir()
+
+    collection = collect_sources(tmp_path)
+
+    assert collection.files == ("app/main.py", "scripts-dev/run.py")
+    assert collection.skipped_directories == (
+        ".pytest-tmp",
+        ".venv-old",
+        "__pypackages__",
+        "env",
+        "frontend/node_modules",
+        "vendor/site-packages",
+        "venv",
+    )
+    explicit = collect_sources(tmp_path / "venv" / "Lib" / "site-packages")
+    assert explicit.files == ("fastapi/__init__.py",)
+
+
 def test_report_exclude_marks_but_does_not_remove_inventory(tmp_path: Path) -> None:
     (tmp_path / "visible.py").write_text("def visible():\n    pass\n", encoding="utf-8")
     (tmp_path / "hidden.py").write_text("def hidden():\n    pass\n", encoding="utf-8")

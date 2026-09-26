@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "django-framework-conventions"
+description = "AppConfig, Meta, the ASGI module, and relocated migrations are Django contracts."
+
+[analysis]
+complete = true
+worlds = ["production:django"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "shop/apps.py"
+kind = "function"
+qualified_name = "ShopConfig.ready"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/models.py"
+kind = "class"
+qualified_name = "Product.Meta"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/consumers.py"
+kind = "class"
+qualified_name = "LiveConsumer"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/legacy_migrations/0001_initial.py"
+kind = "function"
+qualified_name = "forwards"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/unused.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"

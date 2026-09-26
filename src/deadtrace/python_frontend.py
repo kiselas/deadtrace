@@ -28,6 +28,7 @@ from deadtrace.core import (
 from deadtrace.inventory import (
     DEFINITION_TYPES,
     DefinitionNode,
+    ParsedSource,
     SourceText,
     child_statements,
     iter_definitions,
@@ -104,7 +105,21 @@ ENUM_BASES = frozenset(
     {"enum.Enum", "enum.Flag", "enum.IntEnum", "enum.IntFlag", "enum.ReprEnum", "enum.StrEnum"}
 )
 ENUM_HOOKS = frozenset({"_generate_next_value_", "_missing_"})
-DYNAMIC_IMPORTS = frozenset({"__import__", "importlib.__import__", "importlib.import_module"})
+PYTEST_REGISTRATIONS = frozenset({"pytest.fixture", "pytest_asyncio.fixture"})
+CONFIGURATION_CLASS_NAMES = frozenset({"Config", "Meta"})
+"""Nested classes that bases outside the project read as options even when they call no methods:
+Pydantic's ``Config`` and the ``Meta`` of model and serializer libraries."""
+DYNAMIC_IMPORTS = frozenset(
+    {"__import__", "importlib.__import__", "importlib.import_module", "runpy.run_module"}
+)
+PATH_IMPORTS = frozenset(
+    {
+        "importlib.machinery.SourceFileLoader",
+        "importlib.util.spec_from_file_location",
+        "runpy.run_path",
+    }
+)
+"""Calls that load a module from a file path, which may be any project file (ADR-0017)."""
 OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
 INSPECTING_CONSUMERS = frozenset({"isinstance", "issubclass"})
 """Consumers that inspect a class they receive without calling anything on it."""
@@ -284,6 +299,7 @@ def build_python_program(
     limitations: list[PythonLimitation] = []
     nodes: list[SemanticNode] = []
 
+    entries: list[tuple[SourceUnit, ParsedSource]] = []
     for unit in collection.units:
         entry = parsed.get(unit.path) if parsed is not None else None
         if entry is None:
@@ -295,8 +311,12 @@ def build_python_program(
         if isinstance(entry, SyntaxError):
             timings.count("frontend.parse_failures")
             continue
+        entries.append((unit, entry))
+    keep_src = _imports_src_package(entries)
+
+    for unit, entry in entries:
         timings.count("frontend.modules")
-        module_name = module_name_from_path(unit.path)
+        module_name = module_name_from_path(unit.path, keep_src=keep_src)
         module_node = NodeId(f"py-module:{module_name}")
         module = PythonModule(
             module_name,
@@ -337,8 +357,9 @@ def build_python_program(
             )
 
     with timings.stage("frontend.imports"):
+        import_roots = ImportRoots(modules)
         for module in modules.values():
-            scope_imports = _collect_imports(module, modules, module.tree.body)
+            scope_imports = _collect_imports(module, modules, module.tree.body, import_roots)
             module.imports.update(scope_imports.bindings)
             module.star_imports = scope_imports.star
             module.import_alternatives = scope_imports.alternatives
@@ -481,6 +502,8 @@ class _Resolver:
         self._subclasses: dict[NodeId, list[PythonSymbol]] = {}
         self._mro: dict[NodeId, tuple[PythonSymbol, ...]] = {}
         self._project_roots = frozenset(name.split(".")[0] for name in modules)
+        self.import_roots = ImportRoots(modules)
+        self._top_level: dict[str, tuple[NodeId, ...]] | None = None
         self._through_imports: dict[str, PythonSymbol | None] = {}
         self._scope_imports: dict[NodeId, dict[str, ImportBinding]] = {}
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
@@ -672,10 +695,35 @@ class _Resolver:
             if member is not None:
                 found[member.id] = member
             queue.extend(self._subclasses.get(subclass.id, ()))
+        # An annotation does not bind the receiver: a Protocol is met by any class with the
+        # method, and tests pass hand-written stand-ins that derive from nothing (ADR-0017).
+        structural = any(
+            base in {"typing.Protocol", "typing_extensions.Protocol"}
+            for base in self.external_bases(class_symbol)
+        )
+        for method_id in self.methods_named(name):
+            method = self.symbols[method_id]
+            if (
+                method_id not in found
+                and method.owner != class_symbol.id
+                and (structural or is_test_path(method.path))
+            ):
+                found[method_id] = method
         return tuple(found[key] for key in sorted(found))
 
     def methods_named(self, name: str) -> tuple[NodeId, ...]:
         return self._methods.get(name, ())
+
+    def top_level_named(self, name: str) -> tuple[NodeId, ...]:
+        """Functions and classes of every module defined at its top level under ``name``."""
+
+        if self._top_level is None:
+            found: dict[str, list[NodeId]] = {}
+            for symbol in self.symbols.values():
+                if symbol.owner is None:
+                    found.setdefault(symbol.name, []).append(symbol.id)
+            self._top_level = {key: tuple(sorted(value)) for key, value in found.items()}
+        return self._top_level.get(name, ())
 
     def named_by_string(self, value: str) -> NodeId | None:
         """The module or symbol that a string such as ``"pkg.mod"`` or ``"pkg.mod:name"`` names."""
@@ -712,6 +760,11 @@ class _Resolver:
     def class_named(self, full_name: str) -> PythonSymbol | None:
         symbol = self.resolve_full_name(full_name)
         return symbol if symbol is not None and symbol.kind is NodeKind.CLASS else None
+
+    def in_project(self, dotted: str) -> bool:
+        """Whether a dotted import target starts with a top-level name of the project."""
+
+        return dotted.split(".")[0] in self._project_roots
 
     def is_external(self, expression: ast.expr, module: PythonModule) -> bool:
         """Whether ``expression`` evaluates to an object from outside the project."""
@@ -792,11 +845,13 @@ class _Resolver:
         names: list[str] = []
         if isinstance(node, ast.Import):
             for alias in node.names:
-                names.extend(_package_path(alias.name))
+                names.extend(_package_path(self.import_roots.absolute(module, alias.name)))
         else:
             base = _import_from_base(module, node)
             if base is None:
                 return []
+            if not node.level:
+                base = self.import_roots.absolute(module, base)
             if base:
                 names.extend(_package_path(base))
             names.extend(
@@ -820,7 +875,9 @@ class _Resolver:
         assert not isinstance(scope.node, ast.ClassDef)
         shadowed, has_imports = self._scope_locals(scope)
         own = (
-            _collect_imports(module, self.modules, scope.node.body).bindings if has_imports else {}
+            _collect_imports(module, self.modules, scope.node.body, self.import_roots).bindings
+            if has_imports
+            else {}
         )
         owner = self.symbols.get(scope.owner) if scope.owner is not None else None
         enclosing = self.scope_imports(owner)
@@ -1071,6 +1128,8 @@ class _ExecutionVisitor:
         self._handled: set[int] = set()
         self._escaped: set[NodeId] = set()
         self._dispatched: set[str] = set()
+        self._dynamic_modules: set[str] = set()
+        """Locals bound to a module imported by a computed name."""
         self._names = resolver.names.get(module.name, frozenset())
         self._locals = resolver.local_names(current) if current is not None else frozenset()
         self._name_alternatives = resolver.name_alternatives(module)
@@ -1131,6 +1190,23 @@ class _ExecutionVisitor:
             for parameter in _parameters(node):
                 if parameter.default is not None:
                     self.visit_expression(parameter.default)
+                if parameter.annotation is not None:
+                    self._visit_annotation_calls(parameter.annotation)
+            if node.returns is not None:
+                self._visit_annotation_calls(node.returns)
+
+    def _visit_annotation_calls(self, annotation: ast.expr) -> None:
+        """Run the calls an annotation makes, such as ``Annotated`` metadata (ADR-0017).
+
+        ``Annotated[bool, typer.Option(callback=check)]`` and ``AfterValidator(normalize)``
+        build objects whose callables a framework calls later. Python evaluates a parameter
+        annotation when the ``def`` runs; under ``from __future__ import annotations`` the
+        framework that reads the signature evaluates it instead, so both are treated alike.
+        Names an annotation only mentions as types are not references.
+        """
+
+        for call in _outermost_calls(annotation):
+            self.visit_expression(call)
 
     def mark_references(self, expression: ast.expr) -> None:
         """Treat the name chain of ``expression`` as already accounted for."""
@@ -1390,6 +1466,17 @@ class _ExecutionVisitor:
         else:
             if self._external_name(func) in DYNAMIC_IMPORTS:
                 self._record_dynamic_import(node)
+            elif self._external_name(func) in PATH_IMPORTS:
+                self.boundaries.append(
+                    UnknownBoundary(
+                        source=self.source,
+                        domain="dynamic_import",
+                        reason="any project module may be loaded from a file path",
+                        targets=tuple(
+                            sorted(module.node_id for module in self.resolver.modules.values())
+                        ),
+                    )
+                )
             self._record_escaped_project_callables(node)
             if isinstance(func, ast.Attribute):
                 self._reference_receiver(func)
@@ -1431,6 +1518,11 @@ class _ExecutionVisitor:
             ):
                 return
             target = self._resolve(node)
+        elif isinstance(node.value, ast.Name) and node.value.id in self._dynamic_modules:
+            # ``module.check`` of ``module = import_module(name)`` may be the ``check`` of any
+            # module the import may reach (ADR-0017).
+            self._escaped.update(self.resolver.top_level_named(node.attr))
+            return
         elif self._unknown_local_head(node):
             if self.resolver.methods_named(node.attr):
                 self._dispatched.add(node.attr)
@@ -1458,6 +1550,9 @@ class _ExecutionVisitor:
         receiver = attribute.value
         if self._is_super(attribute):
             return
+        if isinstance(receiver, ast.Name) and receiver.id in self._dynamic_modules:
+            self._escaped.update(self.resolver.top_level_named(attribute.attr))
+            return
         if self._unknown_local_head(attribute):
             if self.resolver.methods_named(attribute.attr):
                 self._dispatched.add(attribute.attr)
@@ -1466,6 +1561,15 @@ class _ExecutionVisitor:
         if symbol is not None:
             self._escaped.add(symbol.id)
             return
+        # ``Status.ACTIVE.value``: ``Status.ACTIVE`` is no project symbol, but ``Status`` is, and
+        # evaluating the chain uses it (ADR-0017).
+        prefix = receiver.value if isinstance(receiver, ast.Attribute) else None
+        while isinstance(prefix, (ast.Attribute, ast.Name)):
+            found = self._resolve(prefix)
+            if found is not None:
+                self._escaped.add(found.id)
+                break
+            prefix = prefix.value if isinstance(prefix, ast.Attribute) else None
         if self._known_receiver(receiver):
             return
         if self.resolver.methods_named(attribute.attr):
@@ -1534,7 +1638,7 @@ class _ExecutionVisitor:
             self.visit_expression(decorator)
             factory = self._resolve(decorator.func)
             name = self._external_name(decorator.func) or "a decorator call"
-            if factory is None and name in TRANSPARENT_DECORATORS:
+            if factory is None and _is_transparent_decorator(name):
                 return
             reason = (
                 f"decorated with the result of {factory.module}.{factory.qualified_name}(...)"
@@ -1549,7 +1653,7 @@ class _ExecutionVisitor:
             if isinstance(decorator, ast.Attribute):
                 self._reference_receiver(decorator)
             name = self._external_name(decorator) or "a decorator"
-            if name not in TRANSPARENT_DECORATORS:
+            if not _is_transparent_decorator(name):
                 self._escape_decorated(decorated, f"registered by decorator {name}")
             return
         kind = EdgeKind.CONSTRUCT if applied.kind is NodeKind.CLASS else EdgeKind.CALL
@@ -1603,6 +1707,14 @@ class _ExecutionVisitor:
         )
 
     def _visit_assign(self, node: ast.Assign) -> None:
+        if (
+            isinstance(node.value, ast.Call)
+            and self._external_name(node.value.func) in DYNAMIC_IMPORTS
+        ):
+            names = {target.id for target in node.targets if isinstance(target, ast.Name)}
+            self._dynamic_modules.update(names)
+            self.external_locals.difference_update(names)
+            return
         inferred = self._infer_expression_type(node.value)
         external = (
             inferred is None
@@ -1622,8 +1734,13 @@ class _ExecutionVisitor:
                 self.external_locals.add(target.id)
 
     def _visit_ann_assign(self, node: ast.AnnAssign) -> None:
+        calls = _outermost_calls(node.annotation) if self._evaluates_annotations else []
+        inside_calls = {id(part) for call in calls for part in ast.walk(call)}
         for part in ast.walk(node.annotation):
-            self._handled.add(id(part))
+            if id(part) not in inside_calls:
+                self._handled.add(id(part))
+        for call in calls:
+            self._visit_annotation_calls(call)
         if self._evaluates_annotations:
             for class_symbol in self.resolver.annotation_classes(node.annotation, self.module):
                 self.edges.append(
@@ -1683,11 +1800,30 @@ class _ExecutionVisitor:
                 return self._resolve_annotation(target.return_annotation)
         return None
 
+    def _is_external_module(self, receiver: ast.expr) -> bool:
+        """``pkg`` or ``pkg.sub`` where ``pkg`` is imported from outside the project.
+
+        ``getattr(pyautogui, action)`` returns an attribute of a third-party module, which calls
+        no project code unless it is passed some, so it is no unknown boundary (ADR-0017).
+        """
+
+        head = receiver
+        while isinstance(head, ast.Attribute):
+            head = head.value
+        if not isinstance(head, ast.Name):
+            return False
+        binding = self._local_imports.get(head.id)
+        if binding is None and head.id not in self._locals:
+            binding = self.module.imports.get(head.id)
+        return binding is not None and not self.resolver.in_project(binding.target)
+
     def _record_dynamic_getattr(self, function: ast.Call) -> None:
         targets: tuple[NodeId, ...] = ()
         arguments = call_arguments(function)
         if arguments:
             receiver = arguments[0].value
+            if self._is_external_module(receiver):
+                return  # an attribute of a module outside the project is not project code
             receiver_type = self._infer_expression_type(receiver)
             if receiver_type is None and isinstance(receiver, ast.Name):
                 receiver_type = self.local_types.get(receiver.id)
@@ -2172,10 +2308,47 @@ class _ScopeImports:
     """Project modules imported with ``*``."""
 
 
+class ImportRoots:
+    """How an absolute import names a project module (ADR-0017).
+
+    A name whose first part is a top-level project module or package names it. Otherwise it may
+    name a module beside the importer: Python puts a script's own directory on the path, and
+    pytest's default import mode puts the directory of a test module that is not in a package
+    there. So the directories that hold the importer and are no regular package are tried,
+    innermost first. A match only adds modules that may run; an import of an installed
+    distribution that shares a sibling's name is taken for the sibling.
+    """
+
+    def __init__(self, modules: Mapping[str, PythonModule]) -> None:
+        self.modules = modules
+        self.roots = frozenset(name.split(".")[0] for name in modules)
+        self.namespaces = frozenset(prefix for name in modules for prefix in _package_path(name))
+
+    def absolute(self, importer: PythonModule, name: str) -> str:
+        if not name or name.split(".")[0] in self.roots:
+            return name
+        is_package = importer.path.rpartition("/")[2] == "__init__.py"
+        directory = importer.name if is_package else importer.name.rpartition(".")[0]
+        while directory:
+            if directory not in self.modules:
+                candidate = f"{directory}.{name}"
+                if candidate in self.namespaces and not (
+                    importer.name == candidate or importer.name.startswith(f"{candidate}.")
+                ):
+                    return candidate
+            directory = directory.rpartition(".")[0]
+        return name
+
+
 def _collect_imports(
-    module: PythonModule, modules: Mapping[str, PythonModule], statements: Iterable[ast.stmt]
+    module: PythonModule,
+    modules: Mapping[str, PythonModule],
+    statements: Iterable[ast.stmt],
+    roots: ImportRoots | None = None,
 ) -> _ScopeImports:
     """Names the imports of one scope bind, in nested blocks too but not in nested definitions."""
+
+    roots = roots if roots is not None else ImportRoots(modules)
 
     bindings: dict[str, ImportBinding] = {}
     every: dict[str, list[ImportBinding]] = {}
@@ -2188,12 +2361,16 @@ def _collect_imports(
             for alias in statement.names:
                 target = alias.name
                 local = alias.asname or target.split(".")[0]
-                bound_target = target if alias.asname else target.split(".")[0]
+                bound_target = roots.absolute(
+                    module, target if alias.asname else target.split(".")[0]
+                )
                 found.append(ImportBinding(local, bound_target, True, statement.lineno, nested))
         elif isinstance(statement, ast.ImportFrom):
             base = _import_from_base(module, statement)
             if base is None:
                 continue
+            if not statement.level:
+                base = roots.absolute(module, base)
             for alias in statement.names:
                 imported = alias.name
                 if imported == "*":
@@ -2355,9 +2532,12 @@ def _unsupported_python_hook_boundaries(
     """Guard project hooks whose implicit dispatch is outside the modeled subset."""
 
     owned_methods: defaultdict[NodeId, list[PythonSymbol]] = defaultdict(list)
+    owned_classes: defaultdict[NodeId, list[PythonSymbol]] = defaultdict(list)
     for symbol in symbols.values():
         if symbol.owner is not None and symbol.kind is NodeKind.FUNCTION:
             owned_methods[symbol.owner].append(symbol)
+        elif symbol.owner is not None and symbol.kind is NodeKind.CLASS:
+            owned_classes[symbol.owner].append(symbol)
 
     boundaries: list[UnknownBoundary] = []
     for class_symbol in symbols.values():
@@ -2381,13 +2561,24 @@ def _unsupported_python_hook_boundaries(
                 )
             )
 
-        hooking = [name for name in resolver.external_bases(class_symbol) if not _hook_free(name)]
+        external = resolver.external_bases(class_symbol)
+        hooking = [name for name in external if not _hook_free(name)]
         methods = owned_methods[class_symbol.id]
         if any(name not in ENUM_BASES for name in hooking):
             external_targets = {method.id for method in methods}
         else:
             external_targets = {method.id for method in methods if method.name in ENUM_HOOKS}
-        if hooking and external_targets:
+        if not hooking:
+            external_targets = set()
+        # A metaclass or base outside the project reads nested classes as options: Django's and
+        # Django REST framework's ``Meta``, Pydantic's ``Config`` (ADR-0017).
+        external_targets.update(
+            nested.id
+            for nested in owned_classes[class_symbol.id]
+            if hooking or (external and nested.name in CONFIGURATION_CLASS_NAMES)
+        )
+        if external_targets:
+            hooking = hooking or list(external)
             boundaries.append(
                 UnknownBoundary(
                     source=class_symbol.id,
@@ -2489,6 +2680,34 @@ def _self_field_assignments(
     return tuple(found)
 
 
+def _is_transparent_decorator(name: str) -> bool:
+    """Decorators that return the function they receive and register it with nothing.
+
+    pytest marks and fixtures register functions only with pytest's collection, which the tests
+    world models itself, so outside it they call nothing (ADR-0017).
+    """
+
+    return (
+        name in TRANSPARENT_DECORATORS
+        or name in PYTEST_REGISTRATIONS
+        or name.startswith("pytest.mark.")
+    )
+
+
+def _outermost_calls(expression: ast.expr) -> list[ast.Call]:
+    """The calls in ``expression`` that no other call in it contains, in source order."""
+
+    calls: list[ast.Call] = []
+    stack: list[ast.AST] = [expression]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Call):
+            calls.append(node)
+            continue
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
+    return calls
+
+
 def _visit_module_declaration_effects(module: ast.Module, visitor: _ExecutionVisitor) -> None:
     visitor.visit_statements(module.body)
 
@@ -2584,11 +2803,69 @@ def _containing_class_qname(symbol: PythonSymbol) -> str | None:
     return symbol.owner_qualified_name.split(".")[0]
 
 
-def module_name_from_path(path: str) -> str:
+def _imports_src_package(entries: Sequence[tuple[SourceUnit, ParsedSource]]) -> bool:
+    """Whether project code imports a top-level ``src`` package, as in ``from src.app import x``.
+
+    A ``src`` directory is usually a source root whose packages are imported by their own names,
+    so its name is left out of module names. Some projects instead put the project root on the
+    path and import ``src`` itself; then ``src`` is part of every module name below it (ADR-0015).
+    """
+
+    if not any(unit.path.startswith("src/") for unit, _entry in entries):
+        return False
+    for _unit, entry in entries:
+        for node in ast.walk(entry.tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module]
+            else:
+                continue
+            if any(name == "src" or name.startswith("src.") for name in names):
+                return True
+    return False
+
+
+def is_test_directory(name: str) -> bool:
+    """``test``, ``tests``, ``testing``, and names such as ``unit_tests`` or ``tests_api``."""
+
+    return (
+        name in {"test", "tests", "testing"}
+        or name.endswith(("_test", "_tests"))
+        or (name.startswith(("test_", "tests_")))
+    )
+
+
+def conftest_directories(program: PythonProgram) -> frozenset[str]:
+    """Directories below the root that hold a ``conftest.py``: pytest test trees.
+
+    A ``conftest.py`` at the root configures the whole checkout and marks nothing as test code.
+    """
+
+    return frozenset(
+        directory
+        for module in program.modules.values()
+        for directory, _, name in [module.path.rpartition("/")]
+        if name == "conftest.py" and directory
+    )
+
+
+def is_test_path(path: str, test_trees: frozenset[str] = frozenset()) -> bool:
+    """Whether a source file is test code by pytest's conventions (ADR-0017)."""
+
+    *directories, name = path.replace("\\", "/").split("/")
+    if name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py":
+        return True
+    if any(is_test_directory(directory) for directory in directories):
+        return True
+    return any(path.startswith(f"{tree}/") for tree in test_trees)
+
+
+def module_name_from_path(path: str, *, keep_src: bool = False) -> str:
     normalized = path.replace("\\", "/")
     without_suffix = normalized[:-3] if normalized.endswith(".py") else normalized
     parts = without_suffix.split("/")
-    if len(parts) > 1 and parts[0] == "src":
+    if len(parts) > 1 and parts[0] == "src" and not keep_src:
         parts = parts[1:]
     if parts[-1] == "__init__":
         parts = parts[:-1]

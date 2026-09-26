@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "annotation-metadata-calls"
+description = "Callables passed to calls inside annotations may run."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "production:typer"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "cli.py"
+kind = "function"
+qualified_name = "show_version"
+expectation = "not_candidate"
+
+[[targets]]
+path = "cli.py"
+kind = "function"
+qualified_name = "normalize"
+expectation = "not_candidate"
+
+[[targets]]
+path = "cli.py"
+kind = "function"
+qualified_name = "unused_helper"
+expectation = "candidate"

@@ -13,7 +13,7 @@ from deadtrace.frameworks import (
     FrameworkObjectKind,
     RouteRegistration,
 )
-from deadtrace.python_frontend import PythonProgram
+from deadtrace.python_frontend import PythonProgram, conftest_directories, is_test_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +81,7 @@ def build_findings(
     reached = set().union(
         *(world.resolved_may_run | world.conservative_may_run for world in production_worlds)
     )
-    retained = set().union(*(world.retained for world in production_worlds))
+    retained = _with_members(model, set().union(*(world.retained for world in production_worlds)))
     test_worlds = tuple(world for world in snapshot.worlds if world.id.profile == "tests")
     test_reached = (
         set().union(*(world.resolved_may_run | world.conservative_may_run for world in test_worlds))
@@ -98,10 +98,11 @@ def build_findings(
     if test_worlds and all(world.negative_findings_allowed for world in test_worlds):
         resolved_in_tests = set().union(*(world.resolved_may_run for world in test_worlds))
         node_map = model.graph.node_map()
+        test_trees = conftest_directories(program)
         test_only = {
             node_id
             for node_id in resolved_in_tests - reached - retained - framework_nodes
-            if not _is_test_source(node_map[node_id].path)
+            if not is_test_path(node_map[node_id].path, test_trees)
             and node_map[node_id].kind is not NodeKind.MODULE
             and not node_map[node_id].report_excluded
         }
@@ -170,9 +171,10 @@ def _unpublished_router_findings(
             if include.owner == owner and include.router not in published:
                 published.add(include.router)
                 queue.append(include.router)
+    may_be_published = model.escaping_routers if model.unknown_includes else frozenset()
     by_router: defaultdict[str, list[RouteRegistration]] = defaultdict(list)
     for route in model.routes:
-        if route.owner not in published:
+        if route.owner not in published and route.owner not in may_be_published:
             by_router[route.owner].append(route)
     findings: list[Finding] = []
     for router, routes in sorted(by_router.items()):
@@ -236,6 +238,24 @@ def _framework_specific_nodes(
         if provider is not None:
             nodes.update(symbol.id for symbol in program.index.members(provider.id))
     return nodes
+
+
+def _with_members(model: FrameworkModel, retained: set[NodeId]) -> set[NodeId]:
+    """Retained declarations with everything defined inside them: a closure of a retained
+    fixture is retained with it rather than reported on its own."""
+
+    owned: defaultdict[NodeId, list[NodeId]] = defaultdict(list)
+    for node in model.graph.nodes:
+        if node.owner is not None:
+            owned[node.owner].append(node.id)
+    result = set(retained)
+    stack = list(retained)
+    while stack:
+        for member in owned.get(stack.pop(), ()):
+            if member not in result:
+                result.add(member)
+                stack.append(member)
+    return result
 
 
 def _ownership_and_edge_adjacency(model: FrameworkModel) -> defaultdict[NodeId, set[NodeId]]:
@@ -338,9 +358,3 @@ def _finding(
 def _finding_sort_key(finding: Finding) -> tuple[str, str, str]:
     first = finding.members[0].identity() if finding.members else ""
     return (finding.code, first, finding.fingerprint)
-
-
-def _is_test_source(path: str) -> bool:
-    normalized = path.replace("\\", "/")
-    name = normalized.rsplit("/", 1)[-1]
-    return "/tests/" in f"/{normalized}" or name.startswith("test_") or name.endswith("_test.py")

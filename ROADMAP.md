@@ -1,6 +1,6 @@
 # Deadtrace Development Roadmap
 
-Status date: 2026-09-24. This is the canonical execution roadmap kept with the code. Decision
+Status date: 2026-09-26. This is the canonical execution roadmap kept with the code. Decision
 records live in `docs/adr/`; the analysis contract and architecture notes are pending there as
 well. This file defines what to build next, in what order, and what evidence is required before a
 task may be marked done.
@@ -31,11 +31,11 @@ status date:
 
 | Area | Current evidence |
 | --- | --- |
-| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/10` |
-| Unit/integration/oracle tests | 194 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
-| Coverage | 91.43% branch-aware total; configured floor 90% |
+| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/11` |
+| Unit/integration/oracle tests | 273 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
+| Coverage | 91.29% branch-aware total; configured floor 90% |
 | Static quality | Ruff format/check, strict mypy, and `uv lock --check` pass |
-| Semantic corpus | 52 projects, 190 lexical targets, 52 semantic manifests |
+| Semantic corpus | 61 projects, 222 lexical targets, 61 semantic manifests |
 | Seed fixtures | 6 projects, 12 lexical targets |
 | Known violations | none pinned; the 28 recorded cases are met and moved to `corpus/` (SOUND-01 to SOUND-04, DJANGO-01) |
 | Distribution | wheel and sdist build; the wheel installs without LibCST and has been scanned outside the checkout |
@@ -283,6 +283,18 @@ application roots; installed applications' packages, `apps`, `models`, `admin`, 
 libraries, and management commands are imported, model classes registered, and `Command`
 classes instantiated; strings may name a module attribute such as `WSGI_APPLICATION`. URL
 patterns, admin classes, and signal receivers stay under the general conservative rules.
+
+### FIELD-01 — first zero-configuration field audit
+
+**Status:** implemented on 2026-09-26 (ADR-0015, ADR-0016, ADR-0017, model revision 11). Six
+local checkouts — a FastAPI and Dishka service of 108k lines, two smaller FastAPI services, a
+Django, Django REST framework, and Celery service, two pytest-based automation projects — and
+Deadtrace itself were scanned without configuration and every finding was checked against the
+source. Before: environments were scanned as project code (341 seconds on one checkout), the
+tests world was partial on every project, and all 25 `RCH002` findings on the service were false.
+After: every audited world that can be complete is, and each remaining finding was confirmed as
+code that does not run under the analyzed inputs. This is private field evidence without
+recorded source; it is not the P3 pilot, which needs labeled review groups.
 
 ### ORACLE-01 — capability-to-oracle inventory
 

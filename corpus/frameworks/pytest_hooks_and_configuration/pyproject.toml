@@ -1,0 +1,6 @@
+[project]
+name = "pytest-hooks-case"
+version = "0.0.0"
+
+[tool.pytest.ini_options]
+python_files = ["check_*.py"]

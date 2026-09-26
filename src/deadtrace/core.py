@@ -149,6 +149,10 @@ class WorldPlan:
     assembly_state: AssemblyState = AssemblyState.COMPLETE
     limitations: tuple[Limitation, ...] = ()
     root_provenance: tuple[RootProvenance, ...] = ()
+    edges: tuple[ExecutionEdge, ...] = ()
+    """Execution facts that hold only in this world, such as pytest resolving a fixture."""
+    boundaries: tuple[UnknownBoundary, ...] = ()
+    """Unknown boundaries that exist only in this world (ADR-0016)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +279,21 @@ def _solve_world(
     max_steps: int,
 ) -> WorldResult:
     state = _MutableWorld(plan=plan, limitations=list(plan.limitations))
+    local_adjacency: defaultdict[NodeId, list[ExecutionEdge]] = defaultdict(list)
+    local_boundaries: defaultdict[NodeId, list[UnknownBoundary]] = defaultdict(list)
+    for edge in plan.edges:
+        _require_known_node(node_map, edge.source, "world edge source")
+        _require_known_node(node_map, edge.target, "world edge target")
+        local_adjacency[edge.source].append(edge)
+    for boundary in plan.boundaries:
+        _require_known_node(node_map, boundary.source, "world boundary source")
+        for target in boundary.targets:
+            _require_known_node(node_map, target, "world boundary target")
+        local_boundaries[boundary.source].append(boundary)
+    for edge_values in local_adjacency.values():
+        edge_values.sort(key=_fact_sort_key)
+    for boundary_values in local_boundaries.values():
+        boundary_values.sort(key=_fact_sort_key)
     for retained in plan.retained_roots:
         _require_known_node(node_map, retained, "retained root")
         state.retained.add(retained)
@@ -335,7 +354,7 @@ def _solve_world(
         for requirement in requirements.get(source, ()):  # declaration retention, not execution
             state.retained.add(requirement.target)
 
-        for edge in adjacency.get(source, ()):
+        for edge in (*adjacency.get(source, ()), *local_adjacency.get(source, ())):
             _mark(
                 state,
                 queue,
@@ -346,7 +365,7 @@ def _solve_world(
                 detail=edge.detail,
             )
 
-        for boundary in boundaries.get(source, ()):
+        for boundary in (*boundaries.get(source, ()), *local_boundaries.get(source, ())):
             targets = boundary.targets or all_nodes
             crossed[(source, boundary)] = None
             for target in targets:
