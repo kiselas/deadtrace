@@ -1,0 +1,62 @@
+schema_version = 1
+case_id = "fastapi-monorepo-service-packages"
+description = "An import inside a monorepo service names the service's package of that name."
+
+[analysis]
+complete = true
+worlds = [
+    "production:migrations",
+    "production:web:billing.billing.main.app",
+    "production:web:report.report.main.app",
+    "production:web:shop.shop.main.app",
+]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "shop/shop/routes.py"
+kind = "function"
+qualified_name = "items"
+expectation = "not_candidate"
+
+[[targets]]
+path = "billing/billing/api.py"
+kind = "function"
+qualified_name = "helper"
+expectation = "not_candidate"
+
+[[targets]]
+path = "report/report/api.py"
+kind = "function"
+qualified_name = "summary"
+expectation = "not_candidate"
+
+[[targets]]
+path = "libs/common/common/money.py"
+kind = "function"
+qualified_name = "round_down"
+expectation = "not_candidate"
+
+[[targets]]
+path = "report/report/alembic/versions/0001_init.py"
+kind = "function"
+qualified_name = "upgrade"
+expectation = "protected"
+
+[[targets]]
+path = "shop/shop/routes.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"
+
+[[targets]]
+path = "billing/billing/api.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"
+
+[[targets]]
+path = "libs/common/common/money.py"
+kind = "function"
+qualified_name = "round_up"
+expectation = "candidate"

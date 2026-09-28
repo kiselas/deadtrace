@@ -37,8 +37,8 @@ instead of treating “no textual references” as proof that code can be delete
   plugins; Typer and Click commands;
 - automatic worlds when none are configured: scripts with a main guard and `__main__`
   modules, applications of Flask, Celery, Starlette, Litestar, aiohttp, Sanic, Quart,
-  Falcon, Bottle, and Typer, uncalled FastAPI factories, Celery task autodiscovery, and
-  otherwise a library's public API;
+  Falcon, Bottle, Typer, and FastStream, taskiq schedulers, arq workers, database migrations,
+  uncalled FastAPI factories, Celery task autodiscovery, and otherwise a library's public API;
 - explicit external keep contracts, saved explanations, baselines, report comparison, and CI exit
   policies;
 - schema-1 JSON, text output, compatibility guards, and a performance benchmark artifact.
@@ -153,10 +153,14 @@ Compare two reports directly; Git access is not required:
 uv run deadtrace compare before.json after.json --fail-on-new --require-comparable
 ```
 
-Changing the model revision, configuration, capabilities, target dependency versions, or world
-roots produces `partially_comparable`, not a misleading “all findings resolved” result. Reports
-without a common execution world are `incomparable`; incomplete inputs can never be `comparable`.
-Added and removed source files are listed separately from finding changes.
+Changing the model revision, configuration, capabilities, or the support of target dependency
+versions produces `partially_comparable`, not a misleading “all findings resolved” result.
+Reports without a common execution world are `incomparable`; incomplete inputs can never be
+`comparable`. Added tests, routes, scripts, and applications are source changes: added and
+removed source files, worlds, and roots are listed separately from finding changes, and a
+baseline stays comparable across them. Fingerprints depend on a finding's code and members only.
+When a new model revision makes a baseline incomparable, `baseline update` carries reviewed
+entries over by code and members.
 
 Create an inspectable troubleshooting artifact without source text, file paths, symbol names,
 configuration values, environment variables, or object values:

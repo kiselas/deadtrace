@@ -1,0 +1,2 @@
+def forgotten() -> None:
+    pass

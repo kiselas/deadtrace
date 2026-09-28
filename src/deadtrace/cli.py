@@ -10,7 +10,12 @@ import typer
 
 from deadtrace import __version__
 from deadtrace.analysis import analyze
-from deadtrace.artifacts import ArtifactError, read_json_artifact, render_json_artifact
+from deadtrace.artifacts import (
+    MAX_REPORT_BYTES,
+    ArtifactError,
+    read_json_artifact,
+    render_json_artifact,
+)
 from deadtrace.baseline import (
     apply_baseline,
     create_baseline,
@@ -163,7 +168,12 @@ def scan_command(
             typer.echo("--fail-on-new requires --baseline", err=True)
             raise typer.Exit(code=2)
         if not baseline_result.comparable:
-            typer.echo("baseline is not comparable with this analysis method", err=True)
+            typer.echo(
+                "baseline is not comparable with this analysis method: "
+                f"{'; '.join(baseline_result.reasons)}; review the report and refresh it with "
+                "`deadtrace baseline update`",
+                err=True,
+            )
             raise typer.Exit(code=2)
         if baseline_result.new:
             raise typer.Exit(code=1)
@@ -402,3 +412,10 @@ def _emit_report(rendered: str, output: Path | None) -> None:
         typer.echo(f"cannot write report {output}: {error}", err=True)
         raise typer.Exit(code=2) from error
     typer.echo(f"Wrote report to {output}", err=True)
+    size = len(rendered.encode("utf-8"))
+    if size > MAX_REPORT_BYTES:
+        typer.echo(
+            f"report {output} is {size} bytes; baseline, compare, and explain read at most "
+            f"{MAX_REPORT_BYTES} bytes",
+            err=True,
+        )

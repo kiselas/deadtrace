@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "loaded-module-submodule-import"
+description = "A submodule import named from obj.__module__ runs only beside loaded modules."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_shop/tables.py"
+kind = "function"
+qualified_name = "build"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_plugins/_shop/tables.py"
+kind = "function"
+qualified_name = "build"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_legacy/tables.py"
+kind = "function"
+qualified_name = "build"
+expectation = "candidate"

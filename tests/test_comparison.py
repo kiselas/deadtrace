@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 import pytest
 
 from deadtrace.analysis import analyze
-from deadtrace.artifacts import ArtifactError, render_json_artifact
+from deadtrace.artifacts import ArtifactError, read_json_artifact, render_json_artifact
 from deadtrace.baseline import (
     apply_baseline,
     create_baseline,
@@ -106,6 +107,62 @@ def test_source_membership_changes_are_visible_but_remain_source_changes(tmp_pat
     assert payload["summary"]["added_source_files"] == 1
 
 
+def test_new_roots_and_worlds_are_source_changes(tmp_path: Path) -> None:
+    before = _report(tmp_path, _source())
+    after = _report(
+        tmp_path,
+        _source('@app.get("/health")\ndef health() -> None:\n    pass\n'),
+    )
+    (tmp_path / "test_main.py").write_text(
+        "from main import live\n\ndef test_live() -> None:\n    live()\n", encoding="utf-8"
+    )
+    with_tests = semantic_report_dict(analyze(tmp_path, Config()))
+
+    comparison = compare_reports(before, after)
+    assert comparison.status is Comparability.COMPARABLE
+    assert comparison.added_roots == ("production:web: main.health",)
+    assert len(comparison.unchanged) == 1
+    assert "roots added: 1" in render_comparison_text(comparison)
+
+    grown = compare_reports(after, with_tests)
+    assert grown.status is Comparability.COMPARABLE
+    assert grown.added_worlds == ("tests:pytest",)
+    assert grown.to_dict()["summary"]["added_worlds"] == 1
+    assert [item["fingerprint"] for item in grown.unchanged] == [
+        item["fingerprint"] for item in after["findings"]
+    ]
+
+
+def test_dependency_versions_matter_only_where_they_weaken_the_model(tmp_path: Path) -> None:
+    before = _report(tmp_path, _source())
+    bumped = deepcopy(before)
+    bumped["descriptor"]["target_environment_digest"] = "other"
+    bumped["target_environment"]["packages"] = [
+        {"name": "httpx", "version": "0.28.1", "source": "uv.lock"}
+    ]
+    bumped["target_environment"]["issues"] = [
+        {"code": "DT4002", "package": "fastapi", "version": "0.120.0", "message": "untested"}
+    ]
+    assert compare_reports(before, bumped).status is Comparability.COMPARABLE
+
+    unsupported = deepcopy(bumped)
+    unsupported["target_environment"]["issues"] = [
+        {"code": "DT4001", "package": "fastapi", "version": "1.0.0", "message": "unsupported"}
+    ]
+    comparison = compare_reports(before, unsupported)
+    assert comparison.status is Comparability.PARTIALLY_COMPARABLE
+    assert comparison.reasons == ("support of target dependency versions changed",)
+
+
+def test_analyzer_version_alone_keeps_reports_comparable(tmp_path: Path) -> None:
+    before = _report(tmp_path, _source())
+    after = deepcopy(before)
+    after["tool"]["version"] = "99.0.0"
+
+    assert compare_reports(before, after).status is Comparability.COMPARABLE
+    assert apply_baseline(after, create_baseline(before, "reviewed")).comparable
+
+
 def test_changed_group_is_correlated_but_not_silently_suppressed(tmp_path: Path) -> None:
     before = _report(
         tmp_path,
@@ -155,8 +212,54 @@ def test_baseline_accepts_only_exact_findings_under_same_method(tmp_path: Path) 
     incompatible = _report(tmp_path, _source(), Config(max_steps=99_999))
     rejected = apply_baseline(incompatible, baseline)
     assert not rejected.comparable
+    assert rejected.reasons == ("configuration changed",)
+    assert rejected.payload["baseline"]["reasons"] == ["configuration changed"]
     assert rejected.accepted == 0
     assert rejected.new == 1
+
+
+def test_baseline_survives_new_tests_and_routes(tmp_path: Path) -> None:
+    baseline = create_baseline(_report(tmp_path, _source()), "reviewed legacy debt")
+    grown = _report(
+        tmp_path,
+        _source('@app.get("/health")\ndef health() -> None:\n    pass\n'),
+    )
+    (tmp_path / "test_main.py").write_text(
+        "from main import live\n\ndef test_live() -> None:\n    live()\n", encoding="utf-8"
+    )
+    with_tests = semantic_report_dict(analyze(tmp_path, Config()))
+
+    for report in (grown, with_tests):
+        application = apply_baseline(report, baseline)
+        assert application.comparable
+        assert (application.accepted, application.new) == (1, 0)
+
+
+def test_baseline_with_input_issues_is_comparable_with_itself(tmp_path: Path) -> None:
+    (tmp_path / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    report = _report(tmp_path, _source())
+    assert report["issues"]
+    baseline = json.loads(render_json_artifact(create_baseline(report, "reviewed")))
+
+    assert apply_baseline(report, baseline).comparable
+
+
+def test_baseline_update_carries_entries_whose_fingerprint_was_renewed(tmp_path: Path) -> None:
+    report = _report(tmp_path, _source())
+    baseline = create_baseline(deepcopy(report), "reviewed debt")
+    baseline["entries"][0]["fingerprint"] = "rch001-0000000000000000"
+    baseline["entries"][0]["members"][0]["line"] = 1
+
+    refreshed = update_baseline(baseline, report)
+
+    assert refreshed["entries"] == [
+        {
+            "fingerprint": report["findings"][0]["fingerprint"],
+            "code": "RCH001",
+            "members": report["findings"][0]["members"],
+            "reason": "reviewed debt",
+        }
+    ]
 
 
 def test_baseline_validation_and_json_are_deterministic(tmp_path: Path) -> None:
@@ -202,3 +305,37 @@ def test_baseline_update_does_not_accept_new_findings_by_default(tmp_path: Path)
 
     with pytest.raises(ArtifactError, match="non-empty reason"):
         update_baseline(baseline, changed, accept_new=True)
+
+
+def test_capabilities_and_removed_worlds_follow_the_method_and_the_source(
+    tmp_path: Path,
+) -> None:
+    without_tests = _report(
+        tmp_path, _source('@app.get("/health")\ndef health() -> None:\n    pass\n')
+    )
+    assert "pytest.fixtures" in {item["id"] for item in without_tests["capabilities"]}
+    (tmp_path / "test_main.py").write_text(
+        "from main import live\n\ndef test_live() -> None:\n    live()\n", encoding="utf-8"
+    )
+    with_tests = semantic_report_dict(analyze(tmp_path, Config()))
+    (tmp_path / "test_main.py").unlink()
+    shrunk = _report(tmp_path, _source())
+
+    assert without_tests["capabilities"] == with_tests["capabilities"]
+    comparison = compare_reports(with_tests, shrunk)
+    assert comparison.status is Comparability.COMPARABLE
+    assert comparison.removed_worlds == ("tests:pytest",)
+    assert comparison.removed_roots == ("production:web: main.health",)
+
+
+def test_reports_are_read_up_to_the_report_limit_not_the_input_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = tmp_path / "report.json"
+    report.write_text(render_json_artifact(_report(tmp_path, _source())), encoding="utf-8")
+    monkeypatch.setattr("deadtrace.artifacts.MAX_ARTIFACT_BYTES", 10)
+
+    assert read_json_artifact(report)["schema_version"] == 1
+    monkeypatch.setattr("deadtrace.artifacts.MAX_REPORT_BYTES", 10)
+    with pytest.raises(ArtifactError, match="limit is 10 bytes"):
+        read_json_artifact(report)

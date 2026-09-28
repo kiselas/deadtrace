@@ -4,7 +4,7 @@ description = "Alembic runs env.py and the revision functions of its versions di
 
 [analysis]
 complete = true
-worlds = ["production:web"]
+worlds = ["production:migrations", "production:web"]
 finding_codes = ["RCH001"]
 limitation_codes = []
 

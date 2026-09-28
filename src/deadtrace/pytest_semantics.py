@@ -23,16 +23,16 @@ from deadtrace.core import (
     WorldId,
     WorldPlan,
 )
-from deadtrace.frameworks import FrameworkCapability, FrameworkModel
+from deadtrace.frameworks import FrameworkModel
 from deadtrace.python_frontend import (
     PythonModule,
     PythonProgram,
     PythonSymbol,
     _dotted_name,
     call_arguments,
+    is_fixture_decorator,
     is_function,
     keyword_argument,
-    single_string_literal,
 )
 
 _BUILTIN_FIXTURES = frozenset(
@@ -279,11 +279,27 @@ def apply_pytest_model(
     limitations: list[Limitation] = []
     world = WorldId("tests", "pytest")
     all_nodes = tuple(node.id for node in model.graph.nodes)
-    plugins, plugin_limitations = _pytest_plugins(program, world, plugin_modules)
-    global_fixtures = {fixture.name: fixture for fixture in fixtures if fixture.module in plugins}
-    scopes = _FixtureScopes(program, fixtures)
+    plugins, scoped_plugins, plugin_limitations = _pytest_plugins(program, world, plugin_modules)
+    # Installed plugins serve every test; ``pytest_plugins`` those of the session whose root
+    # conftest names them, as each service of a monorepo is tested apart (ADR-0022).
+    installed = {name for name in plugin_modules if name in program.modules}
+    global_fixtures = {fixture.name: fixture for fixture in fixtures if fixture.module in installed}
+    scopes = _FixtureScopes(program, fixtures, scoped_plugins)
+    plugin_fallback: dict[str, list[Fixture]] = {}
+    for fixture in fixtures:
+        if fixture.module in plugins and fixture.module not in installed:
+            plugin_fallback.setdefault(fixture.name, []).append(fixture)
+    by_name: dict[str, list[Fixture]] = {}
+    for fixture in fixtures:
+        by_name.setdefault(fixture.name, []).append(fixture)
     roots.update(_hook_implementations(program, plugins))
     roots.update(classes)
+    # pytest imports every conftest and plugin module, which runs their top-level code.
+    roots.update(
+        module.node_id
+        for name, module in program.modules.items()
+        if name in plugins or PurePosixPath(module.path).name == "conftest.py"
+    )
     roots.update(_xunit_fixtures(program, collection, classes))
     # Plugins request the fixtures they define themselves, and a project fixture of such a name
     # overrides theirs: pytest-asyncio's ``event_loop``, pytest-django's ``django_db_setup``.
@@ -321,6 +337,7 @@ def apply_pytest_model(
             limitations=limitations,
             world=world,
             all_nodes=all_nodes,
+            fallback=plugin_fallback,
         )
 
     fixture_limitations: dict[NodeId, list[Limitation]] = {}
@@ -345,7 +362,24 @@ def apply_pytest_model(
             limitations=fixture_limitations.setdefault(fixture.symbol, []),
             world=world,
             all_nodes=all_nodes,
+            fallback=plugin_fallback,
         )
+        # pytest resolves a fixture's arguments from the test that requests it, so a fixture
+        # of that name overriding the visible one closer to a test may run instead.
+        directory = PurePosixPath(fixture.path).parent
+        for name in fixture.dependencies:
+            chosen = visible.get(name)
+            edges.extend(
+                ExecutionEdge(
+                    fixture.symbol,
+                    item.symbol,
+                    EdgeKind.DEPENDENCY,
+                    f"a test below may resolve fixture {name} to an override",
+                )
+                for item in by_name.get(name, ())
+                if (chosen is None or item.symbol != chosen.symbol)
+                and _is_parent(directory, PurePosixPath(item.path).parent)
+            )
     # A fixture no test can request never runs, so an argument it cannot resolve limits nothing.
     requested_fixtures = _reachable(roots, edges)
     for symbol, found in fixture_limitations.items():
@@ -373,10 +407,6 @@ def apply_pytest_model(
         model,
         graph=graph,
         plans=tuple(sorted(plans, key=lambda item: item.id)),
-        capabilities=(
-            *model.capabilities,
-            FrameworkCapability("pytest.fixtures", 2, "modeled"),
-        ),
     )
 
 
@@ -388,20 +418,21 @@ def _discover_fixtures(program: PythonProgram) -> tuple[Fixture, ...]:
         module = program.modules[symbol.module]
         for expression in symbol.decorators:
             function = expression.func if isinstance(expression, ast.Call) else expression
-            if not _expanded_name(module, function).endswith("pytest.fixture"):
+            if not is_fixture_decorator(_expanded_name(module, function)):
                 continue
             fixture_name = symbol.name
             autouse = False
             if isinstance(expression, ast.Call):
-                name_value = single_string_literal(_keyword(expression, "name"), module.text)
+                name_value = _string_value(_keyword(expression, "name"))
                 if name_value is not None:
                     fixture_name = name_value
                 autouse_value = _keyword(expression, "autouse")
                 autouse = _dotted_name(autouse_value) == "True"
+            # pytest requests a fixture's arguments as a test's: none with a default value.
             dependencies = tuple(
-                parameter.name
-                for parameter in symbol.parameters
-                if parameter.name not in {"self", "cls", "request"}
+                name
+                for name in _requested_argument_names(program, module, symbol)
+                if name not in {"self", "cls", "request"}
             )
             fixtures.append(
                 Fixture(
@@ -424,19 +455,45 @@ class _FixtureScopes:
     a test module or a conftest, by name or with ``*``, is visible there as if defined in it.
     """
 
-    def __init__(self, program: PythonProgram, fixtures: tuple[Fixture, ...]) -> None:
+    def __init__(
+        self,
+        program: PythonProgram,
+        fixtures: tuple[Fixture, ...],
+        scoped_plugins: dict[PurePosixPath, set[str]] | None = None,
+    ) -> None:
         by_symbol = {fixture.symbol: fixture for fixture in fixtures}
+        self.plugin_scopes: list[tuple[PurePosixPath, dict[str, Fixture]]] = sorted(
+            (
+                (
+                    directory,
+                    {
+                        fixture.name: fixture
+                        for fixture in fixtures
+                        if fixture.module in sorted(modules)
+                    },
+                )
+                for directory, modules in (scoped_plugins or {}).items()
+            ),
+            key=lambda item: (len(item[0].parts), str(item[0])),
+        )
         defined: dict[str, dict[str, Fixture]] = {}
         for fixture in fixtures:
             defined.setdefault(fixture.module, {})[fixture.name] = fixture
         self.namespaces: dict[str, dict[str, Fixture]] = {}
         self.conftests: list[tuple[PurePosixPath, str]] = []
-        for name, module in program.modules.items():
+        resolving: set[str] = set()
+
+        def namespace_of(name: str) -> dict[str, Fixture]:
+            # ``from .fixtures import *`` also brings what ``fixtures`` itself star-imports.
+            if name in self.namespaces or name in resolving or name not in program.modules:
+                return self.namespaces.get(name, {})
+            resolving.add(name)
+            module = program.modules[name]
             namespace: dict[str, Fixture] = {}
             for base in module.star_imports:
                 namespace.update(
                     (fixture_name, fixture)
-                    for fixture_name, fixture in defined.get(base, {}).items()
+                    for fixture_name, fixture in namespace_of(base).items()
                     if not fixture_name.startswith("_")
                 )
             for local, binding in module.imports.items():
@@ -445,8 +502,13 @@ class _FixtureScopes:
                 if target is not None and imported is not None:
                     namespace[imported.name if local == target.name else local] = imported
             namespace.update(defined.get(name, {}))
+            resolving.discard(name)
             if namespace:
                 self.namespaces[name] = namespace
+            return namespace
+
+        for name, module in program.modules.items():
+            namespace_of(name)
             path = PurePosixPath(module.path)
             if path.name == "conftest.py":
                 self.conftests.append((path.parent, name))
@@ -470,6 +532,9 @@ class _FixtureScopes:
         if cached is not None:
             return cached
         visible: dict[str, Fixture] = dict(global_fixtures)
+        for plugin_directory, plugin_fixtures in self.plugin_scopes:
+            if _is_parent(plugin_directory, PurePosixPath(directory)):
+                visible.update(plugin_fixtures)
         for conftest_directory, module in self.conftests:
             if _is_parent(conftest_directory, PurePosixPath(directory)):
                 visible.update(self.namespaces.get(module, {}))
@@ -515,6 +580,7 @@ def _connect_fixture_requests(
     limitations: list[Limitation],
     world: WorldId,
     all_nodes: tuple[NodeId, ...],
+    fallback: dict[str, list[Fixture]] | None = None,
 ) -> None:
     for name in sorted(requested):
         fixture = visible.get(name)
@@ -526,6 +592,18 @@ def _connect_fixture_requests(
                     EdgeKind.DEPENDENCY,
                     f"pytest resolves fixture {name}",
                 )
+            )
+        elif fallback and name in fallback:
+            # A plugin named by another conftest serves this test too when one pytest session
+            # collects both directories.
+            edges.extend(
+                ExecutionEdge(
+                    source,
+                    item.symbol,
+                    EdgeKind.DEPENDENCY,
+                    f"a pytest plugin of another directory may provide fixture {name}",
+                )
+                for item in fallback[name]
             )
         elif name not in _BUILTIN_FIXTURES and name not in _PLUGIN_FIXTURES:
             limitations.append(
@@ -723,7 +801,7 @@ def _fixture_values(
         ):
             continue
         argument = node.args[0] if node.args else keyword_argument(node, "argname")
-        value = single_string_literal(argument, module.text) if argument is not None else None
+        value = _string_value(argument) if argument is not None else None
         if value is None:
             return set(visible)
         names.add(value)
@@ -775,17 +853,27 @@ def _requested_argument_names(
         if default is None
     )
     decorators = [*symbol.decorators, *_class_decorators(program, symbol)]
-    return names[_mock_patch_arguments(module, decorators) :]
+    return names[_mock_patch_arguments(program, module, decorators) :]
 
 
-def _mock_patch_arguments(module: PythonModule, decorators: list[ast.expr]) -> int:
-    """How many positional mocks ``patch`` and ``patch.object`` decorators pass to a test."""
+def _mock_patch_arguments(
+    program: PythonProgram, module: PythonModule, decorators: list[ast.expr]
+) -> int:
+    """How many positional mocks ``patch`` and ``patch.object`` decorators pass to a test.
+
+    A decorator may also name a patcher assigned at the top of a module, as
+    ``patch_send = patch.object(Client, "send")`` in a conftest that tests import.
+    """
 
     count = 0
-    for expression in decorators:
+    for decorator in decorators:
+        expression, owner = decorator, module
         if not isinstance(expression, ast.Call):
-            continue
-        name = _expanded_name(module, expression.func)
+            found = _assigned_patcher(program, module, expression)
+            if found is None:
+                continue
+            expression, owner = found
+        name = _expanded_name(owner, expression.func)
         if name.endswith("mock.patch"):
             replacement = len(expression.args) >= 2
         elif name.endswith("mock.patch.object"):
@@ -795,6 +883,29 @@ def _mock_patch_arguments(module: PythonModule, decorators: list[ast.expr]) -> i
         if not replacement and keyword_argument(expression, "new") is None:
             count += 1
     return count
+
+
+def _assigned_patcher(
+    program: PythonProgram, module: PythonModule, expression: ast.expr
+) -> tuple[ast.Call, PythonModule] | None:
+    """The call assigned to a top-level name that a decorator expression names, and its module."""
+
+    full_name = _expanded_name(module, expression)
+    owner_name, _, attribute = full_name.rpartition(".")
+    owner = program.modules.get(owner_name)
+    if owner is None:
+        return None
+    for statement in owner.tree.body:
+        if (
+            isinstance(statement, ast.Assign)
+            and isinstance(statement.value, ast.Call)
+            and any(
+                isinstance(target, ast.Name) and target.id == attribute
+                for target in statement.targets
+            )
+        ):
+            return statement.value, owner
+    return None
 
 
 def _class_decorators(program: PythonProgram, symbol: PythonSymbol) -> list[ast.expr]:
@@ -831,7 +942,7 @@ def _usefixtures_names(
         if not _expanded_name(module, expression.func).endswith("pytest.mark.usefixtures"):
             continue
         for argument in call_arguments(expression):
-            value = single_string_literal(argument.value, module.text)
+            value = _string_value(argument.value)
             if value is not None:
                 names.add(value)
     return names
@@ -853,11 +964,11 @@ def _parameterized_names(
         argnames = keyword_argument(expression, "argnames")
         if argnames is None and expression.args:
             argnames = expression.args[0]
-        parsed = _argument_names(argnames, module)
+        parsed = _argument_names(argnames)
         indirect = keyword_argument(expression, "indirect")
         if _dotted_name(indirect) == "True":
             continue
-        names.update(parsed - _argument_names(indirect, module))
+        names.update(parsed - _argument_names(indirect))
     return names
 
 
@@ -877,27 +988,27 @@ def _lazy_fixtures(program: PythonProgram, module: PythonModule, symbol: PythonS
                 continue
             called = _expanded_name(module, node.func)
             if called.endswith(LAZY_FIXTURES) or called.rpartition(".")[2] == "lf":
-                value = single_string_literal(node.args[0], module.text)
+                value = _string_value(node.args[0])
                 if value is not None:
                     names.update(part.strip() for part in value.split(".")[:1])
     return names
 
 
-def _argument_names(expression: ast.expr | None, module: PythonModule) -> set[str]:
+def _argument_names(expression: ast.expr | None) -> set[str]:
     if expression is None:
         return set()
-    value = single_string_literal(expression, module.text)
+    value = _string_value(expression)
     if value is not None:
         return {part.strip() for part in value.split(",") if part.strip()}
     if isinstance(expression, (ast.List, ast.Tuple)):
-        items = (single_string_literal(item, module.text) for item in expression.elts)
+        items = (_string_value(item) for item in expression.elts)
         return {item.strip() for item in items if item is not None and item.strip()}
     return set()
 
 
 def _pytest_plugins(
     program: PythonProgram, world: WorldId, plugin_modules: tuple[str, ...]
-) -> tuple[set[str], list[Limitation]]:
+) -> tuple[set[str], dict[PurePosixPath, set[str]], list[Limitation]]:
     """Project modules loaded as pytest plugins, and the plugin lists that cannot be read.
 
     ``pytest_plugins`` names plugins by module; pytest imports each and registers its fixtures
@@ -906,6 +1017,47 @@ def _pytest_plugins(
     """
 
     plugins = {name for name in plugin_modules if name in program.modules}
+    scoped: dict[PurePosixPath, set[str]] = {}
+    by_path = {module.path: module.name for module in program.modules.values()}
+    packages = {
+        PurePosixPath(module.path).parent
+        for module in program.modules.values()
+        if PurePosixPath(module.path).name == "__init__.py"
+    }
+
+    def base_of(conftest: PurePosixPath) -> str:
+        # pytest's prepend import mode puts the directory above a conftest's outermost package
+        # on sys.path, or the conftest's own directory when it is in no package.
+        directory = conftest.parent
+        while directory in packages and directory != directory.parent:
+            directory = directory.parent
+        return "" if str(directory) == "." else str(directory)
+
+    # pytest imports a plugin by name from sys.path, which holds the root and those directories;
+    # a name there may differ from the module's name under its import root, as
+    # ``src.app.fixtures`` for ``app.fixtures`` when ``src`` is a regular package.
+    bases = sorted(
+        {
+            "",
+            *(
+                base_of(PurePosixPath(module.path))
+                for module in program.modules.values()
+                if PurePosixPath(module.path).name == "conftest.py"
+            ),
+        }
+    )
+
+    def project_module(name: str) -> str | None:
+        if name in program.modules:
+            return name
+        relative = name.replace(".", "/")
+        for base in bases:
+            prefix = f"{base}/" if base else ""
+            for candidate in (f"{prefix}{relative}.py", f"{prefix}{relative}/__init__.py"):
+                if candidate in by_path:
+                    return by_path[candidate]
+        return None
+
     limitations: list[Limitation] = []
     for module in program.modules.values():
         for small in module.tree.body:
@@ -919,7 +1071,7 @@ def _pytest_plugins(
                 continue
             value = small.value
             items = value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value]
-            names = [single_string_literal(item, module.text) for item in items]
+            names = [_string_value(item) for item in items]
             if any(name is None for name in names):
                 limitations.append(
                     Limitation(
@@ -930,8 +1082,22 @@ def _pytest_plugins(
                     )
                 )
                 continue
-            plugins.update(name for name in names if name is not None and name in program.modules)
-    return plugins, limitations
+            declared = {
+                found
+                for name in names
+                if name is not None and (found := project_module(name)) is not None
+            }
+            plugins.update(declared)
+            scoped.setdefault(PurePosixPath(module.path).parent, set()).update(declared)
+    return plugins, scoped, limitations
+
+
+def _string_value(expression: ast.expr | None) -> str | None:
+    """The string a literal evaluates to, as pytest reads it; ``"a, " "b"`` is ``"a, b"``."""
+
+    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+        return expression.value
+    return None
 
 
 def _expanded_name(module: PythonModule, expression: ast.AST | None) -> str:

@@ -1,0 +1,45 @@
+schema_version = 1
+case_id = "message-workers"
+description = "FastStream applications, taskiq schedulers, and arq workers are application roots."
+
+[analysis]
+complete = true
+worlds = ["production:arq", "production:faststream", "production:taskiq"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "service/handlers.py"
+kind = "function"
+qualified_name = "handle"
+expectation = "not_candidate"
+
+[[targets]]
+path = "service/run_scheduler.py"
+kind = "function"
+qualified_name = "setup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "service/worker.py"
+kind = "function"
+qualified_name = "startup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "service/worker.py"
+kind = "function"
+qualified_name = "job"
+expectation = "not_candidate"
+
+[[targets]]
+path = "service/worker.py"
+kind = "function"
+qualified_name = "nightly"
+expectation = "not_candidate"
+
+[[targets]]
+path = "service/handlers.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"

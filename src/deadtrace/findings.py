@@ -350,7 +350,8 @@ def _finding(
     worlds: tuple[str, ...],
     members: tuple[FindingMember, ...],
 ) -> Finding:
-    canonical = "\n".join((code, *worlds, *(member.identity() for member in members)))
+    # Worlds stay out: a new application or test world must not renew every fingerprint.
+    canonical = "\n".join((code, *(member.identity() for member in members)))
     fingerprint = f"{code.lower()}-{sha256(canonical.encode()).hexdigest()[:16]}"
     return Finding(code, category, title, reason, worlds, members, fingerprint)
 

@@ -40,6 +40,7 @@ from deadtrace.python_frontend import (
     declared_exports,
     flow_nodes,
     has_main_guard,
+    is_fixture_decorator,
     is_function,
     is_test_path,
     keyword_argument,
@@ -64,16 +65,26 @@ APPLICATION_CONSTRUCTORS = {
     "celery.Celery": "celery",
     "falcon.App": "falcon",
     "falcon.asgi.App": "falcon",
+    "faststream.FastStream": "faststream",
+    "faststream.app.FastStream": "faststream",
+    "faststream.asgi.AsgiFastStream": "faststream",
+    "faststream.asgi.app.AsgiFastStream": "faststream",
     "flask.Flask": "flask",
     "litestar.Litestar": "litestar",
     "quart.Quart": "quart",
     "sanic.Sanic": "sanic",
     "starlette.applications.Starlette": "starlette",
+    "taskiq.TaskiqScheduler": "taskiq",
+    "taskiq.scheduler.scheduler.TaskiqScheduler": "taskiq",
+    "taskiq_faststream.StreamScheduler": "taskiq",
     "typer.Typer": "typer",
 }
 """Application constructors of frameworks without a capability. The module or factory that
 builds one is an execution root; handlers registered on the application by decorators are
-protected by the decorator rule of ADR-0008."""
+protected by the decorator rule of ADR-0008. A project class deriving from one of them builds
+an application as well, and an arq worker is a class with ``functions`` or ``cron_jobs`` that
+the ``arq`` command reads (ADR-0022)."""
+ARQ_WORKER_ATTRIBUTES = frozenset({"functions", "cron_jobs"})
 
 _APPLICATION_PACKAGES = frozenset(name.partition(".")[0] for name in APPLICATION_CONSTRUCTORS)
 DJANGO_APP_MODULES = ("apps", "models", "admin")
@@ -285,6 +296,7 @@ def build_framework_model(
         _discover_indirect_includes(state)
         _discover_migration_contracts(state)
         _discover_application_factories(state)
+        _discover_arq_workers(state)
         _discover_task_autodiscovery(state)
         _discover_django_applications(state)
         _discover_cli_commands(state)
@@ -354,6 +366,8 @@ def build_framework_model(
             FrameworkCapability("django.installed-apps", 2, "modeled"),
             FrameworkCapability("alembic.migrations", 1, "modeled"),
             FrameworkCapability("cli.commands", 1, "modeled"),
+            # The capability set describes the method, so it holds whether or not tests exist.
+            FrameworkCapability("pytest.fixtures", 2, "modeled"),
         ),
     )
 
@@ -699,8 +713,8 @@ def _discover_objects(state: _BuildState) -> None:
                                         detail=f"Dishka alias retains {type_name}",
                                     )
                                 )
-            elif function_name in APPLICATION_CONSTRUCTORS:
-                state.applications[key] = (APPLICATION_CONSTRUCTORS[function_name], module.name)
+            elif (framework := _application_framework(state, module, value.func)) is not None:
+                state.applications[key] = (framework, module.name)
                 state.application_names.setdefault(module.name, set()).add(name)
             else:
                 provider = _provider_class_from_expression(state, module, value)
@@ -1401,7 +1415,15 @@ def _record_migration_declaration(
 def _record_migration_callbacks(state: _BuildState, module: PythonModule, call: ast.Call) -> None:
     if not _expanded_name(module, call.func).endswith("migrations.RunPython"):
         return
-    expressions = positional_arguments(call)[:2]
+    positional = positional_arguments(call)[:2]
+    expressions = [
+        *positional,
+        *(
+            expression
+            for name in ("code", "reverse_code")[len(positional) :]
+            if (expression := keyword_argument(call, name)) is not None
+        ),
+    ]
     if not expressions:
         state.unknown_migration_modules.add(module.name)
         return
@@ -1573,31 +1595,6 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
             else:
                 retained.add(symbol.id)
                 conservative.add(symbol.id)
-        retained.update(state.migration_callbacks)
-        retained.update(state.migration_declarations)
-        conservative.update(state.migration_callbacks)
-        conservative.update(state.migration_declarations)
-        for module_name in sorted(state.unknown_migration_modules):
-            module = state.program.modules[module_name]
-            conservative.add(module.node_id)
-            if assembly is not AssemblyState.INVALID:
-                assembly = AssemblyState.PARTIAL
-            limitations.append(
-                Limitation(
-                    code="DT3301",
-                    message=f"Django RunPython callback cannot be resolved in {module.path}",
-                    origin=module.node_id,
-                    world=world_id,
-                )
-            )
-            state.boundaries.append(
-                UnknownBoundary(
-                    source=module.node_id,
-                    domain="django_migration_callback",
-                    reason="unresolved historical migration callback",
-                    targets=tuple(node.id for node in state.program.graph.nodes),
-                )
-            )
         if not roots and assembly is AssemblyState.COMPLETE:
             assembly = AssemblyState.INVALID
             limitations.append(
@@ -1618,7 +1615,71 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
                 root_provenance=tuple(root_provenance.values()),
             )
         )
+    migrations = _migrations_plan(state)
+    if migrations is not None:
+        plans.append(migrations)
     return tuple(sorted(plans, key=lambda item: item.id))
+
+
+MIGRATIONS_WORLD = WorldId("production", "migrations")
+
+
+def _migrations_plan(state: _BuildState) -> WorldPlan | None:
+    """The world of database migrations, which their tool runs apart from any application.
+
+    Alembic runs its environment and revision functions, and Django its migration modules and
+    ``RunPython`` callbacks, as ``alembic upgrade`` or ``manage.py migrate``. Rooting them in
+    every application world made each application of a monorepo run every service's migrations
+    and everything they import (ADR-0022).
+    """
+
+    contracts = state.migration_callbacks | state.migration_declarations
+    if not contracts and not state.unknown_migration_modules:
+        return None
+    assembly = AssemblyState.COMPLETE
+    conservative: set[NodeId] = set()
+    limitations: list[Limitation] = []
+    for module_name in sorted(state.unknown_migration_modules):
+        module = state.program.modules[module_name]
+        conservative.add(module.node_id)
+        assembly = AssemblyState.PARTIAL
+        limitations.append(
+            Limitation(
+                code="DT3301",
+                message=f"Django RunPython callback cannot be resolved in {module.path}",
+                origin=module.node_id,
+                world=MIGRATIONS_WORLD,
+            )
+        )
+        state.boundaries.append(
+            UnknownBoundary(
+                source=module.node_id,
+                domain="django_migration_callback",
+                reason="unresolved historical migration callback",
+                targets=tuple(node.id for node in state.program.graph.nodes),
+            )
+        )
+    # The tool imports each migration module; what it then calls stays a conservative,
+    # retained historical contract, as before in every application world.
+    modules = {
+        state.program.modules[symbol.module].node_id
+        if (symbol := state.program.symbols.get(node_id)) is not None
+        else node_id
+        for node_id in contracts
+    }
+    conservative.update(contracts)
+    return WorldPlan(
+        id=MIGRATIONS_WORLD,
+        roots=tuple(sorted(modules)),
+        retained_roots=tuple(sorted(contracts)),
+        conservative_roots=tuple(sorted(conservative)),
+        assembly_state=assembly,
+        limitations=tuple(sorted(set(limitations), key=_core_limitation_sort_key)),
+        root_provenance=tuple(
+            RootProvenance(node_id, "framework_discovery", "migration run by its migration tool")
+            for node_id in sorted(modules)
+        ),
+    )
 
 
 def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
@@ -1728,9 +1789,11 @@ def _is_fixture(module: PythonModule, symbol: PythonSymbol) -> bool:
     """Whether ``pytest.fixture`` decorates a function: a plugin exports it to its users."""
 
     return any(
-        _expanded_name(
-            module, expression.func if isinstance(expression, ast.Call) else expression
-        ).endswith("pytest.fixture")
+        is_fixture_decorator(
+            _expanded_name(
+                module, expression.func if isinstance(expression, ast.Call) else expression
+            )
+        )
         for expression in symbol.decorators
     )
 
@@ -1832,6 +1895,58 @@ def _is_non_library_module(module: PythonModule) -> bool:
     return _is_test_module(module) or any(
         directory in _NON_LIBRARY_DIRECTORIES for directory in directories
     )
+
+
+def _application_framework(
+    state: _BuildState, module: PythonModule, constructor: ast.expr
+) -> str | None:
+    """The framework whose application a call builds, through project subclasses too."""
+
+    name = _expanded_name(module, constructor)
+    if name in APPLICATION_CONSTRUCTORS:
+        return APPLICATION_CONSTRUCTORS[name]
+    symbol = state.program.resolve_symbol(name)
+    seen: set[NodeId] = set()
+    stack = [symbol] if symbol is not None and symbol.kind is NodeKind.CLASS else []
+    while stack:
+        class_symbol = stack.pop()
+        if class_symbol.id in seen or not isinstance(class_symbol.node, ast.ClassDef):
+            continue
+        seen.add(class_symbol.id)
+        owner = state.program.modules[class_symbol.module]
+        for base in class_symbol.node.bases:
+            base_name = _expanded_name(owner, base)
+            if base_name in APPLICATION_CONSTRUCTORS:
+                return APPLICATION_CONSTRUCTORS[base_name]
+            base_symbol = state.program.resolve_symbol(base_name)
+            if base_symbol is not None and base_symbol.kind is NodeKind.CLASS:
+                stack.append(base_symbol)
+    return None
+
+
+def _discover_arq_workers(state: _BuildState) -> None:
+    """``arq module.WorkerSettings`` runs a class with ``functions`` or ``cron_jobs``."""
+
+    for module in state.program.modules.values():
+        if _is_test_module(module) or not any(
+            binding.target == "arq" or binding.target.startswith("arq.")
+            for binding in module.imports.values()
+        ):
+            continue
+        for statement in module.tree.body:
+            if isinstance(statement, ast.ClassDef) and any(
+                isinstance(target, ast.Name) and target.id in ARQ_WORKER_ATTRIBUTES
+                for item in statement.body
+                for target in (
+                    item.targets
+                    if isinstance(item, ast.Assign)
+                    else [item.target]
+                    if isinstance(item, ast.AnnAssign) and item.value is not None
+                    else []
+                )
+            ):
+                key = f"{module.name}:{statement.name}"
+                state.applications[key] = ("arq", key)
 
 
 def _discover_application_factories(state: _BuildState) -> None:

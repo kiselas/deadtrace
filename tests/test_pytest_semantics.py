@@ -149,6 +149,141 @@ def test_pytest_plugin_modules_provide_fixtures_to_every_test(tmp_path: Path) ->
     assert tests.state_of(_node(result, "tests.fixtures.items:item")) is not None
 
 
+def test_pytest_plugins_resolve_from_the_directory_above_the_conftest_package(
+    tmp_path: Path,
+) -> None:
+    # pytest puts ``service/`` on sys.path for ``service/service_tests/conftest.py``, whose
+    # directory is a package, so ``service_tests.fixtures.battle`` names a namespace portion.
+    _write(tmp_path, "service/service_tests/__init__.py", "")
+    _write(
+        tmp_path,
+        "service/service_tests/conftest.py",
+        'pytest_plugins = ["service_tests.fixtures.battle"]\n',
+    )
+    _write(
+        tmp_path,
+        "service/service_tests/fixtures/battle.py",
+        "import pytest\n\n@pytest.fixture\ndef battle() -> int:\n    return 1\n",
+    )
+    _write(
+        tmp_path,
+        "service/service_tests/test_battle.py",
+        "def test_battle(battle: int) -> None:\n    pass\n",
+    )
+
+    result = analyze(tmp_path, Config())
+    tests = result.snapshot.world(WorldId("tests", "pytest"))
+
+    assert tests.assembly_state is AssemblyState.COMPLETE
+    battle = result.program.modules["service.service_tests.fixtures.battle"]
+    fixture = next(symbol for symbol in battle.symbols if symbol.name == "battle")
+    assert tests.state_of(fixture.id) is not None
+
+
+def test_asyncio_fixtures_assigned_patchers_joined_names_and_star_chains(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "proxy.py", "class Proxy:\n    def add_logs(self) -> None:\n        pass\n")
+    _write(tmp_path, "tests/__init__.py", "")
+    _write(
+        tmp_path,
+        "tests/conftest.py",
+        """
+from unittest.mock import patch
+
+import pytest
+import pytest_asyncio
+
+from proxy import Proxy
+
+patch_add = patch.object(Proxy, "add_logs")
+
+
+@pytest_asyncio.fixture
+async def revert() -> int:
+    return 1
+
+
+@pytest.fixture
+def made(count: int = 3) -> int:
+    return 2
+""",
+    )
+    _write(
+        tmp_path,
+        "tests/test_a.py",
+        """
+import pytest
+
+from tests.conftest import patch_add
+
+
+@patch_add
+async def test_patched(mock_add, revert: int) -> None:
+    pass
+
+
+@pytest.mark.parametrize(
+    "first, second,"
+    " third",
+    [(1, 2, 3)],
+)
+def test_params(first, second, third, made) -> None:
+    pass
+""",
+    )
+    _write(tmp_path, "tests/arbiter/__init__.py", "")
+    _write(tmp_path, "tests/arbiter/conftest.py", "from .fixtures import *  # noqa: F403\n")
+    _write(tmp_path, "tests/arbiter/fixtures/__init__.py", "from .workers import *  # noqa: F403\n")
+    _write(
+        tmp_path,
+        "tests/arbiter/fixtures/workers.py",
+        "import pytest\n\n@pytest.fixture\ndef worker1() -> int:\n    return 1\n",
+    )
+    _write(tmp_path, "tests/arbiter/test_w.py", "def test_worker(worker1) -> None:\n    pass\n")
+
+    result = analyze(tmp_path, Config())
+    tests = result.snapshot.world(WorldId("tests", "pytest"))
+
+    assert tests.assembly_state is AssemblyState.COMPLETE, tests.limitations
+    for fixture in (
+        "tests.conftest:revert",
+        "tests.conftest:made",
+        "tests.arbiter.fixtures.workers:worker1",
+    ):
+        assert tests.state_of(_node(result, fixture)) is not None
+
+
+def test_pytest_plugins_serve_the_session_of_the_conftest_naming_them(tmp_path: Path) -> None:
+    # Each service of a monorepo is its own pytest session with its own plugin fixtures.
+    for service in ("shop", "billing"):
+        _write(tmp_path, f"{service}/{service}_tests/__init__.py", "")
+        _write(
+            tmp_path,
+            f"{service}/{service}_tests/conftest.py",
+            f'pytest_plugins = ["{service}_tests.fixtures"]\n',
+        )
+        _write(
+            tmp_path,
+            f"{service}/{service}_tests/fixtures.py",
+            "import pytest\n\n@pytest.fixture\ndef image() -> bytes:\n    return b''\n",
+        )
+        _write(
+            tmp_path,
+            f"{service}/{service}_tests/test_images.py",
+            "def test_image(image: bytes) -> None:\n    pass\n",
+        )
+
+    result = analyze(tmp_path, Config())
+    tests = result.snapshot.world(WorldId("tests", "pytest"))
+
+    assert tests.assembly_state is AssemblyState.COMPLETE
+    for service in ("shop", "billing"):
+        module = result.program.modules[f"{service}.{service}_tests.fixtures"]
+        fixture = next(symbol for symbol in module.symbols if symbol.name == "image")
+        assert tests.state_of(fixture.id) is not None, service
+
+
 def test_computed_pytest_plugins_are_reported_as_unknown_collection(tmp_path: Path) -> None:
     _write(tmp_path, "conftest.py", "pytest_plugins = [name for name in PLUGINS]\n")
     _write(tmp_path, "test_sample.py", "def test_sample() -> None:\n    pass\n")

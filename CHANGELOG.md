@@ -59,6 +59,29 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/15` (ADR-0021): reports and baselines stay comparable
+  when tests, routes, scripts, or applications are added, when dependencies other than
+  unsupported FastAPI or Dishka versions change, and when only the analyzer version changes;
+  `compare` lists added and removed worlds and roots as source changes. Fingerprints no longer
+  include worlds, so every fingerprint changes once. `baseline update` carries reviewed entries
+  over by code and members, and an incomparable baseline names the method fields that differ.
+- The same revision (ADR-0022), from a 624k-line monorepo: imports inside services that hold a
+  package of their own name, namespace service packages, and editable libraries such as
+  `libs/common/common` resolve; migrations run in their own world `production:migrations`;
+  FastStream applications, taskiq schedulers, and arq workers root worlds; unresolved method
+  dispatch and `import_module(f"{obj.__module__}.x")` protect only code whose module may run;
+  a union annotation gives no single type; `self` fields take the annotated type or the one
+  class all methods assign; `getattr` values of known receivers and `Cls(...).method`
+  arguments and project instances passed to libraries escape; deserializers such as
+  `pickle.loads` open the module gates; classes created for a metaclass or `__init_subclass__`
+  are kept; `pytest_asyncio.fixture`, assigned patchers, joined string
+  literals, transitive star imports, fixture defaults, conftest top-level code, `pytest_plugins`
+  per session, and `RunPython(code=...)` are modeled.
+- Reports and baselines are read back up to 256 MiB, and `scan` warns when a report is larger;
+  project inputs keep the 16 MiB limit.
+- A finding's explanation lists its worlds' limitations other than guards once, with counts, and
+  the number of guards, instead of copying every guard; reports of single-service projects are
+  up to ten times smaller and stay below 16 MiB.
 - Model revision `python-fastapi-dishka/14` (ADR-0020): `Sub.member` with an inherited member
   uses `Sub`, so the hooks bases call on it are reached; pytest-click fixtures are known.
 - Model revision `python-fastapi-dishka/13` (ADR-0019): a FastAPI factory that returns its
@@ -147,6 +170,10 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Fixed
 
+- A report with input issues is comparable with a baseline created from it; the issues were
+  stored as tuples and read back as lists.
+- The `pytest.fixtures` capability is listed whether or not the project has tests, so a first
+  test no longer changes the analysis method.
 - Repository-wide LF normalization through `.gitattributes`, so a Windows checkout made with
   `core.autocrlf=true` no longer fails `ruff format --check` on unmodified files.
 - The documented wheel smoke command selects Python 3.12 explicitly instead of relying on the

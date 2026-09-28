@@ -661,8 +661,13 @@ class Migration(migrations.Migration):
         }
     )
     model = build_framework_model(program, Config())
-    result = solve(model.graph, model.plans).world(model.plans[0].id)
+    snapshot = solve(model.graph, model.plans)
+    result = snapshot.world(WorldId("production", "migrations"))
+    web = next(world for world in snapshot.worlds if world.id.scenario.startswith("web"))
 
+    # Migrations run under their tool, apart from the application (ADR-0021).
+    assert _id(program, "app.migrations.0001_data:forwards") not in web.conservative_may_run
+    assert result.negative_findings_allowed
     assert _id(program, "app.migrations.0001_data:forwards") in result.retained
     assert _id(program, "app.migrations.0001_data:forwards") in result.conservative_may_run
     assert _id(program, "app.migrations.0001_data:helper") in result.conservative_may_run

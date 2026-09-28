@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "django-runpython-keywords"
+description = "RunPython callbacks passed as code= and reverse_code= are migration contracts."
+
+[analysis]
+complete = true
+worlds = ["production:django", "production:migrations"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "shop/migrations/0001_initial.py"
+kind = "function"
+qualified_name = "forwards"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/migrations/0001_initial.py"
+kind = "function"
+qualified_name = "backwards"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/unused.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"

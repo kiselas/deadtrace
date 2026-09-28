@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "class-creation-hooks"
+description = "Class statements that run __init_subclass__ keep the class they create."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_plugins.py"
+kind = "class"
+qualified_name = "CsvExport"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "register_local.Local"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_plugins.py"
+kind = "class"
+qualified_name = "Unused"
+expectation = "candidate"

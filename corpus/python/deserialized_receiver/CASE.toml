@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "deserialized-receiver"
+description = "A deserializer may build instances of any project class, whose methods may run."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_jobs.py"
+kind = "function"
+qualified_name = "Job.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_api.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"

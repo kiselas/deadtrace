@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "pytest-class-and-conftest-effects"
+description = "Class statements in tests and top-level conftest code run under pytest."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "tests/test_meta.py"
+kind = "class"
+qualified_name = "test_meta.Local"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/conftest.py"
+kind = "function"
+qualified_name = "load_defaults"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/conftest.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"

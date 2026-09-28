@@ -93,13 +93,21 @@ class UnknownBoundary:
     """Possible execution introduced by one reached operation.
 
     An empty target tuple means the boundary cannot be localized and therefore
-    protects every execution node in the graph.
+    protects every execution node in the graph. A boundary that ``needs_module`` protects a
+    target only once the module defining it may run in the world: a method runs on an instance,
+    and an instance exists only after its class statement ran, which runs in its module.
     """
 
     source: NodeId
     domain: str
     reason: str
     targets: tuple[NodeId, ...] = ()
+    needs_module: bool = False
+    gates: tuple[tuple[NodeId, NodeId], ...] = ()
+    """Targets protected only once another node, their gate, may run in the world."""
+    opens_gates: bool = False
+    """Crossing it opens every gate of the world: a deserializer may build an instance of any
+    project class, whose module then runs without the world reaching it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +215,11 @@ class _MutableWorld:
     derivations: list[Derivation] = field(default_factory=list)
     limitations: list[Limitation] = field(default_factory=list)
     exhausted_budget: bool = False
+    gates_open: bool = False
+    waiting: defaultdict[NodeId, list[tuple[NodeId, NodeId, str]]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    """Targets of crossed boundaries by the module they wait for, with source and domain."""
 
 
 def solve(
@@ -251,6 +264,12 @@ def solve(
         boundary_values.sort(key=_fact_sort_key)
 
     all_nodes = tuple(sorted(node_map))
+    module_by_path = {node.path: node.id for node in graph.nodes if node.kind is NodeKind.MODULE}
+    module_of = {
+        node.id: module_by_path[node.path]
+        for node in graph.nodes
+        if node.kind is not NodeKind.MODULE and node.path in module_by_path
+    }
     target_sets = _TargetSets(all_nodes)
     for boundary in graph.boundaries:
         target_sets.add(boundary)
@@ -265,6 +284,7 @@ def solve(
             boundaries=boundaries,
             max_steps=max_steps,
             target_sets=target_sets,
+            module_of=module_of,
         )
         for plan in sorted(plans, key=lambda item: item.id)
     )
@@ -282,10 +302,12 @@ def _solve_world(
     boundaries: dict[NodeId, list[UnknownBoundary]],
     max_steps: int,
     target_sets: _TargetSets | None = None,
+    module_of: dict[NodeId, NodeId] | None = None,
 ) -> WorldResult:
+    module_of = module_of if module_of is not None else {}
     state = _MutableWorld(plan=plan, limitations=list(plan.limitations))
     target_sets = target_sets if target_sets is not None else _TargetSets(all_nodes)
-    marked_sets: set[int] = set()
+    marked_sets: set[tuple[int, bool]] = set()
     local_adjacency: defaultdict[NodeId, list[ExecutionEdge]] = defaultdict(list)
     local_boundaries: defaultdict[NodeId, list[UnknownBoundary]] = defaultdict(list)
     for edge in plan.edges:
@@ -362,6 +384,17 @@ def _solve_world(
         for requirement in requirements.get(source, ()):  # declaration retention, not execution
             state.retained.add(requirement.target)
 
+        for target, origin, domain in state.waiting.pop(source, ()):
+            _mark(
+                state,
+                queue,
+                target=target,
+                reachability=ReachabilityKind.CONSERVATIVE,
+                kind=EdgeKind.UNKNOWN,
+                source=origin,
+                detail=f"unknown execution boundary: {domain}",
+            )
+
         for edge in (*adjacency.get(source, ()), *local_adjacency.get(source, ())):
             _mark(
                 state,
@@ -375,11 +408,37 @@ def _solve_world(
 
         for boundary in (*boundaries.get(source, ()), *local_boundaries.get(source, ())):
             crossed[(source, boundary)] = None
+            if boundary.opens_gates and not state.gates_open:
+                state.gates_open = True
+                for waited in sorted(state.waiting):
+                    for target, origin, domain in state.waiting.pop(waited):
+                        _mark(
+                            state,
+                            queue,
+                            target=target,
+                            reachability=ReachabilityKind.CONSERVATIVE,
+                            kind=EdgeKind.UNKNOWN,
+                            source=origin,
+                            detail=f"unknown execution boundary: {domain}",
+                        )
             targets = target_sets.of(boundary)
-            if id(targets) in marked_sets:
-                continue  # every target is already conservative in this world
-            marked_sets.add(id(targets))
+            gated = boundary.needs_module or bool(boundary.gates)
+            marked = (id(boundary) if boundary.gates else id(targets), gated)
+            if marked in marked_sets:
+                continue  # every target is already conservative or waiting in this world
+            marked_sets.add(marked)
+            gates = dict(boundary.gates)
             for target in targets:
+                module = gates.get(target) or (
+                    module_of.get(target) if boundary.needs_module else None
+                )
+                if (
+                    module is not None
+                    and not state.gates_open
+                    and not (module in state.resolved or module in state.conservative)
+                ):
+                    state.waiting[module].append((target, source, boundary.domain))
+                    continue
                 _mark(
                     state,
                     queue,
@@ -391,9 +450,13 @@ def _solve_world(
                 )
 
     for source, boundary in crossed:
-        if not boundary.targets or any(
-            target in state.conservative and target not in state.resolved
-            for target in boundary.targets
+        if (
+            boundary.opens_gates
+            or not boundary.targets
+            or any(
+                target in state.conservative and target not in state.resolved
+                for target in boundary.targets
+            )
         ):
             state.limitations.append(
                 Limitation(code="DT2002", message=boundary.reason, origin=source, world=plan.id)
