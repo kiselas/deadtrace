@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "instance-passed-to-library"
+description = "An external consumer may call the methods of a project instance it receives."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Handler.handle_DATA"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Report.unused"
+expectation = "candidate"

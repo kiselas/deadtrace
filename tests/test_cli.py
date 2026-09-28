@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from deadtrace.cli import app
@@ -362,3 +363,44 @@ def test_fail_on_new_requires_comparable_reports(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "partially_comparable" in result.stdout
+
+
+def test_incomparable_baseline_names_the_method_change(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n\ndef existing() -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+    report = tmp_path / "report.json"
+    baseline = tmp_path / "baseline.json"
+    runner.invoke(app, ["scan", str(tmp_path), "--format", "json", "--output", str(report)])
+    runner.invoke(
+        app, ["baseline", "create", str(report), "--output", str(baseline), "--reason", "debt"]
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.deadtrace]\nmax-steps = 99999\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(
+        app, ["scan", str(tmp_path), "--baseline", str(baseline), "--fail-on-new"]
+    )
+
+    assert result.exit_code == 2
+    assert "configuration changed" in result.stderr
+    assert "deadtrace baseline update" in result.stderr
+
+
+def test_scan_warns_when_a_report_is_too_large_to_read_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "main.py").write_text(
+        "from fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("deadtrace.cli.MAX_REPORT_BYTES", 10)
+    report = tmp_path / "report.json"
+
+    result = runner.invoke(
+        app, ["scan", str(tmp_path), "--format", "json", "--output", str(report)]
+    )
+
+    assert result.exit_code == 0
+    assert "baseline, compare, and explain read at most 10 bytes" in result.stderr

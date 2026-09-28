@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "unknown-receiver-needs-module"
+description = "An unknown receiver dispatches only to methods of classes whose module may run."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_handles.py"
+kind = "function"
+qualified_name = "Handle.close"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_legacy.py"
+kind = "function"
+qualified_name = "Legacy.close"
+expectation = "candidate"

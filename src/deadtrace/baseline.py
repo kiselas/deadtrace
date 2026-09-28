@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from deadtrace.artifacts import ArtifactError, render_json_artifact
-from deadtrace.comparison import method_descriptor, validate_semantic_report
+from deadtrace.comparison import (
+    method_change_reasons,
+    method_descriptor,
+    validate_semantic_report,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +21,7 @@ class BaselineApplication:
     accepted: int
     new: int
     stale: int
+    reasons: tuple[str, ...] = ()
 
 
 def create_baseline(report: dict[str, Any], reason: str) -> dict[str, Any]:
@@ -52,7 +57,11 @@ def update_baseline(
     accept_new: bool = False,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    """Rebase exact reviewed entries; accepting new findings always requires an explicit reason."""
+    """Rebase reviewed entries; accepting new findings always requires an explicit reason.
+
+    An entry carries over to a finding with its fingerprint, or with its code and exactly its
+    members when a method change renewed the fingerprint.
+    """
 
     validate_baseline(baseline)
     validate_semantic_report(report)
@@ -65,13 +74,20 @@ def update_baseline(
     by_fingerprint = {
         entry["fingerprint"]: entry for entry in old_entries if isinstance(entry, dict)
     }
+    by_content = {_content_key(entry): entry for entry in old_entries if isinstance(entry, dict)}
     entries: list[dict[str, Any]] = []
     for finding in findings:
         assert isinstance(finding, dict)
         fingerprint = finding["fingerprint"]
-        old = by_fingerprint.get(fingerprint)
+        old = by_fingerprint.get(fingerprint) or by_content.get(_content_key(finding))
         if old is not None:
-            entries.append(deepcopy(old))
+            entries.append(
+                {
+                    **deepcopy(old),
+                    "fingerprint": fingerprint,
+                    "members": deepcopy(finding.get("members", [])),
+                }
+            )
         elif accept_new:
             entries.append(
                 {
@@ -113,7 +129,8 @@ def apply_baseline(report: dict[str, Any], baseline: dict[str, Any]) -> Baseline
 
     validate_semantic_report(report)
     validate_baseline(baseline)
-    comparable = baseline["method"] == method_descriptor(report)
+    reasons = method_change_reasons(baseline["method"], method_descriptor(report))
+    comparable = not reasons
     entries = baseline["entries"]
     assert isinstance(entries, list)
     baseline_fingerprints = {entry["fingerprint"] for entry in entries if isinstance(entry, dict)}
@@ -143,6 +160,7 @@ def apply_baseline(report: dict[str, Any], baseline: dict[str, Any]) -> Baseline
     )
     projected["baseline"] = {
         "status": "comparable" if comparable else "incomparable",
+        "reasons": list(reasons),
         "source_digest": baseline.get("source_digest"),
         "stale_fingerprints": sorted(stale),
     }
@@ -152,6 +170,28 @@ def apply_baseline(report: dict[str, Any], baseline: dict[str, Any]) -> Baseline
         accepted=len(accepted),
         new=len(current - accepted),
         stale=len(stale),
+        reasons=reasons,
+    )
+
+
+def _content_key(item: dict[str, Any]) -> tuple[object, ...]:
+    """A finding's code and member identities, the content its fingerprint hashes."""
+
+    members = item.get("members", [])
+    return (
+        item.get("code"),
+        tuple(
+            sorted(
+                (
+                    str(member.get("path")),
+                    str(member.get("qualified_name")),
+                    str(member.get("kind")),
+                    str(member.get("occurrence")),
+                )
+                for member in (members if isinstance(members, list) else [])
+                if isinstance(member, dict)
+            )
+        ),
     )
 
 

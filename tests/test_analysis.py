@@ -246,6 +246,35 @@ setup_dishka(container, app)
     assert any(edge["target"].endswith("shared") for edge in explanation["live_boundaries"])
 
 
+def test_explanations_count_guards_instead_of_copying_them(tmp_path: Path) -> None:
+    (tmp_path / "_tool.py").write_text(
+        """
+class Worker:
+    def process(self) -> None:
+        pass
+
+def handle(item) -> None:
+    item.process()
+
+def unused() -> None:
+    pass
+
+if __name__ == "__main__":
+    handle(Worker())
+""",
+        encoding="utf-8",
+    )
+
+    report = semantic_report_dict(analyze(tmp_path, Config()))
+
+    (explanation,) = report["explanations"]["findings"].values()
+    (world,) = explanation["world_states"]
+    guards = [item for item in report["worlds"][0]["limitations"] if item["code"] == "DT2002"]
+    assert guards
+    assert world["guard_count"] == len(guards)
+    assert all(item["code"] != "DT2002" for item in world["limitations"])
+
+
 def test_unpublished_router_is_separate_observation(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text(
         """

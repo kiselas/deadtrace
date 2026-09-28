@@ -31,8 +31,9 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
         ),
     )
     shown_derivations = derivations[:_EXPLANATION_LIMIT]
+    explainer = _FindingExplainer(result)
     finding_explanations = {
-        finding.fingerprint: _finding_explanation(result, finding) for finding in result.findings
+        finding.fingerprint: explainer.explain(finding) for finding in result.findings
     }
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
@@ -426,67 +427,87 @@ def _derivation_dict(derivation: Derivation, node_map: dict[NodeId, Any]) -> dic
     }
 
 
-def _finding_explanation(result: AnalysisResult, finding: Any) -> dict[str, Any]:
-    node_map = result.model.graph.node_map()
-    member_ids = {
-        symbol.id
-        for member in finding.members
-        for symbol in result.program.symbols.values()
-        if symbol.path == member.path
-        and symbol.qualified_name == member.qualified_name
-        and symbol.kind.value == member.kind
-        and symbol.occurrence == member.occurrence
-    }
-    worlds = []
-    for world in result.snapshot.worlds:
-        if world.id.key not in finding.worlds:
-            continue
-        states = []
-        for node_id in sorted(member_ids):
-            state = world.state_of(node_id)
-            states.append(
+class _FindingExplainer:
+    """Explains findings with indexes built once per report, not once per finding."""
+
+    def __init__(self, result: AnalysisResult) -> None:
+        self.result = result
+        self.node_map = result.model.graph.node_map()
+        self.symbols: dict[tuple[str, str, str, int], NodeId] = {
+            (symbol.path, symbol.qualified_name, symbol.kind.value, symbol.occurrence): symbol.id
+            for symbol in result.program.symbols.values()
+        }
+        self.outbound: dict[NodeId, list[Any]] = {}
+        for edge in result.model.graph.edges:
+            self.outbound.setdefault(edge.source, []).append(edge)
+
+    def explain(self, finding: Any) -> dict[str, Any]:
+        node_map = self.node_map
+        member_ids = {
+            node_id
+            for member in finding.members
+            if (
+                node_id := self.symbols.get(
+                    (member.path, member.qualified_name, member.kind, member.occurrence)
+                )
+            )
+            is not None
+        }
+        worlds = []
+        selected = [
+            world for world in self.result.snapshot.worlds if world.id.key in finding.worlds
+        ]
+        for world in selected:
+            states = []
+            for node_id in sorted(member_ids):
+                state = world.state_of(node_id)
+                states.append(
+                    {
+                        "member": node_map[node_id].display_name,
+                        "body_state": state.value if state is not None else "not_reached",
+                        "retained": node_id in world.retained,
+                    }
+                )
+            # A guard keeps code possibly running, so none reaches an unreached member; the
+            # world's entry in the report lists each of them.
+            limitations = Counter(
+                (item.code, item.message) for item in world.limitations if item.code != GUARD_CODE
+            )
+            worlds.append(
                 {
-                    "member": node_map[node_id].display_name,
-                    "body_state": state.value if state is not None else "not_reached",
-                    "retained": node_id in world.retained,
+                    "world": world.id.key,
+                    "assembly_state": world.assembly_state.value,
+                    "negative_findings_allowed": world.negative_findings_allowed,
+                    "members": states,
+                    "limitations": [
+                        {"code": code, "message": message, "count": count}
+                        for (code, message), count in sorted(limitations.items())
+                    ],
+                    "guard_count": sum(item.code == GUARD_CODE for item in world.limitations),
                 }
             )
-        worlds.append(
+        reached = set().union(
+            *(world.resolved_may_run | world.conservative_may_run for world in selected)
+        )
+        outbound = [
             {
-                "world": world.id.key,
-                "assembly_state": world.assembly_state.value,
-                "negative_findings_allowed": world.negative_findings_allowed,
-                "members": states,
-                "limitations": [
-                    {"code": item.code, "message": item.message} for item in world.limitations
-                ],
+                "source": node_map[edge.source].display_name,
+                "target": node_map[edge.target].display_name,
+                "kind": edge.kind.value,
+                "detail": edge.detail,
             }
-        )
-    reached = set().union(
-        *(
-            world.resolved_may_run | world.conservative_may_run
-            for world in result.snapshot.worlds
-            if world.id.key in finding.worlds
-        )
-    )
-    outbound = [
-        {
-            "source": node_map[edge.source].display_name,
-            "target": node_map[edge.target].display_name,
-            "kind": edge.kind.value,
-            "detail": edge.detail,
+            for source in member_ids
+            for edge in self.outbound.get(source, ())
+            if edge.target not in member_ids and edge.target in reached
+        ]
+        shown_outbound = sorted(
+            outbound,
+            key=lambda item: (item["source"], item["target"], item["kind"], item["detail"]),
+        )[:100]
+        return {
+            "finding": finding.to_dict(),
+            "world_states": worlds,
+            "live_boundaries": shown_outbound,
+            "live_boundaries_truncated": len(shown_outbound) < len(outbound),
+            "note": "A review finding is not a claim that deletion is safe.",
         }
-        for edge in result.model.graph.edges
-        if edge.source in member_ids and edge.target not in member_ids and edge.target in reached
-    ]
-    shown_outbound = sorted(
-        outbound,
-        key=lambda item: (item["source"], item["target"], item["kind"], item["detail"]),
-    )[:100]
-    return {
-        "finding": finding.to_dict(),
-        "world_states": worlds,
-        "live_boundaries": shown_outbound,
-        "live_boundaries_truncated": len(shown_outbound) < len(outbound),
-        "note": "A review finding is not a claim that deletion is safe.",
-    }

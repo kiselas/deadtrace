@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "getattr-method-by-name"
+description = "getattr with a computed name may return any method of the receiver's classes."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Messages.welcome"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Printer.visit_name"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"

@@ -106,6 +106,14 @@ ENUM_BASES = frozenset(
 )
 ENUM_HOOKS = frozenset({"_generate_next_value_", "_missing_"})
 PYTEST_REGISTRATIONS = frozenset({"pytest.fixture", "pytest_asyncio.fixture"})
+
+
+def is_fixture_decorator(name: str) -> bool:
+    """Whether an expanded decorator name registers a pytest fixture, sync or asyncio."""
+
+    return name.endswith("pytest.fixture") or name.endswith("pytest_asyncio.fixture")
+
+
 CONFIGURATION_CLASS_NAMES = frozenset({"Config", "Meta"})
 """Nested classes that bases outside the project read as options even when they call no methods:
 Pydantic's ``Config`` and the ``Meta`` of model and serializer libraries."""
@@ -121,6 +129,32 @@ PATH_IMPORTS = frozenset(
 )
 """Calls that load a module from a file path, which may be any project file (ADR-0017)."""
 LOADED_MODULE_NAMES = frozenset({"__module__", "__name__", "__package__"})
+DESERIALIZERS = frozenset(
+    {
+        "_pickle.load",
+        "_pickle.loads",
+        "cloudpickle.load",
+        "cloudpickle.loads",
+        "dill.load",
+        "dill.loads",
+        "joblib.load",
+        "jsonpickle.decode",
+        "jsonpickle.loads",
+        "numpy.load",
+        "pandas.read_pickle",
+        "pickle.Unpickler",
+        "pickle.load",
+        "pickle.loads",
+        "shelve.open",
+        "torch.load",
+        "yaml.full_load",
+        "yaml.load",
+        "yaml.load_all",
+        "yaml.unsafe_load",
+        "yaml.unsafe_load_all",
+    }
+)
+"""Calls that may build instances of any project class from data (ADR-0022)."""
 BUILTIN_MANAGERS = frozenset({"open", "memoryview"})
 """Builtins whose results used as context managers are objects from outside the project."""
 """Names of modules that are loaded already when code can read them (ADR-0018)."""
@@ -713,6 +747,18 @@ class _Resolver:
                 found[method_id] = method
         return tuple(found[key] for key in sorted(found))
 
+    def subclasses_of(self, class_symbol: PythonSymbol) -> tuple[PythonSymbol, ...]:
+        """Every project class deriving from ``class_symbol``, directly or not."""
+
+        found: dict[NodeId, PythonSymbol] = {}
+        queue = list(self._subclasses.get(class_symbol.id, ()))
+        while queue:
+            item = queue.pop()
+            if item.id not in found:
+                found[item.id] = item
+                queue.extend(self._subclasses.get(item.id, ()))
+        return tuple(found[key] for key in sorted(found))
+
     def methods_named(self, name: str) -> tuple[NodeId, ...]:
         return self._methods.get(name, ())
 
@@ -870,7 +916,9 @@ class _Resolver:
             if base is None:
                 return []
             if not node.level:
-                base = self.import_roots.absolute(module, base)
+                base = self.import_roots.absolute(
+                    module, base, tuple(alias.name for alias in node.names)
+                )
             if base:
                 names.extend(_package_path(base))
             names.extend(
@@ -1197,6 +1245,7 @@ class _ExecutionVisitor:
                             }
                         )
                     ),
+                    needs_module=True,
                 )
             )
             self._dispatched = set()
@@ -1384,32 +1433,90 @@ class _ExecutionVisitor:
         ):
             return  # ``obj.__module__`` names a module already loaded; importing it runs nothing
         modules = self.resolver.modules
+        package = self._import_package(call, arguments)
         if isinstance(name, ast.Constant) and isinstance(name.value, str):
-            module = modules.get(name.value)
+            absolute = _relative_import_name(name.value, package)
+            module = modules.get(absolute) if absolute is not None else None
             if module is not None:
                 self._escaped.add(module.node_id)
+                return
+            if absolute is not None:
+                return
+            name = None  # a relative name without a known package may name any module
+        loaded_suffix = _loaded_module_suffix(name)
+        if loaded_suffix:
+            # ``f"{obj.__module__}.tables"`` names a submodule of a module already loaded; one
+            # whose prefix is a directory without ``__init__.py`` has no module to wait for.
+            matching = sorted(
+                (key, module) for key, module in modules.items() if key.endswith(loaded_suffix)
+            )
+            if matching:
+                self.boundaries.append(
+                    UnknownBoundary(
+                        source=self.source,
+                        domain="dynamic_import",
+                        reason=(
+                            f"modules ending with {loaded_suffix!r} may be imported beside "
+                            "loaded modules"
+                        ),
+                        targets=tuple(module.node_id for _, module in matching),
+                        gates=tuple(
+                            (module.node_id, modules[key[: -len(loaded_suffix)]].node_id)
+                            for key, module in matching
+                            if key[: -len(loaded_suffix)] in modules
+                        ),
+                    )
+                )
             return
-        prefix = ""
-        if isinstance(name, ast.JoinedStr) and name.values:
-            first = name.values[0]
-            if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                prefix = first.value
-        targets = tuple(
-            sorted(module.node_id for key, module in modules.items() if key.startswith(prefix))
-        )
+        prefix, suffix = _constant_affixes(name)
+        if prefix.startswith("."):
+            base = _relative_import_name(prefix, package)
+            # ``f".{name}"`` continues after the package: ``pkg.`` rather than ``pkg``.
+            prefix = "" if base is None else base + ("." if prefix.endswith(".") else "")
+        named = {
+            key
+            for key in modules
+            if key.startswith(prefix) and key.endswith(suffix) and len(key) >= len(prefix + suffix)
+        }
+        # Importing ``a.b.tables`` runs the packages ``a`` and ``a.b`` first.
+        imported = {
+            package for key in named for package in _package_path(key) if package in modules
+        }
+        targets = tuple(sorted(modules[key].node_id for key in imported))
         if targets:
+            shown = " and ".join(
+                part
+                for part in (
+                    f"starting with {prefix!r}" if prefix else "",
+                    f"ending with {suffix!r}" if suffix else "",
+                )
+                if part
+            )
             self.boundaries.append(
                 UnknownBoundary(
                     source=self.source,
                     domain="dynamic_import",
                     reason=(
-                        f"modules starting with {prefix!r} may be imported by name"
-                        if prefix
+                        f"modules {shown} may be imported by name"
+                        if shown
                         else "any project module may be imported by name"
                     ),
                     targets=targets,
                 )
             )
+
+    def _import_package(self, call: ast.Call, arguments: Sequence[ast.expr]) -> str | None:
+        """The ``package`` a relative ``import_module`` name is resolved against, if known."""
+
+        value = arguments[1] if len(arguments) > 1 else keyword_argument(call, "package")
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            return value.value
+        if isinstance(value, ast.Name) and value.id in {"__name__", "__package__"}:
+            is_package = self.module.path.rpartition("/")[2] == "__init__.py"
+            if value.id == "__name__" or is_package:
+                return self.module.name
+            return self.module.name.rpartition(".")[0]
+        return None
 
     def _visit_name_or_attribute(self, node: ast.Name | ast.Attribute) -> None:
         if type(node.ctx) is ast.Load:
@@ -1506,6 +1613,8 @@ class _ExecutionVisitor:
     def _visit_call(self, node: ast.Call) -> None:
         func = node.func
         self.mark_references(func)
+        if _dotted_name(func) == "getattr" and "getattr" not in self._locals:
+            self._record_getattr_value(node)
         if isinstance(func, ast.Attribute) and self._is_super(func):
             target = self._super_member(func)
             through_instance = False
@@ -1524,6 +1633,16 @@ class _ExecutionVisitor:
             assert isinstance(func, ast.Call)
             self._record_dynamic_getattr(func)
         else:
+            if self._external_name(func) in DESERIALIZERS:
+                self.boundaries.append(
+                    UnknownBoundary(
+                        source=self.source,
+                        domain="deserialization",
+                        reason="deserialized objects may be instances of any project class",
+                        targets=(self.source,),
+                        opens_gates=True,
+                    )
+                )
             if self._external_name(func) in DYNAMIC_IMPORTS:
                 self._record_dynamic_import(node)
             elif self._external_name(func) in PATH_IMPORTS:
@@ -1891,6 +2010,9 @@ class _ExecutionVisitor:
         return result
 
     def _resolve_annotation(self, annotation: ast.expr) -> str | None:
+        """The one project class an annotation names; ``A | B`` names no single class (ADR-0022)."""
+
+        found: set[str] = set()
         for name in _annotation_names(annotation, self.module.text):
             binding = self.module.imports.get(name.split(".", 1)[0])
             if binding is not None:
@@ -1900,8 +2022,8 @@ class _ExecutionVisitor:
                 candidate = f"{self.module.name}.{name}"
             symbol = self.resolver.resolve_full_name(candidate)
             if symbol is not None and symbol.kind is NodeKind.CLASS:
-                return f"{symbol.module}.{symbol.qualified_name}"
-        return None
+                found.add(f"{symbol.module}.{symbol.qualified_name}")
+        return next(iter(found)) if len(found) == 1 else None
 
     def _infer_expression_type(self, expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
@@ -1931,6 +2053,75 @@ class _ExecutionVisitor:
             binding = self.module.imports.get(head.id)
         return binding is not None and not self.resolver.in_project(binding.target)
 
+    def _receiver_methods(self, receiver: ast.expr) -> tuple[NodeId, ...] | None:
+        """Methods, inherited ones too, that an attribute of ``receiver`` of known type may be."""
+
+        receiver_type = self._infer_expression_type(receiver)
+        if receiver_type is None and isinstance(receiver, ast.Name):
+            receiver_type = self.local_types.get(receiver.id)
+        if receiver_type is None:
+            return None
+        class_symbol = self.resolver.class_named(receiver_type)
+        # The value may be an instance of a project subclass, as ``getattr(self, ...)`` in a
+        # base class of a visitor: its methods count as well.
+        owners = (
+            [
+                f"{item.module}.{item.qualified_name}"
+                for item in (
+                    *self.resolver.mro(class_symbol),
+                    *self.resolver.subclasses_of(class_symbol),
+                )
+            ]
+            if class_symbol is not None
+            else [receiver_type]
+        )
+        return tuple(
+            sorted(
+                {
+                    symbol.id
+                    for owner in owners
+                    for symbol in self.resolver.index.under(f"{owner}.")
+                    if symbol.kind is NodeKind.FUNCTION
+                }
+            )
+        )
+
+    def _module_members(self, receiver: ast.expr) -> tuple[NodeId, ...]:
+        """Top-level functions and classes of the project module ``receiver`` names."""
+
+        if not isinstance(receiver, ast.Name):
+            return ()
+        binding = self._local_imports.get(receiver.id) or self.module.imports.get(receiver.id)
+        module = self.resolver.modules.get(binding.target) if binding is not None else None
+        if module is None:
+            return ()
+        return tuple(sorted(symbol.id for symbol in module.symbols if symbol.owner is None))
+
+    def _record_getattr_value(self, call: ast.Call) -> None:
+        """``getattr(core, name)`` with a computed name may return any method of ``core``.
+
+        The value may be called anywhere later, as a ``message_generator`` argument, so its
+        methods may run. Only receivers of a known project type are localized here; a call of
+        the value itself is handled with the call (ADR-0022).
+        """
+
+        arguments = call_arguments(call)
+        if len(arguments) < 2 or isinstance(arguments[1].value, ast.Constant):
+            return
+        receiver = arguments[0].value
+        if self._is_external_module(receiver):
+            return
+        targets = self._receiver_methods(receiver) or self._module_members(receiver)
+        if targets:
+            self.boundaries.append(
+                UnknownBoundary(
+                    source=self.source,
+                    domain="dynamic_attribute_dispatch",
+                    reason="dynamic getattr call target cannot be resolved statically",
+                    targets=targets,
+                )
+            )
+
     def _record_dynamic_getattr(self, function: ast.Call) -> None:
         targets: tuple[NodeId, ...] = ()
         arguments = call_arguments(function)
@@ -1938,17 +2129,7 @@ class _ExecutionVisitor:
             receiver = arguments[0].value
             if self._is_external_module(receiver):
                 return  # an attribute of a module outside the project is not project code
-            receiver_type = self._infer_expression_type(receiver)
-            if receiver_type is None and isinstance(receiver, ast.Name):
-                receiver_type = self.local_types.get(receiver.id)
-            if receiver_type is not None:
-                targets = tuple(
-                    sorted(
-                        symbol.id
-                        for symbol in self.resolver.index.under(f"{receiver_type}.")
-                        if symbol.kind is NodeKind.FUNCTION
-                    )
-                )
+            targets = self._receiver_methods(receiver) or ()
         self.boundaries.append(
             UnknownBoundary(
                 source=self.source,
@@ -1961,8 +2142,27 @@ class _ExecutionVisitor:
     def _record_escaped_project_callables(self, call: ast.Call) -> None:
         escaped: set[NodeId] = set()
         for argument in call_arguments(call):
-            target = self._resolve(argument.value)
+            # ``add_task(Core(user).cleanup)`` passes a method of an instance built in place.
+            target = self._resolve(argument.value) or (
+                self._inferred_member(argument.value)
+                if isinstance(argument.value, ast.Attribute)
+                else None
+            )
             self.mark_references(argument.value)
+            if (
+                target is None
+                and isinstance(argument.value, (ast.Call, ast.Name))
+                and _consumer_calls_instance_methods(self._external_name(call.func))
+            ):
+                # ``Controller(Handler(port))``: the consumer calls the methods of an instance of a
+                # project class, as a protocol such as a handler's ``handle_DATA`` (ADR-0022).
+                type_name = self._infer_expression_type(argument.value)
+                instance_class = (
+                    self.resolver.class_named(type_name) if type_name is not None else None
+                )
+                if instance_class is not None:
+                    escaped.add(instance_class.id)
+                    continue
             if target is not None:
                 escaped.add(target.id)
             elif isinstance(argument.value, ast.Attribute):
@@ -2431,27 +2631,59 @@ class ImportRoots:
     there. So the directories that hold the importer and are no regular package are tried,
     innermost first. A match only adds modules that may run; an import of an installed
     distribution that shares a sibling's name is taken for the sibling.
+
+    When the first part is only a directory without ``__init__.py`` at the root, as ``shop`` in
+    a monorepo's ``shop/shop/main.py``, and the name does not exist under it, the name is looked
+    up beside the importer too: the service directory is on the path, and namespace portions of
+    one name merge. A name found nowhere else may name a package that a directory of its name
+    holds as a distribution, as ``libs/common/common`` for ``common`` installed in editable mode,
+    when exactly one such package has that name (ADR-0022).
     """
 
     def __init__(self, modules: Mapping[str, PythonModule]) -> None:
         self.modules = modules
         self.roots = frozenset(name.split(".")[0] for name in modules)
         self.namespaces = frozenset(prefix for name in modules for prefix in _package_path(name))
+        # A distribution keeps its package in a directory of the package's name, as
+        # ``libs/common/common``; the package may lack ``__init__.py``.
+        found: defaultdict[str, list[str]] = defaultdict(list)
+        for name in self.namespaces:
+            parent, _, last = name.rpartition(".")
+            if parent.rpartition(".")[2] == last and parent not in modules:
+                found[last].append(name)
+        self.distributions = {last: names[0] for last, names in found.items() if len(names) == 1}
 
-    def absolute(self, importer: PythonModule, name: str) -> str:
-        if not name or name.split(".")[0] in self.roots:
+    def absolute(self, importer: PythonModule, name: str, members: Sequence[str] = ()) -> str:
+        """The project name ``name`` imports; ``members`` are what ``from name import`` takes."""
+
+        first = name.split(".")[0]
+        if not name or first in self.modules or name in self.namespaces:
             return name
         is_package = importer.path.rpartition("/")[2] == "__init__.py"
         directory = importer.name if is_package else importer.name.rpartition(".")[0]
         while directory:
             if directory not in self.modules:
                 candidate = f"{directory}.{name}"
-                # ``celery.py`` importing ``celery`` means the installed package, not itself.
-                if candidate in self.namespaces and not (
-                    importer.name == candidate and not is_package
+                # ``celery.py`` importing ``celery`` means the installed package, not itself, and
+                # a directory without ``__init__.py`` such as ``alembic/`` beside ``env.py``
+                # shadows an installed package only when it holds the module imported from it.
+                if (
+                    candidate in self.namespaces
+                    and not (importer.name == candidate and not is_package)
+                    and (
+                        candidate in self.modules
+                        or any(f"{candidate}.{member}" in self.namespaces for member in members)
+                        or f"{directory}.{first}" in self.modules
+                        or first in self.roots
+                    )
                 ):
                     return candidate
             directory = directory.rpartition(".")[0]
+        distribution = self.distributions.get(first)
+        if distribution is not None and first not in self.roots:
+            candidate = distribution + name[len(first) :]
+            if candidate in self.namespaces and candidate != importer.name:
+                return candidate
         return name
 
 
@@ -2477,7 +2709,9 @@ def _collect_imports(
                 target = alias.name
                 local = alias.asname or target.split(".")[0]
                 bound_target = roots.absolute(
-                    module, target if alias.asname else target.split(".")[0]
+                    module,
+                    target if alias.asname else target.split(".")[0],
+                    () if alias.asname else tuple(target.split(".")[1:2]),
                 )
                 found.append(ImportBinding(local, bound_target, True, statement.lineno, nested))
         elif isinstance(statement, ast.ImportFrom):
@@ -2485,7 +2719,7 @@ def _collect_imports(
             if base is None:
                 continue
             if not statement.level:
-                base = roots.absolute(module, base)
+                base = roots.absolute(module, base, tuple(alias.name for alias in statement.names))
             for alias in statement.names:
                 imported = alias.name
                 if imported == "*":
@@ -2550,6 +2784,90 @@ def resolve_through_imports(
     return result
 
 
+MODELED_CONSUMER_PACKAGES = ("dishka.", "fastapi.")
+"""Packages whose calls the framework model interprets, so instances passed to them are not
+handed to an unknown consumer."""
+
+
+def _consumer_calls_instance_methods(consumer: str | None) -> bool:
+    """Whether an external consumer may call methods of an instance it receives.
+
+    Builtins such as ``print`` or ``len`` use only special methods, which the hook guards cover;
+    modeled frameworks are interpreted by their capability. Any other consumer may call any
+    method, as an SMTP controller calls its handler's ``handle_DATA``.
+    """
+
+    if consumer is None:
+        return True
+    return "." in consumer and not consumer.startswith(MODELED_CONSUMER_PACKAGES)
+
+
+def _relative_import_name(name: str, package: str | None) -> str | None:
+    """``importlib.import_module``'s absolute name for ``name``, or None when it is unknown."""
+
+    if not name.startswith("."):
+        return name
+    if package is None:
+        return None
+    level = len(name) - len(name.lstrip("."))
+    parts = package.split(".")
+    if level - 1 > len(parts):
+        return None
+    base = ".".join(parts[: len(parts) - (level - 1)])
+    rest = name[level:]
+    return f"{base}.{rest}" if base and rest else base or rest
+
+
+def _loaded_module_suffix(expression: ast.expr | None) -> str:
+    """``.tables`` for ``f"{obj.__module__}.tables"`` or ``obj.__module__ + ".tables"``."""
+
+    parts: list[ast.expr]
+    if isinstance(expression, ast.JoinedStr):
+        parts = [
+            part.value if isinstance(part, ast.FormattedValue) else part
+            for part in expression.values
+        ]
+    elif isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Add):
+        parts = [expression.left, expression.right]
+    else:
+        return ""
+    if len(parts) != 2:
+        return ""
+    head, tail = parts
+    loaded = (isinstance(head, ast.Attribute) and head.attr in LOADED_MODULE_NAMES) or (
+        isinstance(head, ast.Name) and head.id in LOADED_MODULE_NAMES
+    )
+    if (
+        loaded
+        and isinstance(tail, ast.Constant)
+        and isinstance(tail.value, str)
+        and tail.value.startswith(".")
+    ):
+        return tail.value
+    return ""
+
+
+def _constant_affixes(expression: ast.expr | None) -> tuple[str, str]:
+    """The constant start and end of a computed string: ``f"{pkg}.tables"`` ends in ``.tables``."""
+
+    parts: list[ast.expr]
+    if isinstance(expression, ast.JoinedStr):
+        parts = list(expression.values)
+    elif isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.Add):
+        parts = [expression.left, expression.right]
+    else:
+        return "", ""
+    if not parts:
+        return "", ""
+
+    def constant(part: ast.expr) -> str:
+        return part.value if isinstance(part, ast.Constant) and isinstance(part.value, str) else ""
+
+    prefix = constant(parts[0])
+    suffix = constant(parts[-1]) if len(parts) > 1 else ""
+    return prefix, suffix
+
+
 def _package_path(name: str) -> list[str]:
     """``a``, ``a.b``, and ``a.b.c`` for ``a.b.c``: the modules importing it runs, in order."""
 
@@ -2594,49 +2912,178 @@ def _import_from_base(module: PythonModule, node: ast.ImportFrom) -> str | None:
     return prefix or imported_module
 
 
+UNKNOWN_FIELD_TYPE = "<unknown>"
+"""A field value whose class is not known, which gives the field no single type."""
+
+
 def _infer_all_class_fields(
     modules: dict[str, PythonModule], resolver: _Resolver
 ) -> dict[tuple[str, str], str]:
-    result: dict[tuple[str, str], str] = {}
+    """Types of ``self`` fields that every assignment of the field agrees on (ADR-0022).
+
+    A field has a type only when every assignment to it, in the methods of its class and of the
+    class's project subclasses, is an instance of one class, or of ``None``. An assignment whose
+    class is not known, a tuple or loop target, ``setattr(self, ...)``, and an assignment to the
+    attribute of that name on any other object leave it without a type, so calls on it stay
+    unresolved instead of reaching one class only. A field annotated ``self.name: T`` has the
+    type ``T`` unless an assignment is known to be of a class that is no subclass of ``T``.
+    """
+
+    provisional: dict[tuple[str, str], str] = {}
+    declared: dict[tuple[str, str], str] = {}
+    assigned: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
+    poisoned_classes: set[str] = set()
+    foreign_fields: set[str] = set()
     for module in modules.values():
+        for node in ast.walk(module.tree):
+            for target in _assignment_targets(node):
+                if isinstance(target, ast.Attribute) and not (
+                    isinstance(target.value, ast.Name) and target.value.id == "self"
+                ):
+                    foreign_fields.add(target.attr)
         for symbol in module.symbols:
             if not (
                 is_function(symbol)
-                and symbol.name == "__init__"
                 and symbol.owner_qualified_name is not None
+                and symbol.parameters
+                and symbol.parameters[0].name == "self"
             ):
                 continue
             assert not isinstance(symbol.node, ast.ClassDef)
+            owner = f"{module.name}.{symbol.owner_qualified_name}"
+            annotations = _self_field_annotations(symbol.node.body)
+            assignments, opaque, computed = _self_field_writes(symbol.node.body)
+            if computed:
+                poisoned_classes.add(owner)
+            for field_name in opaque:
+                assigned[(owner, field_name)].add(UNKNOWN_FIELD_TYPE)
+            if not (annotations or assignments):
+                continue
             parameter_types: dict[str, str] = {}
             helper = _ExecutionVisitor(
                 module=module,
                 current=symbol,
                 resolver=resolver,
-                class_field_types=result,
+                class_field_types=provisional,
             )
             for parameter in symbol.parameters:
                 if parameter.annotation is not None:
                     resolved = helper._resolve_annotation(parameter.annotation)
                     if resolved is not None:
                         parameter_types[parameter.name] = resolved
-            for assignment in _self_field_assignments(symbol.node.body):
-                field_name, value = assignment
-                inferred: str | None = None
-                if isinstance(value, ast.Name):
-                    inferred = parameter_types.get(value.id)
-                elif isinstance(value, ast.Call):
-                    target = resolver.resolve_expression(
-                        value.func,
-                        module=module,
-                        current=symbol,
-                        local_types=parameter_types,
-                        class_field_types=result,
-                    )
-                    if target is not None and target.kind is NodeKind.CLASS:
-                        inferred = f"{target.module}.{target.qualified_name}"
-                if inferred is not None:
-                    result[(f"{module.name}.{symbol.owner_qualified_name}", field_name)] = inferred
+            for field_name, annotation in annotations:
+                resolved = helper._resolve_annotation(annotation)
+                if resolved is not None:
+                    declared.setdefault((owner, field_name), resolved)
+            for field_name, value in assignments:
+                types = _value_classes(
+                    value, module, symbol, resolver, parameter_types, provisional
+                )
+                assigned[(owner, field_name)].update(types)
+                if len(types) == 1 and UNKNOWN_FIELD_TYPE not in types:
+                    provisional.setdefault((owner, field_name), next(iter(types)))
+
+    def subclasses_of(owner: str) -> list[str]:
+        symbol = resolver.class_named(owner)
+        found: list[str] = []
+        queue = list(resolver._subclasses.get(symbol.id, ())) if symbol is not None else []
+        seen: set[NodeId] = set()
+        while queue:
+            item = queue.pop()
+            if item.id in seen:
+                continue
+            seen.add(item.id)
+            found.append(f"{item.module}.{item.qualified_name}")
+            queue.extend(resolver._subclasses.get(item.id, ()))
+        return found
+
+    def is_subclass(name: str, base: str) -> bool:
+        symbol = resolver.class_named(name)
+        base_symbol = resolver.class_named(base)
+        return (
+            symbol is not None
+            and base_symbol is not None
+            and any(item.id == base_symbol.id for item in resolver.mro(symbol))
+        )
+
+    result: dict[tuple[str, str], str] = {}
+    for owner, field_name in {*assigned, *declared}:
+        if field_name in foreign_fields:
+            continue
+        family = [owner, *subclasses_of(owner)]
+        if any(item in poisoned_classes for item in family):
+            continue
+        types = set().union(*(assigned.get((item, field_name), set()) for item in family))
+        declared_type = declared.get((owner, field_name))
+        if declared_type is not None:
+            if all(
+                item == UNKNOWN_FIELD_TYPE or is_subclass(item, declared_type) for item in types
+            ):
+                result[(owner, field_name)] = declared_type
+        elif len(types) == 1 and UNKNOWN_FIELD_TYPE not in types:
+            result[(owner, field_name)] = next(iter(types))
     return result
+
+
+def _assignment_targets(node: ast.AST) -> list[ast.expr]:
+    """The targets a statement binds, with tuple and list targets flattened."""
+
+    if isinstance(node, ast.Assign):
+        targets = list(node.targets)
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor)):
+        targets = [node.target]
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        targets = [item.optional_vars for item in node.items if item.optional_vars is not None]
+    else:
+        return []
+    flat: list[ast.expr] = []
+    while targets:
+        target = targets.pop()
+        if isinstance(target, (ast.Tuple, ast.List)):
+            targets.extend(target.elts)
+        elif isinstance(target, ast.Starred):
+            targets.append(target.value)
+        else:
+            flat.append(target)
+    return flat
+
+
+def _value_classes(
+    value: ast.expr,
+    module: PythonModule,
+    symbol: PythonSymbol,
+    resolver: _Resolver,
+    parameter_types: dict[str, str],
+    field_types: dict[tuple[str, str], str],
+) -> set[str]:
+    """The classes a value may be an instance of; ``None`` adds none, unknown adds a marker."""
+
+    if isinstance(value, ast.Constant) and value.value is None:
+        return set()
+    if isinstance(value, ast.IfExp):
+        return _value_classes(
+            value.body, module, symbol, resolver, parameter_types, field_types
+        ) | _value_classes(value.orelse, module, symbol, resolver, parameter_types, field_types)
+    if isinstance(value, ast.BoolOp):
+        return set().union(
+            *(
+                _value_classes(item, module, symbol, resolver, parameter_types, field_types)
+                for item in value.values
+            )
+        )
+    if isinstance(value, ast.Name) and value.id in parameter_types:
+        return {parameter_types[value.id]}
+    if isinstance(value, ast.Call):
+        target = resolver.resolve_expression(
+            value.func,
+            module=module,
+            current=symbol,
+            local_types=parameter_types,
+            class_field_types=field_types,
+        )
+        if target is not None and target.kind is NodeKind.CLASS:
+            return {f"{target.module}.{target.qualified_name}"}
+    return {UNKNOWN_FIELD_TYPE}
 
 
 def _unsupported_python_hook_boundaries(
@@ -2708,25 +3155,42 @@ def _unsupported_python_hook_boundaries(
 
         assert isinstance(class_symbol.node, ast.ClassDef)
         module = modules[class_symbol.module]
-        for keyword in class_symbol.node.keywords:
-            if keyword.arg != "metaclass":
-                continue
-            metaclass = resolver.resolve_expression(
-                keyword.value,
-                module=module,
-                current=resolver.enclosing_scope(class_symbol),
-                local_types={},
-                class_field_types={},
-            )
-            if metaclass is None or metaclass.kind is not NodeKind.CLASS:
-                continue
-            targets = {metaclass.id, *(method.id for method in owned_methods[metaclass.id])}
+        # The class statement runs a project metaclass, its own or a base's, and the
+        # ``__init_subclass__`` of its project bases where it stands, so the class is created
+        # for those effects, as a registry or a test checking a metaclass relies on (ADR-0022).
+        hooks: set[NodeId] = set()
+        mro = resolver.mro(class_symbol)
+        for index, item in enumerate(mro):
+            assert isinstance(item.node, ast.ClassDef)
+            for keyword in item.node.keywords:
+                if keyword.arg != "metaclass":
+                    continue
+                metaclass = resolver.resolve_expression(
+                    keyword.value,
+                    module=modules[item.module],
+                    current=resolver.enclosing_scope(item),
+                    local_types={},
+                    class_field_types={},
+                )
+                if metaclass is not None and metaclass.kind is NodeKind.CLASS:
+                    hooks.add(metaclass.id)
+                    hooks.update(method.id for method in owned_methods[metaclass.id])
+            if index:
+                hooks.update(
+                    method.id
+                    for method in owned_methods[item.id]
+                    if method.name == "__init_subclass__"
+                )
+        if hooks:
+            scope = resolver.enclosing_scope(class_symbol)
+            while scope is not None and scope.kind is NodeKind.CLASS:
+                scope = resolver.enclosing_scope(scope)
             boundaries.append(
                 UnknownBoundary(
-                    source=module.node_id,
+                    source=scope.id if scope is not None else module.node_id,
                     domain="metaclass_execution",
-                    reason="project metaclass may execute hooks during class creation",
-                    targets=tuple(sorted(targets)),
+                    reason="a project metaclass or __init_subclass__ runs at class creation",
+                    targets=tuple(sorted({class_symbol.id, *hooks})),
                 )
             )
     return tuple(boundaries)
@@ -2771,6 +3235,61 @@ def _is_descriptor_hook(symbol: PythonSymbol) -> bool:
         ):
             return True
     return False
+
+
+def _self_field_annotations(
+    body: Sequence[ast.stmt],
+) -> tuple[tuple[str, ast.expr], ...]:
+    """Fields a method declares as ``self.name: T``, with or without a value."""
+
+    found: list[tuple[str, ast.expr]] = []
+    for node in flow_nodes(body):
+        if isinstance(node, ast.AnnAssign):
+            dotted = _dotted_name(node.target)
+            if dotted is not None and dotted.startswith("self.") and dotted.count(".") == 1:
+                found.append((dotted.split(".")[1], node.annotation))
+    return tuple(found)
+
+
+def _self_field_writes(
+    body: Sequence[ast.stmt],
+) -> tuple[tuple[tuple[str, ast.expr], ...], frozenset[str], bool]:
+    """``self.name = value`` writes; fields written with no single value; any computed write.
+
+    A field bound as a tuple, loop, or ``with`` target, or by ``setattr(self, "name", value)``,
+    has no value to infer from; ``setattr(self, name, value)`` with a computed name may write any
+    field. Augmented assignments keep the field's value.
+    """
+
+    values = _self_field_assignments(body)
+    opaque: set[str] = set()
+    computed = False
+    for node in flow_nodes(body):
+        simple = isinstance(node, ast.Assign) and all(
+            not isinstance(target, (ast.Tuple, ast.List)) for target in node.targets
+        )
+        if not simple and not isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            for target in _assignment_targets(node):
+                if (
+                    isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "self"
+                ):
+                    opaque.add(target.attr)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "setattr"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "self"
+        ):
+            name = node.args[1] if len(node.args) > 1 else None
+            if isinstance(name, ast.Constant) and isinstance(name.value, str):
+                opaque.add(name.value)
+            else:
+                computed = True
+    return values, frozenset(opaque), computed
 
 
 def _self_field_assignments(

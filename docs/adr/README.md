@@ -65,3 +65,7 @@ each other. Typo and link fixes are fine.
   build copies (model revision 13). Accepted.
 - [ADR-0020](0020-inherited-members-through-subclasses.md) — Inherited members used through a
   subclass use the subclass (model revision 14). Accepted.
+- [ADR-0021](0021-comparable-reports-across-source-changes.md) — Reports and baselines stay
+  comparable across ordinary source changes (model revision 15). Accepted.
+- [ADR-0022](0022-fifth-field-audit-monorepo-and-workers.md) — A monorepo, workers, and pytest
+  sessions (model revision 15). Accepted.

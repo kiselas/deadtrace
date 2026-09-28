@@ -31,7 +31,7 @@ status date:
 
 | Area | Current evidence |
 | --- | --- |
-| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/14` |
+| Package | `deadtrace 0.1.0a0`, Hatchling/uv, model revision `python-fastapi-dishka/15` |
 | Unit/integration/oracle tests | 288 passed; 2 skipped (Windows symlink privilege, empty known-violation list) |
 | Coverage | 91.90% branch-aware total; configured floor 90% |
 | Static quality | Ruff format/check, strict mypy, and `uv lock --check` pass |
@@ -309,6 +309,24 @@ Memory on such a monorepo, about 2.2 GiB, remains the next lever (PERF-03).
 package-own submodule imports, pytest plugin libraries, setuptools build copies, and nested test
 classes; reports are byte-identical across runs on real projects.
 
+### FIELD-04 — baseline workflow across real history
+
+**Status:** implemented on 2026-09-28 (ADR-0021, model revision 15). Three local checkouts were
+exported at `HEAD~30` and `HEAD`; a baseline of the older report applied to the newer one is
+comparable and flags only findings that the thirty commits introduced, and `compare` lists roots
+and source files as source changes. Before, every added test or route, dependency update, or
+analyzer release made baselines incomparable, and a 476-file project's report exceeded the
+artifact limit.
+
+### FIELD-05 — a monorepo and its workers
+
+**Status:** implemented on 2026-09-28 (ADR-0022, model revision 15). A 624k-line monorepo of
+twelve services went from no findings to a complete analysis with 764; three rounds of 160
+sampled findings, checked by independent reviewers, went from 26 false findings to 1, since
+fixed, and 7 that run only through deployment commands or configuration files the analyzer
+does not read. Reading roots from such commands and a report schema that lists each guard once
+remain open.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:
@@ -453,7 +471,8 @@ and privacy-conscious support bundles.
 
 Remaining work:
 
-- repeat the workflow on two real projects across real source changes;
+- repeat the workflow on two real projects across real source changes (done on private
+  history in FIELD-04; a public, reproducible pair of revisions remains);
 - define migrations only when a future report/baseline schema actually changes;
 - add SARIF only after users request inline findings and location semantics are stable;
 - improve automatic roots/lock formats one bounded source at a time;

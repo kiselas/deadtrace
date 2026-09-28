@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "pytest-plugins-package-prefix"
+description = "A pytest plugin named through a regular src package is a project plugin."
+
+[analysis]
+complete = true
+worlds = ["production:library", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "src/shop/tests/fixtures.py"
+kind = "function"
+qualified_name = "order"
+expectation = "not_candidate"
+
+[[targets]]
+path = "src/shop/tests/fixtures.py"
+kind = "function"
+qualified_name = "stale_order"
+expectation = "candidate"

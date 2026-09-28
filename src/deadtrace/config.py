@@ -45,12 +45,14 @@ _KNOWN_KEYS = frozenset(
 KNOWN_FRAMEWORKS = frozenset(
     {
         "aiohttp",
+        "arq",
         "bottle",
         "celery",
         "django",
         "dishka",
         "falcon",
         "fastapi",
+        "faststream",
         "flask",
         "litestar",
         "pydantic",
@@ -59,6 +61,7 @@ KNOWN_FRAMEWORKS = frozenset(
         "quart",
         "sanic",
         "starlette",
+        "taskiq",
         "typer",
     }
 )

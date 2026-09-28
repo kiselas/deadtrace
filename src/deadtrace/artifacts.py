@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 MAX_ARTIFACT_BYTES = 16 * 1024 * 1024
+"""Largest project input, such as ``pyproject.toml`` or ``uv.lock``, that analysis reads."""
+MAX_REPORT_BYTES = 256 * 1024 * 1024
+"""Largest Deadtrace report or baseline read back; a 624k-line monorepo writes about 113 MB."""
 
 
 class ArtifactError(ValueError):
@@ -18,9 +21,9 @@ def read_json_artifact(path: Path) -> dict[str, Any]:
 
     try:
         size = path.stat().st_size
-        if size > MAX_ARTIFACT_BYTES:
+        if size > MAX_REPORT_BYTES:
             raise ArtifactError(
-                f"artifact {path} is {size} bytes; limit is {MAX_ARTIFACT_BYTES} bytes"
+                f"artifact {path} is {size} bytes; limit is {MAX_REPORT_BYTES} bytes"
             )
         payload = json.loads(path.read_text(encoding="utf-8"))
     except ArtifactError:
