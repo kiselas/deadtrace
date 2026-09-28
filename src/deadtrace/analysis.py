@@ -11,6 +11,7 @@ from time import perf_counter
 
 from deadtrace.config import Config
 from deadtrace.core import AnalysisSnapshot, AssemblyState, Limitation, solve
+from deadtrace.deployment import read_deployment_references
 from deadtrace.entry_points import read_project_entry_points
 from deadtrace.findings import Finding, build_findings
 from deadtrace.frameworks import FrameworkModel, build_framework_model
@@ -30,7 +31,7 @@ from deadtrace.target_environment import (
 )
 from deadtrace.timing import StageTimings
 
-MODEL_REVISION = "python-fastapi-dishka/15"
+MODEL_REVISION = "python-fastapi-dishka/16"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,11 +91,16 @@ def analyze(scan_path: Path, config: Config) -> AnalysisResult:
     )
     with timings.stage("frontend.entry_points"):
         entry_points, entry_point_issues = read_project_entry_points(collection.root)
+    with timings.stage("frontend.deployment"):
+        deployment = (
+            () if config.worlds else read_deployment_references(collection.root, config.exclude)
+        )
     model = build_framework_model(
         program,
         config,
         entry_points=entry_points,
         entry_point_issues=entry_point_issues,
+        deployment=deployment,
         timings=timings,
     )
     with timings.stage("frontend.pytest"):

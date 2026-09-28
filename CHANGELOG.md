@@ -59,6 +59,15 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/16` (ADR-0023): commands in Compose files, Dockerfiles,
+  `Procfile`, Makefiles, shell scripts, supervisord programs, and systemd units that start
+  `uvicorn`, `gunicorn`, `hypercorn`, `daphne`, `granian`, `faststream`, `taskiq`, `arq`,
+  `dramatiq`, `celery -A`, `python -m`, `python script.py`, or `locust -f` root the world
+  `production:commands` when no worlds are configured; gunicorn configuration hooks, locust
+  users, and classes that logging configurations name by `class` or `()` are conservative
+  roots with their methods (`deployment.commands` capability). A configured world named
+  `production:migrations` is rejected, and deployment reading has the timing stage
+  `frontend.deployment`.
 - Model revision `python-fastapi-dishka/15` (ADR-0021): reports and baselines stay comparable
   when tests, routes, scripts, or applications are added, when dependencies other than
   unsupported FastAPI or Dishka versions change, and when only the analyzer version changes;

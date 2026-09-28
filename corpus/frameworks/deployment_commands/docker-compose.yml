@@ -1,0 +1,8 @@
+services:
+  profiling:
+    working_dir: /code/svc
+    command: ["sh", "/tools/wait_for.sh", "uvicorn", "svc.profiling:app", "--host", "0.0.0.0",
+              "--log-config", "svc/logging.conf"]
+  worker:
+    working_dir: /code/svc
+    command: arq svc.worker.WorkerSettings --watch /code/svc

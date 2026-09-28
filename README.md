@@ -38,7 +38,9 @@ instead of treating “no textual references” as proof that code can be delete
 - automatic worlds when none are configured: scripts with a main guard and `__main__`
   modules, applications of Flask, Celery, Starlette, Litestar, aiohttp, Sanic, Quart,
   Falcon, Bottle, Typer, and FastStream, taskiq schedulers, arq workers, database migrations,
-  uncalled FastAPI factories, Celery task autodiscovery, and otherwise a library's public API;
+  uncalled FastAPI factories, Celery task autodiscovery, programs that Compose files,
+  Dockerfiles, `Procfile`s, Makefiles, and shell scripts start, classes that configuration
+  files name, and otherwise a library's public API;
 - explicit external keep contracts, saved explanations, baselines, report comparison, and CI exit
   policies;
 - schema-1 JSON, text output, compatibility guards, and a performance benchmark artifact.

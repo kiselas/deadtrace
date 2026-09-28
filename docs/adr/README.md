@@ -69,3 +69,5 @@ each other. Typo and link fixes are fine.
   comparable across ordinary source changes (model revision 15). Accepted.
 - [ADR-0022](0022-fifth-field-audit-monorepo-and-workers.md) — A monorepo, workers, and pytest
   sessions (model revision 15). Accepted.
+- [ADR-0023](0023-deployment-commands-as-roots.md) — Programs that deployment files start are
+  roots (model revision 16). Accepted.

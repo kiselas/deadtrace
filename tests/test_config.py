@@ -183,6 +183,15 @@ roots = ["main:other"]
 """,
             "duplicate world",
         ),
+        (
+            """
+[[tool.deadtrace.worlds]]
+profile = "production"
+scenario = "migrations"
+roots = ["main:app"]
+""",
+            "reserved",
+        ),
     ],
 )
 def test_invalid_world_configuration(tmp_path: Path, body: str, message: str) -> None:

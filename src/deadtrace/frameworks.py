@@ -8,6 +8,8 @@ treated as absence of execution.
 from __future__ import annotations
 
 import ast
+import posixpath
+import sys
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -28,6 +30,7 @@ from deadtrace.core import (
     WorldId,
     WorldPlan,
 )
+from deadtrace.deployment import DeploymentReference
 from deadtrace.entry_points import EntryPointIssue, ProjectEntryPoint
 from deadtrace.python_frontend import (
     PythonModule,
@@ -202,6 +205,7 @@ class _BuildState:
     config: Config
     entry_points: tuple[ProjectEntryPoint, ...] = ()
     entry_point_issues: tuple[EntryPointIssue, ...] = ()
+    deployment: tuple[DeploymentReference, ...] = ()
     objects: dict[str, FrameworkObject] = field(default_factory=dict)
     routes: list[RouteRegistration] = field(default_factory=list)
     hooks: list[FrameworkHook] = field(default_factory=list)
@@ -274,6 +278,7 @@ def build_framework_model(
     *,
     entry_points: tuple[ProjectEntryPoint, ...] = (),
     entry_point_issues: tuple[EntryPointIssue, ...] = (),
+    deployment: tuple[DeploymentReference, ...] = (),
     timings: StageTimings | None = None,
 ) -> FrameworkModel:
     """Apply built-in framework capabilities and construct isolated world plans."""
@@ -284,6 +289,7 @@ def build_framework_model(
         config=config,
         entry_points=entry_points,
         entry_point_issues=entry_point_issues,
+        deployment=deployment,
     )
     with timings.stage("frontend.frameworks_discover"):
         _discover_provider_bindings(state)
@@ -368,6 +374,7 @@ def build_framework_model(
             FrameworkCapability("cli.commands", 1, "modeled"),
             # The capability set describes the method, so it holds whether or not tests exist.
             FrameworkCapability("pytest.fixtures", 2, "modeled"),
+            FrameworkCapability("deployment.commands", 1, "modeled"),
         ),
     )
 
@@ -1618,7 +1625,184 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
     migrations = _migrations_plan(state)
     if migrations is not None:
         plans.append(migrations)
+    commands = None if state.config.worlds else _commands_plan(state)
+    if commands is not None:
+        plans.append(commands)
     return tuple(sorted(plans, key=lambda item: item.id))
+
+
+COMMANDS_WORLD = WorldId("production", "commands")
+
+
+def _commands_plan(state: _BuildState) -> WorldPlan | None:
+    """The world of programs that deployment files start by name (ADR-0023).
+
+    A command's module runs, and the application, worker, or callable it names is a root; a
+    class a configuration names is instantiated by the program that reads it, which may call any
+    of its methods, so the class and its methods are conservative, retained roots. So are the
+    top-level definitions of a module the program reads by name, such as gunicorn hooks or
+    locust users, and the methods of its classes.
+    """
+
+    roots: set[NodeId] = set()
+    conservative: set[NodeId] = set()
+    provenance: dict[NodeId, RootProvenance] = {}
+
+    def add(node_id: NodeId, reference: DeploymentReference, into: set[NodeId]) -> None:
+        into.add(node_id)
+        provenance.setdefault(
+            node_id,
+            RootProvenance(
+                node_id, "deployment_command", f"{reference.source}: {reference.target}"
+            ),
+        )
+
+    def expose(symbol: PythonSymbol, reference: DeploymentReference) -> None:
+        add(symbol.id, reference, conservative)
+        conservative.update(
+            member.id for member in state.program.index.members(symbol.id) if is_function(member)
+        )
+
+    for reference in state.deployment:
+        if reference.kind == "script":
+            modules = [(module, "") for module in _modules_at_path(state, reference)]
+        elif reference.kind == "discovery":
+            modules = [
+                (module, "")
+                for key, module in sorted(state.program.modules.items())
+                if key.rpartition(".")[2] == reference.target
+            ]
+        else:
+            module_part, _, attribute = reference.target.partition(":")
+            modules = [
+                (module, remainder or attribute)
+                for module, remainder in _deployment_modules(state, module_part, reference.source)
+            ]
+        for module, name in modules:
+            add(module.node_id, reference, roots)
+            if reference.exposed and not name:
+                for definition in module.symbols:
+                    if definition.owner is None:
+                        expose(definition, reference)
+            symbol = _deployment_symbol(state, module, name) if name else None
+            if symbol is None:
+                continue
+            if reference.kind == "object":
+                expose(symbol, reference)
+            else:
+                add(symbol.id, reference, roots)
+    if not roots:
+        return None
+    return WorldPlan(
+        id=COMMANDS_WORLD,
+        roots=tuple(sorted(roots)),
+        retained_roots=tuple(sorted(conservative)),
+        conservative_roots=tuple(sorted(conservative)),
+        assembly_state=AssemblyState.COMPLETE,
+        root_provenance=tuple(provenance[key] for key in sorted(provenance)),
+    )
+
+
+def _deployment_symbol(state: _BuildState, module: PythonModule, name: str) -> PythonSymbol | None:
+    """The definition ``name`` of ``module`` names, or of the longest prefix that is one."""
+
+    parts = name.split(".")
+    for cut in range(len(parts), 0, -1):
+        symbol = state.program.resolve_symbol(f"{module.name}:{'.'.join(parts[:cut])}")
+        if symbol is not None:
+            return symbol
+    return None
+
+
+EXTERNAL_COMMAND_MODULES = frozenset(
+    {
+        "alembic",
+        "black",
+        "celery",
+        "coverage",
+        "django",
+        "flake8",
+        "gunicorn",
+        "hypercorn",
+        "isort",
+        "locust",
+        "mypy",
+        "pip",
+        "pylint",
+        "pytest",
+        "ruff",
+        "setuptools",
+        "twine",
+        "uvicorn",
+        "wheel",
+    }
+)
+"""Tools that commands run with ``python -m``: their names match no project module by suffix."""
+
+
+def _deployment_modules(
+    state: _BuildState, dotted: str, source: str
+) -> list[tuple[PythonModule, str]]:
+    """Project modules a dotted name from a command names, with the rest of the name.
+
+    A service runs from its own directory, so ``svc.main`` names the module ``svc.main`` or a
+    module ``services.svc.main`` whose prefix ``services`` is a directory and no regular
+    package: inside a package, ``logging`` in ``pkg.config.logging`` is no top-level name. A name
+    that starts with a standard-library module or a tool, as ``logging.handlers.X`` or
+    ``pip``, names only a project module of exactly that name. ``pkg.mod.Worker`` names the
+    module ``pkg.mod`` and its ``Worker`` when no module ``pkg.mod.Worker`` exists. Modules
+    below the directory of the file naming them are preferred to the others.
+    """
+
+    modules = state.program.modules
+    directory = source.rpartition("/")[0]
+    parts = dotted.split(".")
+    external = parts[0] in sys.stdlib_module_names or parts[0] in EXTERNAL_COMMAND_MODULES
+    for cut in range(len(parts), 0, -1):
+        name = ".".join(parts[:cut])
+        remainder = ".".join(parts[cut:])
+        found = [
+            module
+            for key, module in modules.items()
+            if key == name
+            or (not external and key.endswith(f".{name}") and key[: -len(name) - 1] not in modules)
+        ]
+        local = [module for module in found if module.path.startswith(f"{directory}/")]
+        if directory and local:
+            found = local
+        if found:
+            return [(module, remainder) for module in sorted(found, key=lambda item: item.name)]
+    return []
+
+
+def _modules_at_path(state: _BuildState, reference: DeploymentReference) -> list[PythonModule]:
+    """Project modules a script path in a command may be.
+
+    The path is resolved beside the file naming it and from the root; an absolute container path
+    such as ``/app/tools/seed.py`` drops leading directories until one of those matches. A path
+    of two or more parts also matches a module path that ends with it, as when a service's
+    directory is the working directory; a bare file name matches only beside the file or at the
+    root.
+    """
+
+    by_path = {module.path: module for module in state.program.modules.values()}
+    base = reference.source.rpartition("/")[0]
+    target = reference.target.replace("\\", "/")
+    if not target.startswith("/"):
+        joined = posixpath.normpath(posixpath.join(base, target))
+        if joined in by_path:
+            return [by_path[joined]]
+    parts = [part for part in target.split("/") if part not in {"", ".", ".."}]
+    for start in range(len(parts)):
+        suffix = "/".join(parts[start:])
+        exact = sorted({f"{base}/{suffix}" if base else suffix, suffix} & by_path.keys())
+        if exact:
+            return [by_path[path] for path in exact]
+        if len(parts) - start >= 2:
+            found = sorted(path for path in by_path if path.endswith(f"/{suffix}"))
+            if found:
+                return [by_path[path] for path in found]
+    return []
 
 
 MIGRATIONS_WORLD = WorldId("production", "migrations")

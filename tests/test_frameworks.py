@@ -4,7 +4,8 @@ from pathlib import Path
 
 from deadtrace.config import Config, KeepConfig, WorldConfig
 from deadtrace.core import AssemblyState, NodeId, WorldId, solve
-from deadtrace.frameworks import build_framework_model
+from deadtrace.deployment import DeploymentReference
+from deadtrace.frameworks import COMMANDS_WORLD, build_framework_model
 from deadtrace.python_frontend import PythonProgram, build_python_program
 from deadtrace.scanner import SourceCollection, SourceUnit
 
@@ -723,3 +724,68 @@ def endpoint(service: Service = Depends(Service)) -> str:
     assert not any(boundary.domain == "escaped_class" for boundary in model.graph.boundaries)
     assert result.state_of(_id(program, "main:Service.run")) is not None
     assert result.state_of(_id(program, "main:Service.unused")) is None
+
+
+def test_deployment_names_match_top_level_modules_near_the_file_naming_them() -> None:
+    program = _program(
+        **{
+            "main.py": "def app() -> None:\n    pass\n",
+            "backend/main.py": "def app() -> None:\n    pass\n",
+            "svc/svc/__init__.py": "",
+            "svc/svc/config/__init__.py": "",
+            "svc/svc/config/logging.py": "class StreamHandler:\n    pass\n",
+            "svc/svc/profiling.py": "def app() -> None:\n    pass\n",
+        }
+    )
+    deployment = (
+        DeploymentReference("module", "main:app", "backend/Dockerfile"),
+        DeploymentReference("module", "svc.profiling:app", "docker-compose.yml"),
+        DeploymentReference("object", "logging.StreamHandler", "svc/svc/logging.conf"),
+    )
+    model = build_framework_model(program, Config(), deployment=deployment)
+    plan = next(plan for plan in model.plans if plan.id == COMMANDS_WORLD)
+
+    assert set(plan.roots) == {
+        program.modules["backend.main"].node_id,
+        _id(program, "backend.main:app"),
+        program.modules["svc.svc.profiling"].node_id,
+        _id(program, "svc.svc.profiling:app"),
+    }
+
+
+def test_deployment_exposes_read_modules_and_resolves_scripts_and_discovery() -> None:
+    program = _program(
+        **{
+            "loadtest/locustfile.py": "class User:\n    def hit(self) -> None:\n        pass\n",
+            "tools/seed.py": "def seed() -> None:\n    pass\n",
+            "scripts/logging.py": "def dead() -> None:\n    pass\n",
+            "tools/pip.py": "def dead() -> None:\n    pass\n",
+            "svc/tasks.py": "def job() -> None:\n    pass\n",
+            "svc/factory.py": "class Builder:\n    def build(self) -> None:\n        pass\n",
+        }
+    )
+    deployment = (
+        DeploymentReference("script", "loadtest/locustfile.py", "Makefile", True),
+        DeploymentReference("script", "/app/tools/seed.py", "docker/Dockerfile"),
+        DeploymentReference("object", "logging.handlers.RotatingFileHandler", "log.conf"),
+        DeploymentReference("module", "pip", "Dockerfile"),
+        DeploymentReference("discovery", "tasks", "Procfile"),
+        DeploymentReference("module", "svc.factory:Builder.build", "Procfile"),
+    )
+    model = build_framework_model(program, Config(), deployment=deployment)
+    plan = next(plan for plan in model.plans if plan.id == COMMANDS_WORLD)
+
+    assert set(plan.roots) == {
+        program.modules[name].node_id
+        for name in ("loadtest.locustfile", "tools.seed", "svc.tasks", "svc.factory")
+    } | {_id(program, "svc.factory:Builder.build")}
+    assert set(plan.conservative_roots) == {
+        _id(program, "loadtest.locustfile:User"),
+        _id(program, "loadtest.locustfile:User.hit"),
+    }
+    configured = build_framework_model(
+        program,
+        Config(worlds=(WorldConfig("production", "api", ("svc.tasks:job",)),)),
+        deployment=deployment,
+    )
+    assert COMMANDS_WORLD not in {plan.id for plan in configured.plans}
