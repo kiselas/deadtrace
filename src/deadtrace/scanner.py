@@ -247,7 +247,7 @@ def _discover_python_files(
         current_path = Path(current)
         kept: list[str] = []
         for name in sorted(directory_names):
-            if _is_skipped_directory(current_path, name):
+            if is_skipped_directory(current_path, name):
                 skipped.append((current_path / name).relative_to(scan_path).as_posix())
             else:
                 kept.append(name)
@@ -281,7 +281,7 @@ def _apply_exclude(
     return tuple(kept), tuple(sorted(excluded))
 
 
-def _is_skipped_directory(parent: Path, name: str) -> bool:
+def is_skipped_directory(parent: Path, name: str) -> bool:
     """Whether a directory below the scan path holds no project source (ADR-0015).
 
     A name that starts with a dot cannot be a package, so nothing in it is importable as project

@@ -327,6 +327,13 @@ fixed, and 7 that run only through deployment commands or configuration files th
 does not read. Reading roots from such commands and a report schema that lists each guard once
 remain open.
 
+### FIELD-06 — programs that deployment files start
+
+**Status:** implemented on 2026-09-28 (ADR-0023, model revision 16). Commands in Compose files,
+Dockerfiles, `Procfile`s, Makefiles, shell scripts, and service units, and classes that
+configuration files name, root the world `production:commands`. Kubernetes manifests and Helm
+templates are not read.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:

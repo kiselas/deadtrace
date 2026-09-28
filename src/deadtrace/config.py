@@ -161,6 +161,10 @@ def _worlds(value: object) -> tuple[WorldConfig, ...]:
         if unsupported:
             raise ConfigurationError(f"unknown framework capability: {', '.join(unsupported)}")
         identity = (profile, scenario)
+        if identity == ("production", "migrations"):
+            raise ConfigurationError(
+                "world production:migrations is reserved for the migrations of the project"
+            )
         if identity in identities:
             raise ConfigurationError(f"duplicate world {profile}:{scenario}")
         identities.add(identity)

@@ -28,6 +28,7 @@ STAGES: Final[tuple[str, ...]] = (
     "frontend.symbol_flow",
     "frontend.graph",
     "frontend.entry_points",
+    "frontend.deployment",
     "frontend.frameworks_discover",
     "frontend.frameworks_plans",
     "frontend.frameworks_graph",

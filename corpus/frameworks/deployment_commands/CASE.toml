@@ -1,0 +1,45 @@
+schema_version = 1
+case_id = "deployment-commands"
+description = "Commands and configurations in deployment files name execution roots."
+
+[analysis]
+complete = true
+worlds = ["production:commands", "production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "svc/svc/profiling.py"
+kind = "function"
+qualified_name = "enable_profiling"
+expectation = "not_candidate"
+
+[[targets]]
+path = "svc/svc/worker.py"
+kind = "function"
+qualified_name = "job"
+expectation = "not_candidate"
+
+[[targets]]
+path = "svc/svc/tasks.py"
+kind = "function"
+qualified_name = "run_tasks"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tools/seed.py"
+kind = "function"
+qualified_name = "seed"
+expectation = "not_candidate"
+
+[[targets]]
+path = "svc/svc/logs.py"
+kind = "function"
+qualified_name = "JsonFormatter.format"
+expectation = "not_candidate"
+
+[[targets]]
+path = "svc/svc/logs.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"
