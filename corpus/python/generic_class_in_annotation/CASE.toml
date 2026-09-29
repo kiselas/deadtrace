@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "generic-class-in-annotation"
+description = "The class of a subscripted annotation is used by the signature."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Box"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Reader"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Unused"
+expectation = "candidate"

@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "fixture-requested-by-name"
+description = "request.getfixturevalue with a literal name requests that fixture."
+
+[analysis]
+complete = true
+worlds = ["production:library"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "pkg/plugin.py"
+kind = "function"
+qualified_name = "_session_value"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/plugin.py"
+kind = "function"
+qualified_name = "_unused_helper"
+expectation = "candidate"

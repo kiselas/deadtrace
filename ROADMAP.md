@@ -340,6 +340,12 @@ templates are not read.
 pass had scanned, from a library of 88k lines to MCP servers and test suites, gave one false
 finding class: tests imported into another test module, which resolve fixtures from the importer.
 
+### FIELD-08 — installed libraries
+
+**Status:** implemented on 2026-09-29 (ADR-0025, model revision 18). Thirty-nine installed packages
+were scanned as projects; 44 of their 88 findings were false, of ten kinds, and all were
+reproduced, fixed, and added to the corpus.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:

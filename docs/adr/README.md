@@ -73,3 +73,5 @@ each other. Typo and link fixes are fine.
   roots (model revision 16). Accepted.
 - [ADR-0024](0024-tests-imported-into-test-modules.md) — Tests imported into a test module are
   collected there (model revision 17). Accepted.
+- [ADR-0025](0025-library-and-test-conventions-from-installed-packages.md) — Conventions found in
+  installed libraries (model revision 18). Accepted.

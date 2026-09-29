@@ -283,7 +283,12 @@ def apply_pytest_model(
         for symbol in program.symbols.values()
         if symbol.id in native or symbol.id in imported_functions
     )
-    if not tests:
+    # pytest imports every module that matches ``python_files``, tests or not: tests that a module
+    # creates dynamically, such as ``TestDraft = suite.to_unittest_testcase()``, need it to run.
+    test_modules = tuple(
+        module for module in program.modules.values() if _is_test_path(module.path, collection)
+    )
+    if not tests and not test_modules:
         return model
 
     fixtures = _discover_fixtures(program)
@@ -315,6 +320,7 @@ def apply_pytest_model(
         for name, module in program.modules.items()
         if name in plugins or PurePosixPath(module.path).name == "conftest.py"
     )
+    roots.update(module.node_id for module in test_modules)
     roots.update(_xunit_fixtures(program, collection, classes))
     # Plugins request the fixtures they define themselves, and a project fixture of such a name
     # overrides theirs: pytest-asyncio's ``event_loop``, pytest-django's ``django_db_setup``.

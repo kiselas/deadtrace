@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import io
+import re
 import tokenize
 from bisect import bisect_left
 from collections import defaultdict
@@ -859,7 +860,7 @@ class _Resolver:
         """Project classes an evaluated annotation names; string annotations name none."""
 
         found: dict[NodeId, PythonSymbol] = {}
-        for name in _annotation_names(annotation, module.text):
+        for name in _annotation_names(annotation, module.text, generics=True):
             symbol = self._annotation_symbol(name, module)
             if symbol is not None and symbol.kind is NodeKind.CLASS:
                 found[symbol.id] = symbol
@@ -1325,6 +1326,7 @@ class _ExecutionVisitor:
             ast.Call: self._visit_call,
             ast.Name: self._visit_name_or_attribute,
             ast.Attribute: self._visit_name_or_attribute,
+            ast.Subscript: self._visit_subscript,
             ast.Assign: self._visit_assign,
             ast.AnnAssign: self._visit_ann_assign,
             ast.FunctionDef: self.visit_definition_header,
@@ -1342,6 +1344,52 @@ class _ExecutionVisitor:
             handler = handlers.get(type(node))
             if handler is not None and id(node) not in handled:
                 handler(node)
+
+    def _visit_subscript(self, node: ast.Subscript) -> None:
+        if self._is_globals_call(node.value):
+            self._record_globals_lookup(node.slice)
+
+    def _is_globals_call(self, expression: ast.expr) -> bool:
+        return (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Name)
+            and expression.func.id == "globals"
+            and not expression.args
+            and "globals" not in self._locals
+        )
+
+    def _record_globals_lookup(self, key: ast.expr | None) -> None:
+        """``globals()["_render_%s_type" % name]`` reads a top-level definition by its name.
+
+        A constant name is a reference; a computed one may name any top-level definition of the
+        module that has its constant start and end (ADR-0025).
+        """
+
+        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+            symbol = self.resolver.resolve_full_name(f"{self.module.name}.{key.value}")
+            if symbol is not None:
+                self._escaped.add(symbol.id)
+            return
+        prefix, suffix = _constant_affixes(key)
+        targets = tuple(
+            sorted(
+                symbol.id
+                for symbol in self.module.symbols
+                if symbol.owner is None
+                and symbol.name.startswith(prefix)
+                and symbol.name.endswith(suffix)
+                and len(symbol.name) >= len(prefix) + len(suffix)
+            )
+        )
+        if targets:
+            self.boundaries.append(
+                UnknownBoundary(
+                    source=self.source,
+                    domain="dynamic_attribute_dispatch",
+                    reason="globals() lookup by a computed name may name a top-level definition",
+                    targets=targets,
+                )
+            )
 
     def _visit_import(self, node: ast.Import | ast.ImportFrom) -> None:
         """Running an import statement runs the project modules it names."""
@@ -1534,7 +1582,11 @@ class _ExecutionVisitor:
                 dotted = _dotted_name(expression)
                 if dotted is None:
                     return None
-                return self.resolver.resolve_binding(binding, dotted.split(".")[1:])
+                # ``def cpu_count`` in one branch and ``from os import cpu_count`` in another
+                # bind the name alike; an import from outside the project leaves the definition.
+                return self.resolver.resolve_binding(
+                    binding, dotted.split(".")[1:]
+                ) or self._nested_definition(expression)
             if head.id in self._locals and head.id not in self.local_types:
                 return self._nested_definition(expression)
         return self.resolver.resolve_expression(
@@ -1613,6 +1665,21 @@ class _ExecutionVisitor:
     def _visit_call(self, node: ast.Call) -> None:
         func = node.func
         self.mark_references(func)
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "get"
+            and self._is_globals_call(func.value)
+        ):
+            self._record_globals_lookup(node.args[0] if node.args else None)
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr in {"getfixturevalue", "getfuncargvalue"}
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            # ``request.getfixturevalue("name")`` requests the fixture ``name`` from a body.
+            self._escaped.update(self.resolver.top_level_named(node.args[0].value))
         if _dotted_name(func) == "getattr" and "getattr" not in self._locals:
             self._record_getattr_value(node)
         if isinstance(func, ast.Attribute) and self._is_super(func):
@@ -2165,6 +2232,10 @@ class _ExecutionVisitor:
                     continue
             if target is not None:
                 escaped.add(target.id)
+                escaped.update(self._overrides_of_reference(argument.value, target))
+                escaped.update(
+                    item.id for item in self._alternative_targets(argument.value, target)
+                )
             elif isinstance(argument.value, ast.Attribute):
                 self._reference_receiver(argument.value)
         if escaped:
@@ -2179,6 +2250,29 @@ class _ExecutionVisitor:
             )
             if external not in INSPECTING_CONSUMERS:
                 self._expose_classes(escaped, external)
+
+    def _overrides_of_reference(
+        self, expression: ast.expr, target: PythonSymbol
+    ) -> tuple[NodeId, ...]:
+        """Overrides in project subclasses of a method referenced as ``self.method``.
+
+        A method passed as a value is called on the same instance, which may be of a subclass, as
+        a call of it would be.
+        """
+
+        if not isinstance(expression, ast.Attribute) or not self._through_instance(expression):
+            return ()
+        owner = self.resolver.symbols.get(target.owner) if target.owner is not None else None
+        if owner is None or owner.kind is not NodeKind.CLASS:
+            return ()
+        # ``self`` is an instance of the class the method is in or of a subclass of it, so a
+        # sibling class that derives from the base beside it never receives the call.
+        receiver = (
+            self._containing_class()
+            if isinstance(expression.value, ast.Name) and expression.value.id in {"self", "cls"}
+            else None
+        )
+        return tuple(item.id for item in self.resolver.overrides(receiver or owner, target.name))
 
     def _expose_classes(self, escaped: set[NodeId], external: str) -> None:
         """A consumer that receives a class may call its methods: one boundary per class.
@@ -2228,14 +2322,19 @@ class _ExecutionVisitor:
             callback = self._resolve(argument.value)
             if callback is not None:
                 self.mark_references(argument.value)
-                self.edges.append(
-                    ExecutionEdge(
-                        target.id,
-                        callback.id,
-                        EdgeKind.CALLBACK,
-                        f"invokes callable argument {parameter_name}",
+                for reached in (
+                    callback.id,
+                    *self._overrides_of_reference(argument.value, callback),
+                    *(item.id for item in self._alternative_targets(argument.value, callback)),
+                ):
+                    self.edges.append(
+                        ExecutionEdge(
+                            target.id,
+                            reached,
+                            EdgeKind.CALLBACK,
+                            f"invokes callable argument {parameter_name}",
+                        )
                     )
-                )
 
 
 def _local_names(scope: PythonSymbol) -> tuple[frozenset[str], bool]:
@@ -2850,6 +2949,9 @@ def _loaded_module_suffix(expression: ast.expr | None) -> str:
 def _constant_affixes(expression: ast.expr | None) -> tuple[str, str]:
     """The constant start and end of a computed string: ``f"{pkg}.tables"`` ends in ``.tables``."""
 
+    template = _format_template(expression)
+    if template is not None:
+        return template
     parts: list[ast.expr]
     if isinstance(expression, ast.JoinedStr):
         parts = list(expression.values)
@@ -2866,6 +2968,39 @@ def _constant_affixes(expression: ast.expr | None) -> tuple[str, str]:
     prefix = constant(parts[0])
     suffix = constant(parts[-1]) if len(parts) > 1 else ""
     return prefix, suffix
+
+
+_PERCENT_FIELD = re.compile(r"%[-#0 +]*\d*(?:\.\d+)?[sdriouxXeEfFgGc]")
+_BRACE_FIELD = re.compile(r"\{[^{}]*\}")
+
+
+def _format_template(expression: ast.expr | None) -> tuple[str, str] | None:
+    """The literal start and end of ``"a_%s_b" % x`` and ``"a_{}_b".format(x)``, else ``None``."""
+
+    template: str | None = None
+    field = _PERCENT_FIELD
+    if (
+        isinstance(expression, ast.BinOp)
+        and isinstance(expression.op, ast.Mod)
+        and isinstance(expression.left, ast.Constant)
+        and isinstance(expression.left.value, str)
+    ):
+        template = expression.left.value
+    elif (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Attribute)
+        and expression.func.attr == "format"
+        and isinstance(expression.func.value, ast.Constant)
+        and isinstance(expression.func.value.value, str)
+    ):
+        template = expression.func.value.value
+        field = _BRACE_FIELD
+    if template is None:
+        return None
+    fields = list(field.finditer(template))
+    if not fields:
+        return None
+    return template[: fields[0].start()], template[fields[-1].end() :]
 
 
 def _package_path(name: str) -> list[str]:
@@ -3181,10 +3316,10 @@ def _unsupported_python_hook_boundaries(
                     for method in owned_methods[item.id]
                     if method.name == "__init_subclass__"
                 )
-        if hooks:
-            scope = resolver.enclosing_scope(class_symbol)
-            while scope is not None and scope.kind is NodeKind.CLASS:
-                scope = resolver.enclosing_scope(scope)
+        scope = resolver.enclosing_scope(class_symbol)
+        while scope is not None and scope.kind is NodeKind.CLASS:
+            scope = resolver.enclosing_scope(scope)
+        if hooks or _base_is_computed(class_symbol, module, scope, resolver, modules):
             boundaries.append(
                 UnknownBoundary(
                     source=scope.id if scope is not None else module.node_id,
@@ -3193,7 +3328,101 @@ def _unsupported_python_hook_boundaries(
                     targets=tuple(sorted({class_symbol.id, *hooks})),
                 )
             )
+    # PEP 562: attribute access on a module calls its ``__getattr__`` for a missing name and
+    # ``dir(module)`` its ``__dir__``, from code that imports the module (ADR-0025).
+    for module in modules.values():
+        module_hooks = tuple(
+            sorted(
+                symbol.id
+                for symbol in module.symbols
+                if symbol.owner is None
+                and symbol.kind is NodeKind.FUNCTION
+                and symbol.name in MODULE_HOOKS
+            )
+        )
+        if module_hooks:
+            boundaries.append(
+                UnknownBoundary(
+                    source=module.node_id,
+                    domain="implicit_python_dispatch",
+                    reason=(
+                        "module __getattr__ or __dir__ may execute when the module is accessed"
+                    ),
+                    targets=module_hooks,
+                )
+            )
     return tuple(boundaries)
+
+
+MODULE_HOOKS = frozenset({"__getattr__", "__dir__"})
+"""Module-level functions that Python calls for missing attributes and ``dir()`` (PEP 562)."""
+
+
+def _base_is_computed(
+    class_symbol: PythonSymbol,
+    module: PythonModule,
+    scope: PythonSymbol | None,
+    resolver: _Resolver,
+    modules: dict[str, PythonModule],
+) -> bool:
+    """Whether a base is a class value only running code tells: its statement may run hooks.
+
+    ``class Boom(cls)`` derives from a parameter, and ``class Sub(validators.Draft7)`` from a
+    module variable that a project function built with ``Draft7 = create(...)``; the base's
+    ``__init_subclass__`` or metaclass runs when the statement does, which tests rely on
+    (ADR-0025).
+    """
+
+    local = _local_names(scope)[0] if scope is not None and scope.kind is NodeKind.FUNCTION else ()
+    for base in class_symbol.bases:
+        expression = _unstarred(base.value if isinstance(base, ast.Subscript) else base)
+        if isinstance(expression, ast.Call):
+            callee = resolver.resolve_expression(
+                expression.func,
+                module=module,
+                current=scope,
+                local_types={},
+                class_field_types={},
+            )
+            if callee is not None and callee.kind is NodeKind.FUNCTION:
+                return True  # ``class Sub(create(schema))``: a project function makes the base
+            continue
+        dotted = _dotted_name(expression)
+        if dotted is None:
+            continue
+        if dotted.split(".")[0] in local:
+            return True
+        module_name, _, attribute = (resolver.external_name(expression, module) or "").rpartition(
+            "."
+        )
+        owner = modules.get(module_name)
+        if owner is not None and _is_factory_value(owner, attribute, resolver):
+            return True
+    return False
+
+
+def _is_factory_value(module: PythonModule, name: str, resolver: _Resolver) -> bool:
+    """Whether ``name = project_function(...)`` is a top-level assignment of ``module``."""
+
+    for statement in module.tree.body:
+        if not (
+            isinstance(statement, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == name for target in statement.targets
+            )
+            and isinstance(statement.value, ast.Call)
+        ):
+            continue
+        callee = resolver.resolve_expression(
+            statement.value.func,
+            module=module,
+            current=None,
+            local_types={},
+            class_field_types={},
+        )
+        if callee is not None and callee.kind is NodeKind.FUNCTION:
+            return True
+    return False
 
 
 def _is_special_method(name: str) -> bool:
@@ -3373,7 +3602,15 @@ def _parameters(node: FunctionNode) -> tuple[ParameterInfo, ...]:
     )
 
 
-def _annotation_names(expression: ast.expr, text: SourceText) -> tuple[str, ...]:
+def _annotation_names(
+    expression: ast.expr, text: SourceText, *, generics: bool = False
+) -> tuple[str, ...]:
+    """Dotted names an annotation mentions; ``generics`` also gives the subscripted class.
+
+    ``Box[int]`` needs ``Box`` for the class to be live, but it does not give a variable the type
+    ``Box`` in the other uses of these names, so the subscripted name is opt-in.
+    """
+
     if isinstance(expression, (ast.Name, ast.Attribute)) or _is_name_constant(expression):
         dotted = _dotted_name(expression)
         return (dotted,) if dotted is not None else ()
@@ -3381,15 +3618,15 @@ def _annotation_names(expression: ast.expr, text: SourceText) -> tuple[str, ...]
         base = _dotted_name(expression.value)
         elements = subscript_elements(expression, text)
         if base in {"Annotated", "typing.Annotated", "FromDishka"}:
-            return _annotation_names(elements[0], text) if elements else ()
-        result: list[str] = []
+            return _annotation_names(elements[0], text, generics=generics) if elements else ()
+        result: list[str] = [base] if generics and base is not None else []
         for element in elements:
-            result.extend(_annotation_names(element, text))
+            result.extend(_annotation_names(element, text, generics=generics))
         return tuple(result)
     if isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.BitOr):
         return (
-            *_annotation_names(expression.left, text),
-            *_annotation_names(expression.right, text),
+            *_annotation_names(expression.left, text, generics=generics),
+            *_annotation_names(expression.right, text, generics=generics),
         )
     return ()
 

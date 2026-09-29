@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "pytest-dynamic-test-module"
+description = "A test module without static tests still runs when pytest imports it."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "tests:pytest"]
+finding_codes = ["RCH001", "RCH004"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "test_generated.py"
+kind = "function"
+qualified_name = "skip_slow"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_cases.py"
+kind = "function"
+qualified_name = "Suite.unused"
+expectation = "candidate"

@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "class-from-computed-base"
+description = "A class derived from a computed base is created for its base's hooks."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "check_factory.FromFactory"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "check_parameter.FromParameter"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "check_call.FromCall"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "check_plain.Plain"
+expectation = "candidate"

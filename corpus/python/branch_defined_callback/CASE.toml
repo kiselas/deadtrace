@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "branch-defined-callback"
+description = "Each definition of a callback bound in different branches may run."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Walker.descendants.fn"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Walker.unused"
+expectation = "candidate"
