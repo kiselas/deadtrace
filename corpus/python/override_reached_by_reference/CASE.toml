@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "override-reached-by-reference"
+description = "A method passed as a value may run as an override of a subclass."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Plugin.first"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Plugin.second"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Plugin.unused"
+expectation = "candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Sibling.first"
+expectation = "candidate"

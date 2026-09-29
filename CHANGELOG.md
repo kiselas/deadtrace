@@ -59,6 +59,12 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/18` (ADR-0025), from 39 installed libraries: overrides of
+  public methods in private implementation classes, module `__getattr__` and `__dir__`, classes
+  named by a subscripted annotation, methods passed as values with their overrides and branch
+  definitions, `globals()[name]` lookups, test modules that create their tests when imported,
+  main-guard programs in test directories, classes derived from a computed base, a definition
+  and an import that bind one name, and `request.getfixturevalue("name")` in plugins.
 - Model revision `python-fastapi-dishka/17` (ADR-0024): test functions and classes that a test
   module imports by name or with `*` are collected in the importer and resolve their fixtures from
   its directory and conftests; a directory without Python files says so.

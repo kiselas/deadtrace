@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "library-public-override"
+description = "Overrides of public methods run when their class is used."
+
+[analysis]
+complete = true
+worlds = ["production:library"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "Impl.terminate"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "Impl.kill"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "Impl.helper"
+expectation = "candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "class"
+qualified_name = "_Dead"
+expectation = "candidate"
+
+[[targets]]
+path = "pkg/_impl.py"
+kind = "function"
+qualified_name = "_Dead.terminate"
+expectation = "candidate"

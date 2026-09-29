@@ -1622,6 +1622,11 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
                 assembly_state=assembly,
                 limitations=tuple(sorted(set(limitations), key=_core_limitation_sort_key)),
                 root_provenance=tuple(root_provenance.values()),
+                boundaries=(
+                    _public_override_boundaries(state, roots)
+                    if world_config.scenario == "library" and not state.config.worlds
+                    else ()
+                ),
             )
         )
     migrations = _migrations_plan(state)
@@ -1631,6 +1636,65 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
     if commands is not None:
         plans.append(commands)
     return tuple(sorted(plans, key=lambda item: item.id))
+
+
+def _public_override_boundaries(
+    state: _BuildState, roots: set[NodeId]
+) -> tuple[UnknownBoundary, ...]:
+    """Callers of a library's public methods may hold an instance of a project subclass.
+
+    A user of ``open_process() -> Process`` calls ``terminate`` on whatever it returns, which is
+    the override of a private implementation class. The override runs once its class may, so the
+    boundary is gated by the class: an implementation nothing constructs stays unreached
+    (ADR-0025).
+    """
+
+    program = state.program
+    subclasses: defaultdict[NodeId, list[PythonSymbol]] = defaultdict(list)
+    for symbol in program.symbols.values():
+        if symbol.kind is not NodeKind.CLASS:
+            continue
+        module = program.modules[symbol.module]
+        for base in symbol.bases:
+            target = program.resolve_symbol(_expanded_name(module, base))
+            if target is not None and target.kind is NodeKind.CLASS:
+                subclasses[target.id].append(symbol)
+    if not subclasses:
+        return ()
+    boundaries: list[UnknownBoundary] = []
+    for node_id in sorted(roots):
+        method = program.symbols.get(node_id)
+        owner = program.symbols.get(method.owner) if method and method.owner else None
+        if method is None or owner is None or not is_function(method):
+            continue
+        gates: dict[NodeId, NodeId] = {}
+        queue = list(subclasses.get(owner.id, ()))
+        seen = {owner.id}
+        while queue:
+            subclass = queue.pop()
+            if subclass.id in seen:
+                continue
+            seen.add(subclass.id)
+            override = program.resolve_symbol(
+                f"{subclass.module}.{subclass.qualified_name}.{method.name}"
+            )
+            if override is not None and is_function(override):
+                gates[override.id] = subclass.id
+            queue.extend(subclasses.get(subclass.id, ()))
+        if gates:
+            boundaries.append(
+                UnknownBoundary(
+                    source=method.id,
+                    domain="public_override",
+                    reason=(
+                        f"public method {owner.qualified_name}.{method.name} may be called on an"
+                        " instance of a project subclass"
+                    ),
+                    targets=tuple(sorted(gates)),
+                    gates=tuple(sorted(gates.items())),
+                )
+            )
+    return tuple(boundaries)
 
 
 COMMANDS_WORLD = WorldId("production", "commands")
@@ -2005,7 +2069,7 @@ def _script_world(state: _BuildState) -> tuple[WorldConfig, ...]:
     scripts = sorted(
         name
         for name, module in state.program.modules.items()
-        if not _is_test_module(module)
+        if not _is_test_file(module)
         and (name.rpartition(".")[2] == "__main__" or has_main_guard(module))
     )
     for name in scripts:
@@ -2074,6 +2138,13 @@ def _library_world(state: _BuildState, packages: set[str] | None = None) -> tupl
 
 def _is_test_module(module: PythonModule) -> bool:
     return is_test_path(module.path)
+
+
+def _is_test_file(module: PythonModule) -> bool:
+    """A module pytest would collect by its file name; a script in a test directory is not one."""
+
+    name = module.path.rpartition("/")[2]
+    return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
 
 
 def _is_non_library_module(module: PythonModule) -> bool:

@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "script-in-tests-directory"
+description = "A main-guard module in a test directory that is not a test file is a program."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/fuzz.py"
+kind = "function"
+qualified_name = "main"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/fuzz.py"
+kind = "function"
+qualified_name = "target"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/fuzz.py"
+kind = "function"
+qualified_name = "dead"
+expectation = "candidate"
