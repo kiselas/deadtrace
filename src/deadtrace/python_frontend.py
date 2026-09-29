@@ -15,6 +15,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
+from functools import lru_cache
 from typing import Any, NamedTuple
 
 from deadtrace.core import (
@@ -1680,6 +1681,18 @@ class _ExecutionVisitor:
         ):
             # ``request.getfixturevalue("name")`` requests the fixture ``name`` from a body.
             self._escaped.update(self.resolver.top_level_named(node.args[0].value))
+        if (
+            isinstance(func, ast.Name)
+            and func.id in {"locals", "vars"}
+            and not node.args
+            and func.id not in self._locals
+            and self.current is not None
+        ):
+            # ``return locals()`` hands the function's nested definitions on, as
+            # ``property(**prop())`` receives ``fget`` and ``fset`` (ADR-0026).
+            self._escaped.update(
+                member.id for member in self.resolver.index.members(self.current.id)
+            )
         if _dotted_name(func) == "getattr" and "getattr" not in self._locals:
             self._record_getattr_value(node)
         if isinstance(func, ast.Attribute) and self._is_super(func):
@@ -1813,11 +1826,43 @@ class _ExecutionVisitor:
         if isinstance(node, ast.Attribute):
             self._reference_receiver(node)
 
+    def _members_provided_by_subclasses(self, attribute: ast.Attribute) -> list[PythonSymbol]:
+        """Members ``self.name`` reaches when the class has none: a subclass's or its other bases'.
+
+        A mixin calls ``self._build_header()`` that the concrete subclass, or another base of that
+        subclass, defines (ADR-0026). A class with a base outside the project may get the name
+        from there, so it is left to that rule.
+        """
+
+        receiver = attribute.value
+        if not (isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"}):
+            return []
+        owner = self._containing_class()
+        if owner is None or receiver.id in self._locals - {"self", "cls"}:
+            return []
+        if self.resolver.lookup_member(owner, attribute.attr) is not None:
+            return []
+        if self.resolver.external_bases(owner):
+            return []
+        found: dict[NodeId, PythonSymbol] = {}
+        for subclass in self.resolver.subclasses_of(owner):
+            for base in self.resolver.mro(subclass):
+                member = self.resolver.resolve_full_name(
+                    f"{base.module}.{base.qualified_name}.{attribute.attr}"
+                )
+                if member is not None:
+                    found[member.id] = member
+        return [found[key] for key in sorted(found)]
+
     def _reference_receiver(self, attribute: ast.Attribute) -> None:
         """An attribute that did not resolve: its receiver escapes or its type is unknown."""
 
         receiver = attribute.value
         if self._is_super(attribute):
+            return
+        provided = self._members_provided_by_subclasses(attribute)
+        if provided:
+            self._escaped.update(member.id for member in provided)
             return
         if isinstance(receiver, ast.Name) and receiver.id in self._dynamic_modules:
             self._escaped.update(self.resolver.top_level_named(attribute.attr))
@@ -1826,6 +1871,18 @@ class _ExecutionVisitor:
             if self.resolver.methods_named(attribute.attr):
                 self._dispatched.add(attribute.attr)
             return
+        # ``gateways.mikrotik()`` on a ``Gateways`` whose base supplies ``mikrotik``: no member is
+        # found, and what a subclass, or a stand-in in a test, defines under the name may run.
+        type_name = self._infer_expression_type(receiver)
+        receiver_class = self.resolver.class_named(type_name) if type_name is not None else None
+        if (
+            receiver_class is not None
+            and not (isinstance(receiver, ast.Name) and receiver.id in {"self", "cls"})
+            and self.resolver.lookup_member(receiver_class, attribute.attr) is None
+        ):
+            self._escaped.update(
+                member.id for member in self.resolver.overrides(receiver_class, attribute.attr)
+            )
         symbol = self._resolve(receiver) if _dotted_name(receiver) is not None else None
         if symbol is not None:
             self._escaped.add(symbol.id)
@@ -3602,6 +3659,19 @@ def _parameters(node: FunctionNode) -> tuple[ParameterInfo, ...]:
     )
 
 
+@lru_cache(maxsize=8192)
+def _parsed_annotation(value: str) -> ast.expr | None:
+    """A quoted annotation as an expression, or ``None`` when it is no annotation."""
+
+    stripped = value.strip()
+    if not stripped or len(stripped) > 200:
+        return None
+    try:
+        return ast.parse(stripped, mode="eval").body
+    except (SyntaxError, ValueError):
+        return None
+
+
 def _annotation_names(
     expression: ast.expr, text: SourceText, *, generics: bool = False
 ) -> tuple[str, ...]:
@@ -3614,8 +3684,16 @@ def _annotation_names(
     if isinstance(expression, (ast.Name, ast.Attribute)) or _is_name_constant(expression):
         dotted = _dotted_name(expression)
         return (dotted,) if dotted is not None else ()
+    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+        # ``-> "Behaviour"`` names its class as ``-> Behaviour`` does (ADR-0026).
+        parsed = _parsed_annotation(expression.value)
+        if parsed is None:
+            return ()
+        return _annotation_names(parsed, SourceText(expression.value.strip()), generics=generics)
     if isinstance(expression, ast.Subscript):
         base = _dotted_name(expression.value)
+        if base in {"Literal", "typing.Literal", "typing_extensions.Literal"}:
+            return ()  # the strings of a Literal are values, not types
         elements = subscript_elements(expression, text)
         if base in {"Annotated", "typing.Annotated", "FromDishka"}:
             return _annotation_names(elements[0], text, generics=generics) if elements else ()

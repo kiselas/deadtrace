@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "mixin-calls-subclass-method"
+description = "self.name in a mixin reaches the member a subclass or its other bases provide."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Graph._build_header"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Extra.provided_elsewhere"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Stranger._build_header"
+expectation = "candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Graph.unused"
+expectation = "candidate"

@@ -1963,8 +1963,10 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
     }
     if not worlds:
         worlds.extend(_library_world(state))
-    elif plugin_packages:
-        worlds.extend(_library_world(state, plugin_packages))
+    else:
+        if plugin_packages:
+            worlds.extend(_library_world(state, plugin_packages))
+        worlds.extend(_export_world(state))
     worlds.extend(_script_world(state))
     if not worlds:
         return (WorldConfig("production", "application", (AUTO_ROOT,)),)
@@ -2134,6 +2136,53 @@ def _library_world(state: _BuildState, packages: set[str] | None = None) -> tupl
     for root in roots:
         state.auto_provenance[("library", root)] = ("library_public_api", root)
     return (WorldConfig("production", "library", tuple(roots), ("python",)),) if roots else ()
+
+
+def _export_world(state: _BuildState) -> tuple[WorldConfig, ...]:
+    """The API a top-level package exports explicitly, next to an application (ADR-0026).
+
+    A library with a command line, such as Typer or Click, has applications, so its public API is
+    no world of its own. Names the package's ``__init__`` re-exports with ``import y as y`` or lists
+    in ``__all__`` are its contract; the rest of the package stays under the usual rules.
+    """
+
+    program = state.program
+    api: list[PythonSymbol] = []
+    for name, module in sorted(program.modules.items()):
+        if "." in name or not module.path.endswith("__init__.py") or _is_test_module(module):
+            continue
+        exports = declared_exports(module) or frozenset()
+        explicit = {
+            alias.asname
+            for statement in module.tree.body
+            if isinstance(statement, ast.Import | ast.ImportFrom)
+            for alias in statement.names
+            if alias.asname is not None and alias.asname == alias.name.rpartition(".")[2]
+        }
+        for local, binding in module.imports.items():
+            if local in exports or local in explicit:
+                target = program.resolve_symbol(binding.target)
+                if target is not None:
+                    api.append(target)
+        api.extend(
+            symbol for symbol in module.symbols if symbol.owner is None and symbol.name in exports
+        )
+    roots: dict[str, None] = {}
+    while api:
+        symbol = api.pop()
+        full_name = f"{symbol.module}:{symbol.qualified_name}"
+        if full_name in roots:
+            continue
+        roots[full_name] = None
+        if symbol.kind is NodeKind.CLASS:
+            api.extend(
+                member
+                for member in program.index.members(symbol.id)
+                if not member.name.startswith("_")
+            )
+    for root in roots:
+        state.auto_provenance[("exports", root)] = ("package_exports", root)
+    return (WorldConfig("production", "exports", tuple(roots), ("python",)),) if roots else ()
 
 
 def _is_test_module(module: PythonModule) -> bool:

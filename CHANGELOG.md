@@ -59,6 +59,11 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/19` (ADR-0026), from 57 more installed packages: the API a
+  library's `__init__` re-exports explicitly is a root next to its command line (world
+  `production:exports`); quoted annotations name their classes; `return locals()` hands nested
+  functions on; `self.name` in a mixin reaches the member of a subclass; a member missing on a typed
+  receiver reaches subclass members and test stand-ins.
 - Model revision `python-fastapi-dishka/18` (ADR-0025), from 39 installed libraries: overrides of
   public methods in private implementation classes, module `__getattr__` and `__dir__`, classes
   named by a subscripted annotation, methods passed as values with their overrides and branch

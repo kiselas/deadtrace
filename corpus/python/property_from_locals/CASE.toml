@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "property-from-locals"
+description = "Nested definitions returned through locals() are used."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Filter.label.fget"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Filter.label.fset"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Filter.unused"
+expectation = "candidate"

@@ -75,3 +75,5 @@ each other. Typo and link fixes are fine.
   collected there (model revision 17). Accepted.
 - [ADR-0025](0025-library-and-test-conventions-from-installed-packages.md) — Conventions found in
   installed libraries (model revision 18). Accepted.
+- [ADR-0026](0026-more-conventions-from-installed-packages.md) — More conventions found in installed
+  packages (model revision 19). Accepted.
