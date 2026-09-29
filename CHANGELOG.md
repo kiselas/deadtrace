@@ -59,6 +59,9 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Changed
 
+- Model revision `python-fastapi-dishka/17` (ADR-0024): test functions and classes that a test
+  module imports by name or with `*` are collected in the importer and resolve their fixtures from
+  its directory and conftests; a directory without Python files says so.
 - Model revision `python-fastapi-dishka/16` (ADR-0023): commands in Compose files, Dockerfiles,
   `Procfile`, Makefiles, shell scripts, supervisord programs, and systemd units that start
   `uvicorn`, `gunicorn`, `hypercorn`, `daphne`, `granian`, `faststream`, `taskiq`, `arq`,

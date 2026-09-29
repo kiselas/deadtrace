@@ -71,3 +71,5 @@ each other. Typo and link fixes are fine.
   sessions (model revision 15). Accepted.
 - [ADR-0023](0023-deployment-commands-as-roots.md) — Programs that deployment files start are
   roots (model revision 16). Accepted.
+- [ADR-0024](0024-tests-imported-into-test-modules.md) — Tests imported into a test module are
+  collected there (model revision 17). Accepted.

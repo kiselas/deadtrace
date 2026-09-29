@@ -115,6 +115,15 @@ def test_doctor_reports_incomplete_rootless_project(tmp_path: Path) -> None:
     assert "DT3004" in result.stdout
 
 
+def test_a_directory_without_python_files_says_so(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# no code\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["scan", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "no Python source files were found" in result.stdout
+
+
 def test_inventory_only_and_require_complete_modes(tmp_path: Path) -> None:
     (tmp_path / "_module.py").write_text("def item():\n    pass\n", encoding="utf-8")
 

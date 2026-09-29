@@ -1533,8 +1533,10 @@ def _build_world_plans(state: _BuildState) -> tuple[WorldPlan, ...]:
                         Limitation(
                             code="DT3004",
                             message=(
-                                "no execution roots were found: no application, entry point, "
-                                "script with a main guard, or public module; configure "
+                                "no Python source files were found below the root"
+                                if not state.program.modules
+                                else "no execution roots were found: no application, entry "
+                                "point, script with a main guard, or public module; configure "
                                 "[[tool.deadtrace.worlds]] roots"
                             ),
                             world=world_id,

@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "pytest-imported-suite"
+description = "Tests imported into a test module resolve fixtures from the importer."
+
+[analysis]
+complete = true
+worlds = ["production:library", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/suite/conftest.py"
+kind = "function"
+qualified_name = "base_url"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/suite/conftest.py"
+kind = "function"
+qualified_name = "session_cookie"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/suite_shared/conftest.py"
+kind = "function"
+qualified_name = "base_url"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/suite_shared/conftest.py"
+kind = "function"
+qualified_name = "session_cookie"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/suite_shared/conftest.py"
+kind = "function"
+qualified_name = "forgotten"
+expectation = "candidate"
