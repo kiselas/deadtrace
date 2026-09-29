@@ -7,6 +7,9 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Added
 
+- Dead methods are found in more classes: a class a Dishka binding builds, an instance kept in a
+  list or a dictionary, and a class read for an attribute no longer keep all their methods; an
+  implementation of an abstract method is retained with its class (ADR-0027).
 - `[tool.deadtrace].exclude` leaves data directories out of the source universe; reports list
   the excluded files (ADR-0018).
 - `cli.commands` capability: Typer commands and callbacks, and Click subcommands and groups.

@@ -77,3 +77,4 @@ each other. Typo and link fixes are fine.
   installed libraries (model revision 18). Accepted.
 - [ADR-0026](0026-more-conventions-from-installed-packages.md) — More conventions found in installed
   packages (model revision 19). Accepted.
+- [ADR-0027](0027-recall-of-dead-methods.md) — Recall of dead methods (model revision 20). Accepted.

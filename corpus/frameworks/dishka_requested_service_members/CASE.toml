@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "dishka-requested-service-members"
+description = "A dead method of a class that a requested Dishka binding builds is still reported."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Service.charge"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Service.retired"
+expectation = "candidate"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Ledger.write"
+expectation = "live"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "Ledger.purge"
+expectation = "candidate"

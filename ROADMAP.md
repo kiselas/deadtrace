@@ -352,6 +352,14 @@ reproduced, fixed, and added to the corpus.
 Django and Celery to `sentry_sdk` and `typer`, had 86 findings, of which 29 were false, of five
 kinds; all were reproduced, fixed, and added to the corpus.
 
+### FIELD-10 — recall of dead methods
+
+**Status:** implemented on 2026-09-29 (ADR-0027, model revision 20). Dead code injected into six
+field projects showed that methods of existing classes were often not reported; five rules kept
+them (a class a Dishka binding builds, an instance stored in a list, a class attribute read, an
+abstract implementation, a Django class without a base). All were reproduced, fixed, and added to
+the corpus.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:
