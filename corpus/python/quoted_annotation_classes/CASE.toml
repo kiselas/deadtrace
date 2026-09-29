@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "quoted-annotation-classes"
+description = "A quoted annotation names its classes; the strings of a Literal name none."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Options"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Behaviour"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Wrapped"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Named"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Unused"
+expectation = "candidate"

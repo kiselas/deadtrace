@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "stand-in-for-provided-member"
+description = "A member missing on a typed receiver may be a stand-in's method."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "tests/test_service.py"
+kind = "function"
+qualified_name = "_GatewaysStub.mikrotik"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/test_service.py"
+kind = "function"
+qualified_name = "_GatewaysStub.other"
+expectation = "candidate"

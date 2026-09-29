@@ -346,6 +346,12 @@ finding class: tests imported into another test module, which resolve fixtures f
 were scanned as projects; 44 of their 88 findings were false, of ten kinds, and all were
 reproduced, fixed, and added to the corpus.
 
+### FIELD-09 — more installed packages
+
+**Status:** implemented on 2026-09-29 (ADR-0026, model revision 19). Fifty-seven more packages, from
+Django and Celery to `sentry_sdk` and `typer`, had 86 findings, of which 29 were false, of five
+kinds; all were reproduced, fixed, and added to the corpus.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:
