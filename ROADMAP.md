@@ -360,6 +360,14 @@ them (a class a Dishka binding builds, an instance stored in a list, a class att
 abstract implementation, a Django class without a base). All were reproduced, fixed, and added to
 the corpus.
 
+### FIELD-11 — more installed packages
+
+**Status:** implemented on 2026-09-29 (ADR-0028, model revision 21). Seventy more packages had 299
+findings, about a third of them false, of ten kinds (Hypothesis, `addopts -p`, conditional bases and
+imports, aliases of external classes, `unittest.main()`, script file names, computed attribute
+names, lazy export tables, reserved module names); all were reproduced, fixed, and added to the
+corpus.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:

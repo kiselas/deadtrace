@@ -163,6 +163,8 @@ BUILTIN_MANAGERS = frozenset({"open", "memoryview"})
 OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
 INSPECTING_CONSUMERS = frozenset({"isinstance", "issubclass"})
 """Consumers that inspect a class they receive without calling anything on it."""
+UNITTEST_RUNNERS = frozenset({"unittest.main", "unittest.TestProgram"})
+"""Calls that run the ``TestCase`` classes of the module they are in."""
 CONTAINER_TYPES = frozenset(
     {"list", "dict", "set", "deque", "defaultdict", "OrderedDict", "List", "Dict", "Set", "Deque"}
 )
@@ -1173,7 +1175,10 @@ class _Resolver:
         if binding is None:
             return dotted
         suffix = ".".join(rest)
-        return f"{binding.target}.{suffix}" if suffix else binding.target
+        full = f"{binding.target}.{suffix}" if suffix else binding.target
+        # ``from .util import TestCase`` where ``util`` says ``TestCase = unittest.TestCase``.
+        resolved = follow_module_alias(self.modules, full)
+        return resolved if not self.is_project_name(resolved) else full
 
 
 class _ExecutionVisitor:
@@ -1483,9 +1488,33 @@ class _ExecutionVisitor:
         value = node.value
         if type(value) is not str or len(value) > 200 or not ("." in value or ":" in value):
             return
+        if value.endswith(".py") and _SCRIPT_FILE.fullmatch(value):
+            # ``subprocess.run([sys.executable, "fail_script.py"])`` runs the module by its file
+            # name (ADR-0028).
+            suffix = "/" + value.removeprefix("./")
+            matches = [
+                module
+                for module in self.resolver.modules.values()
+                if ("/" + module.path).endswith(suffix)
+            ]
+            if 0 < len(matches) <= 3:
+                self._escaped.update(module.node_id for module in matches)
+            return
+        if value.startswith(".") and value.strip("."):
+            # ``"._process.cmdexec:cmdexec"`` in a package's lazy export table (ADR-0028).
+            module_part, colon, attribute = value.partition(":")
+            is_package = self.module.path.rpartition("/")[2] == "__init__.py"
+            package = self.module.name if is_package else self.module.name.rpartition(".")[0]
+            absolute = _relative_import_name(module_part, package or None)
+            if absolute is None:
+                return
+            value = absolute + colon + attribute
         target = self.resolver.named_by_string(value)
         if target is not None:
             self._escaped.add(target)
+            symbol = self.resolver.symbols.get(target)
+            if symbol is not None:
+                self._escaped.update(item.id for item in self.resolver.alternatives(symbol))
 
     def _record_dynamic_import(self, call: ast.Call) -> None:
         arguments = positional_arguments(call)
@@ -1705,6 +1734,18 @@ class _ExecutionVisitor:
             # ``property(**prop())`` receives ``fget`` and ``fset`` (ADR-0026).
             self._escaped.update(
                 member.id for member in self.resolver.index.members(self.current.id)
+            )
+        if self._external_name(func) in UNITTEST_RUNNERS:
+            # ``unittest.main()`` collects the test cases of ``__main__``, this module (ADR-0028).
+            self._escaped.update(
+                symbol.id
+                for symbol in self.module.symbols
+                if symbol.owner is None
+                and symbol.kind is NodeKind.CLASS
+                and any(
+                    name.endswith(("unittest.TestCase", "unittest.IsolatedAsyncioTestCase"))
+                    for name in self.resolver.external_bases(symbol)
+                )
             )
         if _dotted_name(func) == "getattr" and "getattr" not in self._locals:
             self._record_getattr_value(node)
@@ -2189,6 +2230,16 @@ class _ExecutionVisitor:
     def _infer_expression_type(self, expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
             return self.local_types.get(expression.id)
+        if isinstance(expression, ast.Attribute) and expression.attr == "__class__":
+            return self._infer_expression_type(expression.value)
+        if (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Name)
+            and expression.func.id == "type"
+            and "type" not in self._locals
+            and len(expression.args) == 1
+        ):
+            return self._infer_expression_type(expression.args[0])
         if isinstance(expression, ast.Call):
             target = self._resolve(expression.func)
             if target is not None and target.kind is NodeKind.CLASS:
@@ -2273,6 +2324,7 @@ class _ExecutionVisitor:
         if self._is_external_module(receiver):
             return
         targets = self._receiver_methods(receiver) or self._module_members(receiver)
+        targets = self._named_like(targets, arguments[1].value)
         if targets:
             self.boundaries.append(
                 UnknownBoundary(
@@ -2283,6 +2335,35 @@ class _ExecutionVisitor:
                 )
             )
 
+    def _named_like(self, targets: tuple[NodeId, ...], name: ast.expr) -> tuple[NodeId, ...]:
+        """The targets whose names fit the constant start and end of a computed attribute name.
+
+        ``getattr(self, "save_" + kind)`` reads a method that starts with ``save_``. The name may be
+        a local that one assignment gave such a value (ADR-0028).
+        """
+
+        if not targets:
+            return targets
+        prefix, suffix = _constant_affixes(name)
+        if not (prefix or suffix) and isinstance(name, ast.Name) and self.current is not None:
+            values = [
+                node.value
+                for node in ast.walk(self.current.node)
+                if isinstance(node, ast.Assign)
+                and any(isinstance(item, ast.Name) and item.id == name.id for item in node.targets)
+            ]
+            if len(values) == 1:
+                prefix, suffix = _constant_affixes(values[0])
+        if not (prefix or suffix):
+            return targets
+        return tuple(
+            target
+            for target in targets
+            if (symbol := self.resolver.symbols.get(target)) is not None
+            and symbol.name.startswith(prefix)
+            and symbol.name.endswith(suffix)
+        )
+
     def _record_dynamic_getattr(self, function: ast.Call) -> None:
         targets: tuple[NodeId, ...] = ()
         arguments = call_arguments(function)
@@ -2291,6 +2372,8 @@ class _ExecutionVisitor:
             if self._is_external_module(receiver):
                 return  # an attribute of a module outside the project is not project code
             targets = self._receiver_methods(receiver) or ()
+            if len(arguments) > 1:
+                targets = self._named_like(targets, arguments[1].value)
         self.boundaries.append(
             UnknownBoundary(
                 source=self.source,
@@ -2533,14 +2616,16 @@ def _structural_edges(
             )
         if symbol.kind is NodeKind.CLASS:
             for base in resolver.bases(symbol):
-                edges.append(
-                    ExecutionEdge(
-                        symbol.id,
-                        base.id,
-                        EdgeKind.INHERIT,
-                        f"inherits from {base.module}.{base.qualified_name}",
+                # A base defined in both branches of a condition is whichever one ran.
+                for candidate in (base, *resolver.alternatives(base)):
+                    edges.append(
+                        ExecutionEdge(
+                            symbol.id,
+                            candidate.id,
+                            EdgeKind.INHERIT,
+                            f"inherits from {candidate.module}.{candidate.qualified_name}",
+                        )
                     )
-                )
             continue
         module = modules[symbol.module]
         implementation = _overload_implementation(symbol, module, resolver)
@@ -2983,9 +3068,12 @@ def resolve_through_imports(
             continue
         first, rest = parts[cut], parts[cut + 1 :]
         binding = module.imports.get(first)
+        # A name imported in both branches of a condition, one of them from another package,
+        # is the project's whichever branch ran.
+        bindings = module.import_alternatives.get(first) or ((binding,) if binding else ())
         targets = (
-            [".".join((binding.target, *rest))]
-            if binding is not None
+            [".".join((item.target, *rest)) for item in bindings]
+            if bindings
             else [".".join((base, first, *rest)) for base in reversed(module.star_imports)]
         )
         for target in targets:
@@ -3000,6 +3088,37 @@ def resolve_through_imports(
 MODELED_CONSUMER_PACKAGES = ("dishka.", "fastapi.")
 """Packages whose calls the framework model interprets, so instances passed to them are not
 handed to an unknown consumer."""
+
+
+def follow_module_alias(modules: Mapping[str, PythonModule], full: str, depth: int = 0) -> str:
+    """``pkg.util.TestCase`` as ``unittest.TestCase`` when ``pkg.util`` binds it to that once."""
+
+    owner, _, attribute = full.rpartition(".")
+    source = modules.get(owner)
+    alias = _module_alias(source, attribute) if source is not None and depth < 4 else None
+    dotted = _dotted_name(alias) if alias is not None else None
+    if source is None or dotted is None:
+        return full
+    first, *rest = dotted.split(".")
+    binding = source.imports.get(first)
+    if binding is None:
+        return full
+    expanded = ".".join((binding.target, *rest))
+    return follow_module_alias(modules, expanded, depth + 1)
+
+
+def _module_alias(module: PythonModule, name: str) -> ast.expr | None:
+    """The dotted expression a module binds ``name`` to once: ``TestCase = unittest.TestCase``."""
+
+    found: ast.expr | None = None
+    for statement in module.tree.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in statement.targets
+        ):
+            if found is not None or _dotted_name(statement.value) is None:
+                return None
+            found = statement.value
+    return found
 
 
 def _is_container_value(value: ast.expr) -> bool:
@@ -3141,6 +3260,8 @@ def _constant_affixes(expression: ast.expr | None) -> tuple[str, str]:
     return prefix, suffix
 
 
+_SCRIPT_FILE = re.compile(r"[\w][\w./-]*\.py")
+"""A string that is one relative file name of a Python module."""
 _PERCENT_FIELD = re.compile(r"%[-#0 +]*\d*(?:\.\d+)?[sdriouxXeEfFgGc]")
 _BRACE_FIELD = re.compile(r"\{[^{}]*\}")
 
@@ -3528,8 +3649,13 @@ def _unsupported_python_hook_boundaries(
                 symbol.id
                 for symbol in module.symbols
                 if symbol.owner is None
-                and symbol.kind is NodeKind.FUNCTION
-                and symbol.name in MODULE_HOOKS
+                and (
+                    (symbol.kind is NodeKind.FUNCTION and symbol.name in MODULE_HOOKS)
+                    or (
+                        symbol.kind in {NodeKind.FUNCTION, NodeKind.CLASS}
+                        and _is_reserved_name(symbol.name)
+                    )
+                )
             )
         )
         if module_hooks:
@@ -3538,7 +3664,8 @@ def _unsupported_python_hook_boundaries(
                     source=module.node_id,
                     domain="implicit_python_dispatch",
                     reason=(
-                        "module __getattr__ or __dir__ may execute when the module is accessed"
+                        "module __getattr__ or __dir__ may execute when the module is accessed,"
+                        " and a function or class named __like_this__ may be looked up by a host"
                     ),
                     targets=module_hooks,
                 )
@@ -3548,6 +3675,13 @@ def _unsupported_python_hook_boundaries(
 
 MODULE_HOOKS = frozenset({"__getattr__", "__dir__"})
 """Module-level functions that Python calls for missing attributes and ``dir()`` (PEP 562)."""
+
+
+def _is_reserved_name(name: str) -> bool:
+    """``__ExtensionFactory__``: Python reserves such names, and a host that loads the module
+    looks them up by name (ADR-0028)."""
+
+    return len(name) > 4 and name.startswith("__") and name.endswith("__")
 
 
 def _base_is_computed(

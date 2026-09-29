@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "pytest-plugin-from-addopts"
+description = "A module loaded with -p in addopts provides fixtures to every test."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/plugin_fixtures.py"
+kind = "function"
+qualified_name = "clock"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/plugin_fixtures.py"
+kind = "function"
+qualified_name = "unused_fixture"
+expectation = "candidate"

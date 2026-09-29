@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "reexport-through-conditional-import"
+description = "A name imported in two branches, one from the project, keeps the project's definition."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_inet.py"
+kind = "function"
+qualified_name = "inet_ntop"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"
