@@ -334,6 +334,12 @@ Dockerfiles, `Procfile`s, Makefiles, shell scripts, and service units, and class
 configuration files name, root the world `production:commands`. Kubernetes manifests and Helm
 templates are not read.
 
+### FIELD-07 — unseen projects
+
+**Status:** implemented on 2026-09-29 (ADR-0024, model revision 17). Ten projects that no earlier
+pass had scanned, from a library of 88k lines to MCP servers and test suites, gave one false
+finding class: tests imported into another test module, which resolve fixtures from the importer.
+
 ### ORACLE-01 — capability-to-oracle inventory
 
 Create a machine-readable manifest mapping every capability marked `modeled` to:

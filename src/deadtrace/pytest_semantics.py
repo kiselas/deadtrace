@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import configparser
 import tomllib
+from collections.abc import Collection
 from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
@@ -262,11 +263,25 @@ def apply_pytest_model(
 
     del config
     collection = collection if collection is not None else PytestCollection()
-    classes = _collected_classes(program, collection)
+    imported_functions, imported_classes = _imported_tests(program, collection)
+    classes = _collected_classes(program, collection, set(imported_classes))
+    native = {
+        symbol.id
+        for symbol in program.symbols.values()
+        if _is_test_symbol(program, symbol, collection, classes)
+    }
+    # A class imported into a test module is collected there, with the methods of its project
+    # bases; its tests resolve their fixtures from the importer's directory and namespace.
+    importers: dict[NodeId, list[PythonModule]] = {
+        key: list(value) for key, value in imported_functions.items()
+    }
+    for class_id, modules in imported_classes.items():
+        for item in _project_ancestry(program, program.symbols[class_id]):
+            importers.setdefault(item.id, []).extend(modules)
     tests = tuple(
         symbol
         for symbol in program.symbols.values()
-        if _is_test_symbol(program, symbol, collection, classes)
+        if symbol.id in native or symbol.id in imported_functions
     )
     if not tests:
         return model
@@ -316,29 +331,34 @@ def apply_pytest_model(
         module = program.modules[test.module]
         roots.add(test.id)
         roots.add(module.node_id)
-        visible = _visible_fixtures(test.path, test.module, scopes, global_fixtures)
-        parameterized = _parameterized_names(program, module, test)
-        generated = scopes.generates_tests(test.path, test.module)
-        requested = {
-            name
-            for name in _requested_argument_names(program, module, test)
-            if name not in parameterized and not (generated and name not in visible)
-        }
-        requested.update(_usefixtures_names(program, module, test))
-        requested.update(fixture.name for fixture in visible.values() if fixture.autouse)
-        requested.update(_fixture_values(module, test, visible))
-        requested.update(_lazy_fixtures(program, module, test))
-        _connect_fixture_requests(
-            source=test.id,
-            requested=requested,
-            visible=visible,
-            edges=edges,
-            boundaries=boundaries,
-            limitations=limitations,
-            world=world,
-            all_nodes=all_nodes,
-            fallback=plugin_fallback,
-        )
+        contexts = [(test.path, test.module)] if test.id in native else []
+        for importer in importers.get(test.owner if test.owner is not None else test.id, ()):
+            roots.add(importer.node_id)
+            contexts.append((importer.path, importer.name))
+        for context_path, context_module in contexts:
+            visible = _visible_fixtures(context_path, context_module, scopes, global_fixtures)
+            parameterized = _parameterized_names(program, module, test)
+            generated = scopes.generates_tests(context_path, context_module)
+            requested = {
+                name
+                for name in _requested_argument_names(program, module, test)
+                if name not in parameterized and not (generated and name not in visible)
+            }
+            requested.update(_usefixtures_names(program, module, test))
+            requested.update(fixture.name for fixture in visible.values() if fixture.autouse)
+            requested.update(_fixture_values(module, test, visible))
+            requested.update(_lazy_fixtures(program, module, test))
+            _connect_fixture_requests(
+                source=test.id,
+                requested=requested,
+                visible=visible,
+                edges=edges,
+                boundaries=boundaries,
+                limitations=limitations,
+                world=world,
+                all_nodes=all_nodes,
+                fallback=plugin_fallback,
+            )
 
     fixture_limitations: dict[NodeId, list[Limitation]] = {}
     for fixture in fixtures:
@@ -697,12 +717,15 @@ def _xunit_fixtures(
     }
 
 
-def _collected_classes(program: PythonProgram, collection: PytestCollection) -> dict[NodeId, bool]:
+def _collected_classes(
+    program: PythonProgram, collection: PytestCollection, imported: Collection[NodeId] = ()
+) -> dict[NodeId, bool]:
     """Classes whose methods pytest collects, and whether each is in a ``unittest`` hierarchy.
 
     pytest collects top-level classes of test modules that match ``python_classes`` or subclass
     ``unittest.TestCase``, with every method they define or inherit, so the project base classes
-    of such a class are collected too, wherever they are defined.
+    of such a class are collected too, wherever they are defined. ``imported`` are classes that a
+    test module imports, which it collects as well.
     """
 
     collected: dict[NodeId, bool] = {}
@@ -712,8 +735,8 @@ def _collected_classes(program: PythonProgram, collection: PytestCollection) -> 
     )
     for symbol in classes:
         # pytest also collects a matching class nested in a collected one.
-        if (symbol.owner is not None and symbol.owner not in collected) or not _is_test_path(
-            symbol.path, collection
+        if (symbol.owner is not None and symbol.owner not in collected) or not (
+            _is_test_path(symbol.path, collection) or symbol.id in imported
         ):
             continue
         ancestry = _project_ancestry(program, symbol)
@@ -723,6 +746,70 @@ def _collected_classes(program: PythonProgram, collection: PytestCollection) -> 
         for item in ancestry:
             collected[item.id] = collected.get(item.id, False) or unittest_case
     return collected
+
+
+def _imported_tests(
+    program: PythonProgram, collection: PytestCollection
+) -> tuple[dict[NodeId, list[PythonModule]], dict[NodeId, list[PythonModule]]]:
+    """Test functions and classes that test modules import from other modules.
+
+    pytest collects the functions and classes a module's namespace binds, wherever they are
+    defined, so ``from suite import *`` in a test module repeats the suite there, against the
+    fixtures and conftests of that module's directory.
+    """
+
+    functions: dict[NodeId, list[PythonModule]] = {}
+    classes: dict[NodeId, list[PythonModule]] = {}
+    public: dict[str, dict[str, PythonSymbol]] = {}
+
+    def bound(name: str, active: frozenset[str]) -> dict[str, PythonSymbol]:
+        """Public project definitions a ``from name import *`` binds."""
+
+        if name in public:
+            return public[name]
+        module = program.modules.get(name)
+        if module is None or name in active:
+            return {}
+        names: dict[str, PythonSymbol] = {}
+        for base in module.star_imports:
+            names.update(bound(base, active | {name}))
+        names.update(_import_bindings(program, module))
+        names.update((symbol.name, symbol) for symbol in module.symbols if symbol.owner is None)
+        result = {key: value for key, value in names.items() if not key.startswith("_")}
+        public[name] = result
+        return result
+
+    for name, module in program.modules.items():
+        if not _is_test_path(module.path, collection):
+            continue
+        names = {}
+        for base in module.star_imports:
+            names.update(bound(base, frozenset({name})))
+        names.update(_import_bindings(program, module))
+        for local, symbol in names.items():
+            if symbol.module == name or symbol.owner is not None:
+                continue
+            if is_function(symbol) and _matches(local, collection.functions):
+                functions.setdefault(symbol.id, []).append(module)
+            elif symbol.kind is NodeKind.CLASS and (
+                _matches(local, collection.classes)
+                or any(
+                    _is_unittest_case(program, item) for item in _project_ancestry(program, symbol)
+                )
+            ):
+                classes.setdefault(symbol.id, []).append(module)
+    return functions, classes
+
+
+def _import_bindings(program: PythonProgram, module: PythonModule) -> dict[str, PythonSymbol]:
+    """Project definitions a module imports by name, under the names it binds them to."""
+
+    found: dict[str, PythonSymbol] = {}
+    for local, binding in module.imports.items():
+        target = program.resolve_symbol(binding.target)
+        if target is not None:
+            found[local] = target
+    return found
 
 
 def _project_ancestry(program: PythonProgram, class_symbol: PythonSymbol) -> list[PythonSymbol]:
