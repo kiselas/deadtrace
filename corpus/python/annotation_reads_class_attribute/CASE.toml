@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "annotation-reads-class-attribute"
+description = "An attribute chain in an annotation uses the classes it goes through."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Meta"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Meta.Models"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Meta.Unused"
+expectation = "candidate"

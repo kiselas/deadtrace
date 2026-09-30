@@ -867,15 +867,28 @@ class _Resolver:
         return False
 
     def annotation_classes(
-        self, annotation: ast.expr, module: PythonModule
+        self, annotation: ast.expr, module: PythonModule, scope: str | None = None
     ) -> tuple[PythonSymbol, ...]:
-        """Project classes an evaluated annotation names; string annotations name none."""
+        """Project classes an evaluated annotation names; string annotations name none.
+
+        ``scope`` is the class whose body evaluates the annotation: a field of the body or a
+        signature of one of its methods, where a bare name is a member of the class first. An
+        attribute chain that reaches no definition, as ``Meta.Models.Alias``, uses the classes
+        it goes through (ADR-0027, class attributes).
+        """
 
         found: dict[NodeId, PythonSymbol] = {}
         for name in _annotation_names(annotation, module.text, generics=True):
-            symbol = self._annotation_symbol(name, module)
-            if symbol is not None and symbol.kind is NodeKind.CLASS:
+            symbol = self._annotation_symbol(name, module, scope)
+            while symbol is None and "." in name:
+                name = name.rpartition(".")[0]
+                symbol = self._annotation_symbol(name, module, scope)
+            while symbol is not None and symbol.kind is NodeKind.CLASS:
                 found[symbol.id] = symbol
+                owner = symbol.owner_qualified_name
+                symbol = (
+                    self.index.resolve(f"{symbol.module}.{owner}") if owner is not None else None
+                )
         return tuple(found[key] for key in sorted(found))
 
     def annotation_is_external(self, annotation: ast.expr, module: PythonModule) -> bool:
@@ -889,14 +902,18 @@ class _Resolver:
             for name in names
         )
 
-    def _annotation_symbol(self, name: str, module: PythonModule) -> PythonSymbol | None:
+    def _annotation_symbol(
+        self, name: str, module: PythonModule, scope: str | None = None
+    ) -> PythonSymbol | None:
         first, _, rest = name.partition(".")
         binding = module.imports.get(first)
         if binding is not None:
-            candidate = f"{binding.target}.{rest}" if rest else binding.target
-        else:
-            candidate = f"{module.name}.{name}"
-        return self.resolve_full_name(candidate)
+            return self.resolve_full_name(f"{binding.target}.{rest}" if rest else binding.target)
+        if scope is not None:
+            in_scope = self.resolve_full_name(f"{module.name}.{scope}.{name}")
+            if in_scope is not None:
+                return in_scope
+        return self.resolve_full_name(f"{module.name}.{name}")
 
     def resolve_full_name(self, full_name: str) -> PythonSymbol | None:
         """The symbol a full name reaches, directly or through re-exporting imports."""
@@ -2171,7 +2188,10 @@ class _ExecutionVisitor:
         for call in calls:
             self._visit_annotation_calls(call)
         if self._evaluates_annotations:
-            for class_symbol in self.resolver.annotation_classes(node.annotation, self.module):
+            scope = self.current.qualified_name if self.current is not None else None
+            for class_symbol in self.resolver.annotation_classes(
+                node.annotation, self.module, scope
+            ):
                 self.edges.append(
                     ExecutionEdge(
                         self.source,
@@ -2640,10 +2660,12 @@ def _structural_edges(
             )
         annotations = [parameter.annotation for parameter in symbol.parameters]
         annotations.append(symbol.return_annotation)
+        # A method's signature is evaluated in the body of its class.
+        scope = symbol.owner_qualified_name
         for annotation in annotations:
             if annotation is None:
                 continue
-            for class_symbol in resolver.annotation_classes(annotation, module):
+            for class_symbol in resolver.annotation_classes(annotation, module, scope):
                 edges.append(
                     ExecutionEdge(
                         symbol.id,

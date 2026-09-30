@@ -79,3 +79,5 @@ each other. Typo and link fixes are fine.
   packages (model revision 19). Accepted.
 - [ADR-0027](0027-recall-of-dead-methods.md) — Recall of dead methods (model revision 20). Accepted.
 - [ADR-0028](0028-conventions-from-more-installed-packages.md) — Conventions found in more installed packages (model revision 21). Accepted.
+- [ADR-0029](0029-reexports-from-absent-modules-and-classes-in-annotations.md) — Re-exports from absent
+  modules and classes in annotations (model revision 22). Accepted.

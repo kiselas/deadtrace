@@ -2105,15 +2105,15 @@ def _library_world(state: _BuildState, packages: set[str] | None = None) -> tupl
             for symbol in module.symbols
             if symbol.owner is None and (not symbol.name.startswith("_") or symbol.name in exports)
         ]
-        for binding in module.imports.values():
-            public = is_package and not binding.local_name.startswith("_")
-            target = (
-                program.resolve_symbol(binding.target)
-                if public or binding.local_name in exports
-                else None
-            )
-            if target is not None:
-                api.append(target)
+        for local, binding in module.imports.items():
+            if not (is_package and not local.startswith("_")) and local not in exports:
+                continue
+            # A name imported in both branches of a condition, one of them from a module
+            # without source (a compiled extension), is the project's whichever branch ran.
+            for item in module.import_alternatives.get(local) or (binding,):
+                target = program.resolve_symbol(item.target)
+                if target is not None:
+                    api.append(target)
         if is_package:
             api.extend(
                 symbol
@@ -2161,9 +2161,10 @@ def _export_world(state: _BuildState) -> tuple[WorldConfig, ...]:
         }
         for local, binding in module.imports.items():
             if local in exports or local in explicit:
-                target = program.resolve_symbol(binding.target)
-                if target is not None:
-                    api.append(target)
+                for item in module.import_alternatives.get(local) or (binding,):
+                    target = program.resolve_symbol(item.target)
+                    if target is not None:
+                        api.append(target)
         api.extend(
             symbol for symbol in module.symbols if symbol.owner is None and symbol.name in exports
         )
