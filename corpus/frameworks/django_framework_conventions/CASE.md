@@ -9,3 +9,6 @@ contracts like those of a `migrations` package.
 
 The unsafe outcome is reporting `ready`, `Product.Meta`, the routing consumer, or the relocated
 migration callback as unreached. A module that nothing imports is still reported.
+
+`shop/models.py` also holds `PlainHelper`, a class without a base. Django registers models, which
+derive from `models.Model`, so a class with no base is no model and stays a candidate.

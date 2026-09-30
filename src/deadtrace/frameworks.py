@@ -2388,7 +2388,9 @@ def _discover_django_applications(state: _BuildState) -> None:
                             "Django registers the model classes of installed applications",
                         )
                         for symbol in candidate.symbols
-                        if symbol.owner is None and symbol.kind is NodeKind.CLASS
+                        if symbol.owner is None
+                        and symbol.kind is NodeKind.CLASS
+                        and any(_dotted_name(base) not in {None, "object"} for base in symbol.bases)
                     )
                 if name.startswith(prefixes[0]):
                     command = program.resolve_symbol(f"{name}:Command")

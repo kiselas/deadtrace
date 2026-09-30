@@ -163,6 +163,17 @@ BUILTIN_MANAGERS = frozenset({"open", "memoryview"})
 OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
 INSPECTING_CONSUMERS = frozenset({"isinstance", "issubclass"})
 """Consumers that inspect a class they receive without calling anything on it."""
+UNITTEST_RUNNERS = frozenset({"unittest.main", "unittest.TestProgram"})
+"""Calls that run the ``TestCase`` classes of the module they are in."""
+CONTAINER_TYPES = frozenset(
+    {"list", "dict", "set", "deque", "defaultdict", "OrderedDict", "List", "Dict", "Set", "Deque"}
+)
+"""Builtin and typing containers: what a value stored in one is later called through is judged at
+the call that reads it back."""
+CONTAINER_STORES = frozenset(
+    {"append", "appendleft", "add", "extend", "extendleft", "insert", "setdefault", "update"}
+)
+"""Methods of a container that only keep the values they receive."""
 
 _COMPOUND_STATEMENTS = (
     *DEFINITION_TYPES,
@@ -1164,7 +1175,10 @@ class _Resolver:
         if binding is None:
             return dotted
         suffix = ".".join(rest)
-        return f"{binding.target}.{suffix}" if suffix else binding.target
+        full = f"{binding.target}.{suffix}" if suffix else binding.target
+        # ``from .util import TestCase`` where ``util`` says ``TestCase = unittest.TestCase``.
+        resolved = follow_module_alias(self.modules, full)
+        return resolved if not self.is_project_name(resolved) else full
 
 
 class _ExecutionVisitor:
@@ -1194,8 +1208,11 @@ class _ExecutionVisitor:
             if not resolver.is_project_name(binding.target)
         )
         self.local_types = self._initial_local_types()
+        self._container_locals: set[str] = set()
+        self._container_attributes = _container_attributes(resolver, current)
         self._handled: set[int] = set()
         self._escaped: set[NodeId] = set()
+        self._named_classes: set[NodeId] = set()
         self._dispatched: set[str] = set()
         self._dynamic_modules: set[str] = set()
         self._stand_ins: set[str] = set()
@@ -1216,7 +1233,8 @@ class _ExecutionVisitor:
     def finish(self) -> None:
         """Record references that escaped from this scope as one boundary."""
 
-        self._escaped = self.resolver.with_exposed_methods(self._escaped)
+        self._escaped = self.resolver.with_exposed_methods(self._escaped) | self._named_classes
+        self._named_classes = set()
         self._escaped -= {edge.target for edge in self.edges if edge.source == self.source}
         if self._escaped:
             self.boundaries.append(
@@ -1470,9 +1488,33 @@ class _ExecutionVisitor:
         value = node.value
         if type(value) is not str or len(value) > 200 or not ("." in value or ":" in value):
             return
+        if value.endswith(".py") and _SCRIPT_FILE.fullmatch(value):
+            # ``subprocess.run([sys.executable, "fail_script.py"])`` runs the module by its file
+            # name (ADR-0028).
+            suffix = "/" + value.removeprefix("./")
+            matches = [
+                module
+                for module in self.resolver.modules.values()
+                if ("/" + module.path).endswith(suffix)
+            ]
+            if 0 < len(matches) <= 3:
+                self._escaped.update(module.node_id for module in matches)
+            return
+        if value.startswith(".") and value.strip("."):
+            # ``"._process.cmdexec:cmdexec"`` in a package's lazy export table (ADR-0028).
+            module_part, colon, attribute = value.partition(":")
+            is_package = self.module.path.rpartition("/")[2] == "__init__.py"
+            package = self.module.name if is_package else self.module.name.rpartition(".")[0]
+            absolute = _relative_import_name(module_part, package or None)
+            if absolute is None:
+                return
+            value = absolute + colon + attribute
         target = self.resolver.named_by_string(value)
         if target is not None:
             self._escaped.add(target)
+            symbol = self.resolver.symbols.get(target)
+            if symbol is not None:
+                self._escaped.update(item.id for item in self.resolver.alternatives(symbol))
 
     def _record_dynamic_import(self, call: ast.Call) -> None:
         arguments = positional_arguments(call)
@@ -1693,6 +1735,18 @@ class _ExecutionVisitor:
             self._escaped.update(
                 member.id for member in self.resolver.index.members(self.current.id)
             )
+        if self._external_name(func) in UNITTEST_RUNNERS:
+            # ``unittest.main()`` collects the test cases of ``__main__``, this module (ADR-0028).
+            self._escaped.update(
+                symbol.id
+                for symbol in self.module.symbols
+                if symbol.owner is None
+                and symbol.kind is NodeKind.CLASS
+                and any(
+                    name.endswith(("unittest.TestCase", "unittest.IsolatedAsyncioTestCase"))
+                    for name in self.resolver.external_bases(symbol)
+                )
+            )
         if _dotted_name(func) == "getattr" and "getattr" not in self._locals:
             self._record_getattr_value(node)
         if isinstance(func, ast.Attribute) and self._is_super(func):
@@ -1854,6 +1908,19 @@ class _ExecutionVisitor:
                     found[member.id] = member
         return [found[key] for key in sorted(found)]
 
+    def _use(self, symbol: PythonSymbol) -> None:
+        """A definition whose attribute the code reads, and that nothing resolved to a member.
+
+        A class is needed for its attribute, a field or a member of a base outside the project. The
+        attribute is not one of its methods, for a method would have resolved, so the methods do
+        not run with it (ADR-0027).
+        """
+
+        if symbol.kind is NodeKind.CLASS:
+            self._named_classes.add(symbol.id)
+        else:
+            self._escaped.add(symbol.id)
+
     def _reference_receiver(self, attribute: ast.Attribute) -> None:
         """An attribute that did not resolve: its receiver escapes or its type is unknown."""
 
@@ -1885,7 +1952,7 @@ class _ExecutionVisitor:
             )
         symbol = self._resolve(receiver) if _dotted_name(receiver) is not None else None
         if symbol is not None:
-            self._escaped.add(symbol.id)
+            self._use(symbol)
             return
         # ``Status.ACTIVE.value``: ``Status.ACTIVE`` is no project symbol, but ``Status`` is, and
         # evaluating the chain uses it (ADR-0017).
@@ -1893,7 +1960,7 @@ class _ExecutionVisitor:
         while isinstance(prefix, (ast.Attribute, ast.Name)):
             found = self._resolve(prefix)
             if found is not None:
-                self._escaped.add(found.id)
+                self._use(found)
                 break
             prefix = prefix.value if isinstance(prefix, ast.Attribute) else None
         if self._known_receiver(receiver):
@@ -2081,9 +2148,14 @@ class _ExecutionVisitor:
                 and self.resolver.is_external(node.value.func, self.module)
             )
         )
+        container = _is_container_value(node.value)
         for target in node.targets:
             if not isinstance(target, ast.Name):
                 continue
+            if container:
+                self._container_locals.add(target.id)
+            else:
+                self._container_locals.discard(target.id)
             if inferred is not None:
                 self.local_types[target.id] = inferred
                 self.external_locals.discard(target.id)
@@ -2109,6 +2181,12 @@ class _ExecutionVisitor:
                     )
                 )
         if isinstance(node.target, ast.Name):
+            if _is_container_annotation(node.annotation) or (
+                node.value is not None and _is_container_value(node.value)
+            ):
+                self._container_locals.add(node.target.id)
+            else:
+                self._container_locals.discard(node.target.id)
             inferred = self._resolve_annotation(node.annotation)
             if inferred is not None:
                 self.local_types[node.target.id] = inferred
@@ -2152,6 +2230,16 @@ class _ExecutionVisitor:
     def _infer_expression_type(self, expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
             return self.local_types.get(expression.id)
+        if isinstance(expression, ast.Attribute) and expression.attr == "__class__":
+            return self._infer_expression_type(expression.value)
+        if (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Name)
+            and expression.func.id == "type"
+            and "type" not in self._locals
+            and len(expression.args) == 1
+        ):
+            return self._infer_expression_type(expression.args[0])
         if isinstance(expression, ast.Call):
             target = self._resolve(expression.func)
             if target is not None and target.kind is NodeKind.CLASS:
@@ -2236,6 +2324,7 @@ class _ExecutionVisitor:
         if self._is_external_module(receiver):
             return
         targets = self._receiver_methods(receiver) or self._module_members(receiver)
+        targets = self._named_like(targets, arguments[1].value)
         if targets:
             self.boundaries.append(
                 UnknownBoundary(
@@ -2246,6 +2335,35 @@ class _ExecutionVisitor:
                 )
             )
 
+    def _named_like(self, targets: tuple[NodeId, ...], name: ast.expr) -> tuple[NodeId, ...]:
+        """The targets whose names fit the constant start and end of a computed attribute name.
+
+        ``getattr(self, "save_" + kind)`` reads a method that starts with ``save_``. The name may be
+        a local that one assignment gave such a value (ADR-0028).
+        """
+
+        if not targets:
+            return targets
+        prefix, suffix = _constant_affixes(name)
+        if not (prefix or suffix) and isinstance(name, ast.Name) and self.current is not None:
+            values = [
+                node.value
+                for node in ast.walk(self.current.node)
+                if isinstance(node, ast.Assign)
+                and any(isinstance(item, ast.Name) and item.id == name.id for item in node.targets)
+            ]
+            if len(values) == 1:
+                prefix, suffix = _constant_affixes(values[0])
+        if not (prefix or suffix):
+            return targets
+        return tuple(
+            target
+            for target in targets
+            if (symbol := self.resolver.symbols.get(target)) is not None
+            and symbol.name.startswith(prefix)
+            and symbol.name.endswith(suffix)
+        )
+
     def _record_dynamic_getattr(self, function: ast.Call) -> None:
         targets: tuple[NodeId, ...] = ()
         arguments = call_arguments(function)
@@ -2254,6 +2372,8 @@ class _ExecutionVisitor:
             if self._is_external_module(receiver):
                 return  # an attribute of a module outside the project is not project code
             targets = self._receiver_methods(receiver) or ()
+            if len(arguments) > 1:
+                targets = self._named_like(targets, arguments[1].value)
         self.boundaries.append(
             UnknownBoundary(
                 source=self.source,
@@ -2277,6 +2397,7 @@ class _ExecutionVisitor:
                 target is None
                 and isinstance(argument.value, (ast.Call, ast.Name))
                 and _consumer_calls_instance_methods(self._external_name(call.func))
+                and not self._stores_in_container(call.func)
             ):
                 # ``Controller(Handler(port))``: the consumer calls the methods of an instance of a
                 # project class, as a protocol such as a handler's ``handle_DATA`` (ADR-0022).
@@ -2307,6 +2428,25 @@ class _ExecutionVisitor:
             )
             if external not in INSPECTING_CONSUMERS:
                 self._expose_classes(escaped, external)
+
+    def _stores_in_container(self, function: ast.expr) -> bool:
+        """``items.append(Handler())`` on a builtin container keeps the instance, calls nothing.
+
+        The methods run where the value is read back, and a call there is resolved by the type of
+        the value or guarded by the name it calls (ADR-0027).
+        """
+
+        if not isinstance(function, ast.Attribute) or function.attr not in CONTAINER_STORES:
+            return False
+        receiver = function.value
+        if isinstance(receiver, ast.Name):
+            return receiver.id in self._container_locals
+        return (
+            isinstance(receiver, ast.Attribute)
+            and isinstance(receiver.value, ast.Name)
+            and receiver.value.id == "self"
+            and receiver.attr in self._container_attributes
+        )
 
     def _overrides_of_reference(
         self, expression: ast.expr, target: PythonSymbol
@@ -2476,14 +2616,16 @@ def _structural_edges(
             )
         if symbol.kind is NodeKind.CLASS:
             for base in resolver.bases(symbol):
-                edges.append(
-                    ExecutionEdge(
-                        symbol.id,
-                        base.id,
-                        EdgeKind.INHERIT,
-                        f"inherits from {base.module}.{base.qualified_name}",
+                # A base defined in both branches of a condition is whichever one ran.
+                for candidate in (base, *resolver.alternatives(base)):
+                    edges.append(
+                        ExecutionEdge(
+                            symbol.id,
+                            candidate.id,
+                            EdgeKind.INHERIT,
+                            f"inherits from {candidate.module}.{candidate.qualified_name}",
+                        )
                     )
-                )
             continue
         module = modules[symbol.module]
         implementation = _overload_implementation(symbol, module, resolver)
@@ -2926,9 +3068,12 @@ def resolve_through_imports(
             continue
         first, rest = parts[cut], parts[cut + 1 :]
         binding = module.imports.get(first)
+        # A name imported in both branches of a condition, one of them from another package,
+        # is the project's whichever branch ran.
+        bindings = module.import_alternatives.get(first) or ((binding,) if binding else ())
         targets = (
-            [".".join((binding.target, *rest))]
-            if binding is not None
+            [".".join((item.target, *rest)) for item in bindings]
+            if bindings
             else [".".join((base, first, *rest)) for base in reversed(module.star_imports)]
         )
         for target in targets:
@@ -2943,6 +3088,94 @@ def resolve_through_imports(
 MODELED_CONSUMER_PACKAGES = ("dishka.", "fastapi.")
 """Packages whose calls the framework model interprets, so instances passed to them are not
 handed to an unknown consumer."""
+
+
+def follow_module_alias(modules: Mapping[str, PythonModule], full: str, depth: int = 0) -> str:
+    """``pkg.util.TestCase`` as ``unittest.TestCase`` when ``pkg.util`` binds it to that once."""
+
+    owner, _, attribute = full.rpartition(".")
+    source = modules.get(owner)
+    alias = _module_alias(source, attribute) if source is not None and depth < 4 else None
+    dotted = _dotted_name(alias) if alias is not None else None
+    if source is None or dotted is None:
+        return full
+    first, *rest = dotted.split(".")
+    binding = source.imports.get(first)
+    if binding is None:
+        return full
+    expanded = ".".join((binding.target, *rest))
+    return follow_module_alias(modules, expanded, depth + 1)
+
+
+def _module_alias(module: PythonModule, name: str) -> ast.expr | None:
+    """The dotted expression a module binds ``name`` to once: ``TestCase = unittest.TestCase``."""
+
+    found: ast.expr | None = None
+    for statement in module.tree.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in statement.targets
+        ):
+            if found is not None or _dotted_name(statement.value) is None:
+                return None
+            found = statement.value
+    return found
+
+
+def _is_container_value(value: ast.expr) -> bool:
+    """A display, a comprehension, or a call of a builtin container type."""
+
+    if isinstance(value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)):
+        return True
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in CONTAINER_TYPES
+    )
+
+
+def _is_container_annotation(annotation: ast.expr) -> bool:
+    head = annotation.value if isinstance(annotation, ast.Subscript) else annotation
+    return isinstance(head, ast.Name) and head.id in CONTAINER_TYPES
+
+
+@lru_cache(maxsize=256)
+def _class_container_attributes(node: ast.ClassDef) -> frozenset[str]:
+    names: set[str] = set()
+    for child in ast.walk(node):
+        value: ast.expr | None
+        annotation: ast.expr | None
+        if isinstance(child, ast.Assign):
+            targets, value, annotation = child.targets, child.value, None
+        elif isinstance(child, ast.AnnAssign):
+            targets, value, annotation = [child.target], child.value, child.annotation
+        else:
+            continue
+        if not (
+            (value is not None and _is_container_value(value))
+            or (annotation is not None and _is_container_annotation(annotation))
+        ):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+                if target.value.id == "self":
+                    names.add(target.attr)
+            elif isinstance(target, ast.Name) and child in node.body:
+                names.add(target.id)
+    return frozenset(names)
+
+
+def _container_attributes(resolver: _Resolver, current: PythonSymbol | None) -> frozenset[str]:
+    """``self`` attributes that a class binds to builtin containers anywhere in its body."""
+
+    if current is None:
+        return frozenset()
+    owner = _containing_class_qname(current)
+    if owner is None:
+        return frozenset()
+    symbol = resolver.class_named(f"{current.module}.{owner}")
+    if symbol is None or not isinstance(symbol.node, ast.ClassDef):
+        return frozenset()
+    return _class_container_attributes(symbol.node)
 
 
 def _consumer_calls_instance_methods(consumer: str | None) -> bool:
@@ -3027,6 +3260,8 @@ def _constant_affixes(expression: ast.expr | None) -> tuple[str, str]:
     return prefix, suffix
 
 
+_SCRIPT_FILE = re.compile(r"[\w][\w./-]*\.py")
+"""A string that is one relative file name of a Python module."""
 _PERCENT_FIELD = re.compile(r"%[-#0 +]*\d*(?:\.\d+)?[sdriouxXeEfFgGc]")
 _BRACE_FIELD = re.compile(r"\{[^{}]*\}")
 
@@ -3315,6 +3550,27 @@ def _unsupported_python_hook_boundaries(
                 )
             )
 
+        # A concrete class must implement the abstract methods of its bases, or it cannot be
+        # created; removing an implementation that no call reaches breaks the class (ADR-0027).
+        abstract_names = {
+            method.name
+            for base in resolver.mro(class_symbol)[1:]
+            for method in owned_methods[base.id]
+            if _is_abstract(method)
+        }
+        required = {
+            method.id for method in owned_methods[class_symbol.id] if method.name in abstract_names
+        }
+        if required:
+            boundaries.append(
+                UnknownBoundary(
+                    source=class_symbol.id,
+                    domain="abstract_implementation",
+                    reason="methods implement abstract methods that the class must define",
+                    targets=tuple(sorted(required)),
+                )
+            )
+
         external = resolver.external_bases(class_symbol)
         hooking = [name for name in external if not _hook_free(name)]
         methods = owned_methods[class_symbol.id]
@@ -3393,8 +3649,13 @@ def _unsupported_python_hook_boundaries(
                 symbol.id
                 for symbol in module.symbols
                 if symbol.owner is None
-                and symbol.kind is NodeKind.FUNCTION
-                and symbol.name in MODULE_HOOKS
+                and (
+                    (symbol.kind is NodeKind.FUNCTION and symbol.name in MODULE_HOOKS)
+                    or (
+                        symbol.kind in {NodeKind.FUNCTION, NodeKind.CLASS}
+                        and _is_reserved_name(symbol.name)
+                    )
+                )
             )
         )
         if module_hooks:
@@ -3403,7 +3664,8 @@ def _unsupported_python_hook_boundaries(
                     source=module.node_id,
                     domain="implicit_python_dispatch",
                     reason=(
-                        "module __getattr__ or __dir__ may execute when the module is accessed"
+                        "module __getattr__ or __dir__ may execute when the module is accessed,"
+                        " and a function or class named __like_this__ may be looked up by a host"
                     ),
                     targets=module_hooks,
                 )
@@ -3413,6 +3675,13 @@ def _unsupported_python_hook_boundaries(
 
 MODULE_HOOKS = frozenset({"__getattr__", "__dir__"})
 """Module-level functions that Python calls for missing attributes and ``dir()`` (PEP 562)."""
+
+
+def _is_reserved_name(name: str) -> bool:
+    """``__ExtensionFactory__``: Python reserves such names, and a host that loads the module
+    looks them up by name (ADR-0028)."""
+
+    return len(name) > 4 and name.startswith("__") and name.endswith("__")
 
 
 def _base_is_computed(
@@ -3511,6 +3780,15 @@ def _base_name(resolver: _Resolver, base: ast.expr, module: PythonModule) -> str
 
     expression = base.value if isinstance(base, ast.Subscript) else base
     return resolver.external_name(_unstarred(expression), module) or "a computed base"
+
+
+def _is_abstract(symbol: PythonSymbol) -> bool:
+    return any(
+        (name := _dotted_name(decorator)) is not None
+        and name.rsplit(".", 1)[-1]
+        in {"abstractmethod", "abstractproperty", "abstractclassmethod", "abstractstaticmethod"}
+        for decorator in symbol.decorators
+    )
 
 
 def _is_descriptor_hook(symbol: PythonSymbol) -> bool:

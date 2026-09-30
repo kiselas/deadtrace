@@ -37,3 +37,9 @@ path = "shop/unused.py"
 kind = "function"
 qualified_name = "forgotten"
 expectation = "candidate"
+
+[[targets]]
+path = "shop/models.py"
+kind = "class"
+qualified_name = "PlainHelper"
+expectation = "candidate"
