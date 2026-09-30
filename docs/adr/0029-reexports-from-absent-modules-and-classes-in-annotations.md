@@ -43,9 +43,12 @@ reported, and one was new:
 
 - Corpus cases fail on revision 21: `python/reexport_from_absent_module`,
   `python/annotation_reads_class_attribute`, `python/annotation_in_class_body`. Accepted.
-- The field projects and the installed packages report the same findings as before, apart from the
-  141 members above, which are no longer reported. Recorded in the field ledger with the batch of this
-  revision.
+- The field projects and the installed packages report the same findings as before, with no new
+  finding. No longer reported: the 142 members above (140 of `multidict`, two of a monorepo); one
+  class of the same monorepo whose only mention is an alias in the body of a nested class, which
+  the reviewers had judged unused and which is now retained because that body runs; and two test
+  functions of one project that were not verified. Recorded in the field ledger with the batch of
+  this revision.
 - Not changed, recorded as limitations: a test suite a package ships for third-party consumers
   (`alembic.testing.suite`, 163 members), definitions that documentation alone tells a reader to
   import (92), standalone scripts without a main guard that no deployment file names (3).
