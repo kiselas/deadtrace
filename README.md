@@ -73,6 +73,16 @@ uv run --isolated --no-project --python 3.12 \
 The interpreter is selected explicitly because `--no-project` ignores `.python-version`, and the
 default `python` on PATH may be older than 3.12.
 
+Exercise scanning and saved artifacts from the installed wheel with:
+
+```console
+uv run --isolated --no-project --python 3.12 \
+  --with ./dist/deadtrace-0.1.0a0-py3-none-any.whl python scripts/wheel_smoke.py
+```
+
+The smoke script uses a temporary directory, rejects a source-tree package import, and checks
+inventory, analysis, determinism, explanations, baselines, comparisons, and no target execution.
+
 ## Quickstart: FastAPI + Dishka
 
 The reference application contains a live endpoint → service → repository path and one registered
@@ -223,6 +233,10 @@ in [docs/adr](docs/adr/README.md). The analysis contract, architecture notes, su
 acceptance matrix are planned for `docs/` and have not been written yet. Repository policies are
 in [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
 [GOVERNANCE.md](GOVERNANCE.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+The [2026-10-01 repository audit and improvement plan](docs/audit-2026-10-01.md) records current
+verification and remaining priorities. [Methodology](docs/methodology.md) is a reviewed research
+proposal; it does not change the active milestone or authorize future target execution.
 
 ## License
 

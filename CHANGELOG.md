@@ -7,6 +7,8 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Added
 
+- A portable installed-wheel smoke check exercises inventory, analysis, determinism, explanations,
+  baselines, comparisons, and no target execution on both CI operating systems (ADR-0030).
 - Hypothesis `@given` arguments, plugins loaded with `-p` in `addopts`, `unittest.main()`, aliases of
   `unittest.TestCase`, conditional bases and imports, scripts run by file name, and lazy export
   tables are understood (ADR-0028).
@@ -199,6 +201,13 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Fixed
 
+- Source traversal errors and non-text encoding cookies produce `DT1001` instead of silently
+  dropping source or crashing. Configuration reads enforce the 16-MiB input limit; invalid UTF-8
+  uses existing input diagnostics. Invalid modeled dependency versions produce the `DT4001`
+  compatibility guard (ADR-0030).
+- Package API worlds follow re-exports from all conditional imports, including alternatives to
+  absent compiled modules. Class-body and chained annotations retain the classes they name
+  (ADR-0029, model revision 22).
 - A report with input issues is comparable with a baseline created from it; the issues were
   stored as tuples and read back as lists.
 - The `pytest.fixtures` capability is listed whether or not the project has tests, so a first

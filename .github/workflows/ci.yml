@@ -57,7 +57,7 @@ jobs:
         run: |
           wheel="$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)"
           cd "$(mktemp -d)"
-          uv run --isolated --no-project --python 3.12 --with "$wheel" deadtrace --version
+          uv run --isolated --no-project --python 3.12 --with "$wheel" python "$GITHUB_WORKSPACE/scripts/wheel_smoke.py"
       - name: Install wheel outside the source tree (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -66,4 +66,4 @@ jobs:
           $smoke = Join-Path $env:RUNNER_TEMP "deadtrace-wheel-smoke"
           New-Item -ItemType Directory -Force $smoke | Out-Null
           Set-Location $smoke
-          uv run --isolated --no-project --python 3.12 --with $wheel deadtrace --version
+          uv run --isolated --no-project --python 3.12 --with $wheel python "$env:GITHUB_WORKSPACE/scripts/wheel_smoke.py"

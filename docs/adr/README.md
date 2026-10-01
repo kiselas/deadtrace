@@ -81,3 +81,5 @@ each other. Typo and link fixes are fine.
 - [ADR-0028](0028-conventions-from-more-installed-packages.md) — Conventions found in more installed packages (model revision 21). Accepted.
 - [ADR-0029](0029-reexports-from-absent-modules-and-classes-in-annotations.md) — Re-exports from absent
   modules and classes in annotations (model revision 22). Accepted.
+- [ADR-0030](0030-input-error-integrity.md) — Input errors remain visible across inventory and
+  metadata readers. Accepted.

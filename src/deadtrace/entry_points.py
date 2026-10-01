@@ -49,7 +49,7 @@ def read_project_entry_points(
             )
         with path.open("rb") as stream:
             document = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError) as error:
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         return (), (EntryPointIssue("DT4101", f"cannot read project entry points: {error}"),)
     project = document.get("project")
     if not isinstance(project, dict):

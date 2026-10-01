@@ -112,7 +112,7 @@ def _collect_source_attempt(
                 units.append(SourceUnit(relative, file_path, source, digest))
                 signatures[file_path] = f"ok:{digest}"
                 timings.count("collect.characters", len(source))
-            except (OSError, UnicodeError, SyntaxError) as error:
+            except (OSError, UnicodeError, SyntaxError, LookupError) as error:
                 message = _single_line(error)
                 issues.append(ScanIssue(code="DT1001", path=relative, message=message))
                 signatures[file_path] = f"error:{type(error).__name__}:{message}"
@@ -141,7 +141,7 @@ def _collect_source_attempt(
                 try:
                     _source, digest = _read_python_source(file_path)
                     signature = f"ok:{digest}"
-                except (OSError, UnicodeError, SyntaxError) as error:
+                except (OSError, UnicodeError, SyntaxError, LookupError) as error:
                     message = _single_line(error)
                     signature = f"error:{type(error).__name__}:{message}"
                 if signatures[file_path] != signature:
@@ -243,7 +243,21 @@ def _discover_python_files(
 
     candidates: list[Path] = []
     skipped: list[str] = []
-    for current, directory_names, file_names in os.walk(scan_path, followlinks=False):
+    discovery_issues: list[ScanIssue] = []
+
+    def record_walk_error(error: OSError) -> None:
+        failed_path = Path(error.filename) if error.filename is not None else scan_path
+        discovery_issues.append(
+            ScanIssue(
+                code="DT1001",
+                path=failed_path.relative_to(scan_path).as_posix(),
+                message=f"cannot read directory: {_single_line(error)}",
+            )
+        )
+
+    for current, directory_names, file_names in os.walk(
+        scan_path, followlinks=False, onerror=record_walk_error
+    ):
         current_path = Path(current)
         kept: list[str] = []
         for name in sorted(directory_names):
@@ -256,7 +270,15 @@ def _discover_python_files(
             current_path / name for name in sorted(file_names) if name.endswith(".py")
         )
     accepted, issues = _accept_paths(tuple(candidates), scan_path, canonical_root)
-    return accepted, issues, tuple(sorted(skipped))
+    return (
+        accepted,
+        tuple(
+            sorted(
+                (*discovery_issues, *issues), key=lambda item: (item.path, item.code, item.message)
+            )
+        ),
+        tuple(sorted(skipped)),
+    )
 
 
 def _apply_exclude(
