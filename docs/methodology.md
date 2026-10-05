@@ -4,8 +4,9 @@
 (a dependency-source reader, confidence tiers, an evidence import) each get their own ADR.
 
 Reviewed during the 2026-10-01 repository audit. This inherited draft is a research proposal,
-not an accepted milestone or implementation commitment. The active instruction remains inventory-only
-PR-01 in `AGENTS.md`; reconcile it with the implemented model before starting a new semantic track.
+not an accepted milestone or implementation commitment. On 2026-10-05 the user approved replacing
+the inventory-only working milestone with the bounded receiver-flow milestone in
+[ADR-0033](adr/0033-receiver-control-flow.md). Other proposed tracks remain unaccepted.
 See [the audit and improvement plan](audit-2026-10-01.md) for current repository checks.
 
 ## Goal

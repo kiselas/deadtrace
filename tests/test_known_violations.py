@@ -18,11 +18,8 @@ import pytest
 
 from deadtrace.case_validator import unmet_targets
 
-KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {
-    "branch_receiver_flow": ("_tool.py:First.run",),
-    "loop_receiver_flow": ("_tool.py:Second.run",),
-}
-"""Receiver flow violations found independently during the quality audit."""
+KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
+"""Empty: receiver flow cases moved to corpus after the model-23 fix."""
 
 
 def _cases_root(project_root: Path) -> Path:

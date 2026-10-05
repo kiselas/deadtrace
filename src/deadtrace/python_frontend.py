@@ -36,6 +36,12 @@ from deadtrace.inventory import (
     iter_definitions,
     parse_source,
 )
+from deadtrace.receiver_flow import (
+    EXTERNAL_RECEIVER,
+    UNKNOWN_RECEIVER,
+    ReceiverState,
+    ReceiverValue,
+)
 from deadtrace.scanner import ParsedCollection, SourceCollection, SourceUnit
 from deadtrace.timing import StageTimings
 
@@ -1225,6 +1231,11 @@ class _ExecutionVisitor:
             if not resolver.is_project_name(binding.target)
         )
         self.local_types = self._initial_local_types()
+        self._receiver_values = {
+            name: ReceiverValue(frozenset({type_name}))
+            for name, type_name in self.local_types.items()
+        }
+        self._receiver_values.update((name, EXTERNAL_RECEIVER) for name in self.external_locals)
         self._container_locals: set[str] = set()
         self._container_attributes = _container_attributes(resolver, current)
         self._handled: set[int] = set()
@@ -1232,6 +1243,7 @@ class _ExecutionVisitor:
         self._named_classes: set[NodeId] = set()
         self._dispatched: set[str] = set()
         self._dynamic_modules: set[str] = set()
+        self._flow_pass_budget = 256
         self._stand_ins: set[str] = set()
         """Methods called on values from outside the project, which tests may replace."""
         """Locals bound to a module imported by a computed name."""
@@ -1242,7 +1254,162 @@ class _ExecutionVisitor:
         self._evaluates_annotations = current is None or current.kind is NodeKind.CLASS
 
     def visit_statements(self, statements: Iterable[ast.stmt]) -> None:
-        self._visit_nodes(flow_nodes(statements))
+        for statement in statements:
+            if isinstance(statement, ast.Assign):
+                self.visit_expression(statement.value)
+                self._visit_assign(statement)
+                for target in statement.targets:
+                    self.visit_expression(target)
+            elif isinstance(statement, ast.AnnAssign):
+                if statement.value is not None:
+                    self.visit_expression(statement.value)
+                self._visit_ann_assign(statement)
+            elif isinstance(statement, (ast.AugAssign, ast.Delete)):
+                self._visit_nodes(flow_nodes((statement,)))
+                targets = (
+                    statement.targets if isinstance(statement, ast.Delete) else [statement.target]
+                )
+                for target in targets:
+                    for child in ast.walk(target):
+                        if isinstance(child, ast.Name):
+                            self._set_receiver(child.id, UNKNOWN_RECEIVER)
+                            self._container_locals.discard(child.id)
+            elif isinstance(statement, ast.If):
+                self._visit_if(statement)
+                self.visit_expression(statement.test)
+                entry = self._receiver_state()
+                self.visit_statements(statement.body)
+                left = self._receiver_state()
+                self._restore_receiver_state(entry)
+                self.visit_statements(statement.orelse)
+                self._restore_receiver_state(left.join(self._receiver_state()))
+            elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                self._visit_receiver_loop(statement)
+            elif isinstance(statement, (ast.Try, ast.TryStar)):
+                self._visit_receiver_try(statement)
+            elif isinstance(statement, (ast.With, ast.AsyncWith)):
+                for item in statement.items:
+                    self.visit_expression(item.context_expr)
+                self._visit_with(statement)
+                self.visit_statements(statement.body)
+            elif isinstance(statement, ast.Match):
+                self.visit_expression(statement.subject)
+                entry = self._receiver_state()
+                merged = entry
+                for case in statement.cases:
+                    self._restore_receiver_state(entry)
+                    self._visit_nodes(ast.walk(case.pattern))
+                    for node in ast.walk(case.pattern):
+                        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+                            self._set_receiver(node.name, UNKNOWN_RECEIVER)
+                        elif isinstance(node, ast.MatchMapping) and node.rest:
+                            self._set_receiver(node.rest, UNKNOWN_RECEIVER)
+                    if case.guard is not None:
+                        self.visit_expression(case.guard)
+                    self.visit_statements(case.body)
+                    merged = merged.join(self._receiver_state())
+                self._restore_receiver_state(merged)
+            else:
+                self._visit_nodes(flow_nodes((statement,)))
+
+    def _receiver_state(self) -> ReceiverState:
+        return ReceiverState(
+            dict(self._receiver_values), set(self._container_locals), set(self._dynamic_modules)
+        )
+
+    def _restore_receiver_state(self, state: ReceiverState) -> None:
+        self._receiver_values = dict(state.values)
+        self.local_types = {
+            name: min(value.types) for name, value in state.values.items() if value.project_only
+        }
+        self.external_locals = {
+            name
+            for name, value in state.values.items()
+            if value.external and not (value.types or value.unknown)
+        }
+        self._container_locals = set(state.containers)
+        self._dynamic_modules = set(state.dynamic_modules)
+
+    def _set_receiver(self, name: str, value: ReceiverValue) -> None:
+        self._receiver_values[name] = value
+        self.local_types.pop(name, None)
+        self.external_locals.discard(name)
+        if value.project_only:
+            self.local_types[name] = min(value.types)
+        elif value.external and not (value.types or value.unknown):
+            self.external_locals.add(name)
+
+    def _revisit(self, statements: Iterable[ast.stmt]) -> None:
+        # Expression references handled during an earlier loop pass must be evaluated again.
+        statements = tuple(statements)
+        self._handled.difference_update(
+            id(node) for statement in statements for node in ast.walk(statement)
+        )
+        self.visit_statements(statements)
+
+    def _visit_receiver_loop(self, node: ast.For | ast.AsyncFor | ast.While) -> None:
+        entry = self._receiver_state()
+        head = entry
+        converged = False
+        for _ in range(32):
+            if self._flow_pass_budget <= 0:
+                break
+            self._flow_pass_budget -= 1
+            self._restore_receiver_state(head)
+            if isinstance(node, ast.While):
+                self.visit_expression(node.test)
+            else:
+                self.visit_expression(node.iter)
+                for target in ast.walk(node.target):
+                    if isinstance(target, ast.Name):
+                        self._set_receiver(target.id, UNKNOWN_RECEIVER)
+                        self._container_locals.discard(target.id)
+            self._revisit(node.body)
+            joined = head.join(entry).join(self._receiver_state())
+            if joined == head:
+                converged = True
+                break
+            head = joined
+        if not converged:
+            # Widen to unknown; a convergence budget must never discard possible receivers.
+            head = ReceiverState(
+                {name: value.join(UNKNOWN_RECEIVER) for name, value in head.values.items()},
+                dynamic_modules=head.dynamic_modules,
+            )
+            self._restore_receiver_state(head)
+            self._revisit(node.body)
+            head = head.join(self._receiver_state())
+        self._restore_receiver_state(head)
+        self.visit_statements(node.orelse)
+        # A break may skip the else; return/continue paths are conservatively included too.
+        self._restore_receiver_state(head.join(self._receiver_state()))
+
+    def _visit_receiver_try(self, node: ast.Try | ast.TryStar) -> None:
+        entry = self._receiver_state()
+        exceptional = entry
+        for statement in node.body:
+            self.visit_statements((statement,))
+            exceptional = exceptional.join(self._receiver_state())
+        # A nested statement can raise between two writes not visible in its final state.
+        # Keep such locals explicitly unknown at exception/finally entries.
+        for part in flow_nodes(node.body):
+            if isinstance(part, ast.Name) and isinstance(part.ctx, ast.Store):
+                exceptional.values[part.id] = exceptional.values.get(
+                    part.id, UNKNOWN_RECEIVER
+                ).join(UNKNOWN_RECEIVER)
+        self.visit_statements(node.orelse)
+        merged = self._receiver_state()
+        for handler in node.handlers:
+            self._restore_receiver_state(exceptional)
+            if handler.type is not None:
+                self.visit_expression(handler.type)
+            if handler.name is not None:
+                self._set_receiver(handler.name, UNKNOWN_RECEIVER)
+            self.visit_statements(handler.body)
+            merged = merged.join(self._receiver_state())
+        # Finally also runs on an exception/return before the final statement of the try.
+        self._restore_receiver_state(merged.join(exceptional))
+        self.visit_statements(node.finalbody)
 
     def visit_expression(self, expression: ast.expr) -> None:
         self._visit_nodes(ast.walk(expression))
@@ -1317,6 +1484,9 @@ class _ExecutionVisitor:
         if dotted is None:
             return False
         first = dotted.split(".")[0]
+        value = self._receiver_values.get(first)
+        if value is not None:
+            return value.project_only
         return first in self.local_types or first in {"self", "cls"}
 
     def visit_definition_header(self, node: DefinitionNode) -> None:
@@ -1374,6 +1544,7 @@ class _ExecutionVisitor:
             ast.If: self._visit_if,
             ast.With: self._visit_with,
             ast.AsyncWith: self._visit_with,
+            ast.NamedExpr: self._visit_named_expression,
         }
         handled = self._handled
         for node in nodes:
@@ -1472,10 +1643,17 @@ class _ExecutionVisitor:
     ) -> list[PythonSymbol]:
         """Definitions an expression may name besides ``target``, when bindings are alternatives."""
 
-        redefined = target is not None and target.id in self._redefined
-        if not redefined and not self._name_alternatives:
-            return []
         found: dict[NodeId, PythonSymbol] = {}
+        dotted = _dotted_name(expression)
+        if dotted is not None:
+            first, *rest = dotted.split(".")
+            value = self._receiver_values.get(first)
+            if value is not None and rest:
+                for type_name in value.types:
+                    member = self.resolver.typed_member(type_name, rest)
+                    if member is not None:
+                        found[member.id] = member
+        redefined = target is not None and target.id in self._redefined
         if target is not None and redefined:
             found.update((item.id, item) for item in self.resolver.alternatives(target))
         head: ast.expr = expression
@@ -1637,6 +1815,11 @@ class _ExecutionVisitor:
         while isinstance(head, ast.Attribute):
             head = head.value
         if isinstance(head, ast.Name):
+            value = self._receiver_values.get(head.id)
+            if value is not None and (
+                not value.project_only or not isinstance(expression, ast.Attribute)
+            ):
+                return self._nested_definition(expression)
             binding = self._local_imports.get(head.id)
             if binding is not None:
                 dotted = _dotted_name(expression)
@@ -1776,7 +1959,11 @@ class _ExecutionVisitor:
                 target = self._inferred_member(func)
                 through_instance = target is not None
         for alternative in self._alternative_targets(func, target):
-            self._call_edges(node, alternative, through_instance=False)
+            self._call_edges(
+                node,
+                alternative,
+                through_instance=isinstance(func, ast.Attribute) and self._through_instance(func),
+            )
         if target is not None:
             self._call_edges(node, target, through_instance=through_instance)
             self._inherited_through_class(func, target)
@@ -1999,6 +2186,9 @@ class _ExecutionVisitor:
         if not isinstance(head, ast.Name):
             return False
         name = head.id
+        value = self._receiver_values.get(name)
+        if value is not None:
+            return value.unknown or (bool(value.types) and value.external)
         return (
             name in self._locals
             and name not in self.local_types
@@ -2028,6 +2218,9 @@ class _ExecutionVisitor:
         dotted = _dotted_name(receiver)
         if dotted is not None:
             first, *rest = dotted.split(".")
+            value = self._receiver_values.get(first)
+            if value is not None and not rest:
+                return not value.unknown and bool(value.types or value.external)
             if first in self.external_locals:
                 return True
             if not rest and (first in self.local_types or first in {"self", "cls"}):
@@ -2132,6 +2325,8 @@ class _ExecutionVisitor:
             target = item.optional_vars
             if not isinstance(target, ast.Name):
                 continue
+            self._set_receiver(target.id, UNKNOWN_RECEIVER)
+            self._container_locals.discard(target.id)
             manager = item.context_expr
             if not isinstance(manager, ast.Call) or self._resolve(manager.func) is not None:
                 continue
@@ -2144,8 +2339,7 @@ class _ExecutionVisitor:
                 and function.id in BUILTIN_MANAGERS
             )
             if builtin or self.resolver.is_external(function, self.module):
-                self.external_locals.add(target.id)
-                self.local_types.pop(target.id, None)
+                self._set_receiver(target.id, EXTERNAL_RECEIVER)
 
     def _visit_assign(self, node: ast.Assign) -> None:
         if (
@@ -2154,30 +2348,29 @@ class _ExecutionVisitor:
         ):
             names = {target.id for target in node.targets if isinstance(target, ast.Name)}
             self._dynamic_modules.update(names)
-            self.external_locals.difference_update(names)
+            for name in names:
+                self._set_receiver(name, UNKNOWN_RECEIVER)
             return
-        inferred = self._infer_expression_type(node.value)
-        external = (
-            inferred is None
-            and isinstance(node.value, ast.Call)
-            and (
-                self._resolve(node.value.func) is None
-                and self.resolver.is_external(node.value.func, self.module)
-            )
-        )
+        value = self._receiver_value(node.value)
         container = _is_container_value(node.value)
         for target in node.targets:
             if not isinstance(target, ast.Name):
+                for child in ast.walk(target):
+                    if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                        self._set_receiver(child.id, UNKNOWN_RECEIVER)
+                        self._container_locals.discard(child.id)
                 continue
             if container:
                 self._container_locals.add(target.id)
             else:
                 self._container_locals.discard(target.id)
-            if inferred is not None:
-                self.local_types[target.id] = inferred
-                self.external_locals.discard(target.id)
-            elif external:
-                self.external_locals.add(target.id)
+            self._set_receiver(target.id, value)
+            self._dynamic_modules.discard(target.id)
+
+    def _visit_named_expression(self, node: ast.NamedExpr) -> None:
+        self.visit_expression(node.value)
+        self._set_receiver(node.target.id, self._receiver_value(node.value))
+        self._container_locals.discard(node.target.id)
 
     def _visit_ann_assign(self, node: ast.AnnAssign) -> None:
         calls = _outermost_calls(node.annotation) if self._evaluates_annotations else []
@@ -2208,8 +2401,13 @@ class _ExecutionVisitor:
             else:
                 self._container_locals.discard(node.target.id)
             inferred = self._resolve_annotation(node.annotation)
-            if inferred is not None:
-                self.local_types[node.target.id] = inferred
+            value = self._receiver_value(node.value) if node.value is not None else UNKNOWN_RECEIVER
+            if node.value is not None:
+                self._set_receiver(node.target.id, value)
+            elif inferred is not None:
+                self._set_receiver(node.target.id, ReceiverValue(frozenset({inferred})))
+            else:
+                self._set_receiver(node.target.id, value)
 
     def _initial_local_types(self) -> dict[str, str]:
         result: dict[str, str] = {}
@@ -2249,6 +2447,13 @@ class _ExecutionVisitor:
 
     def _infer_expression_type(self, expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
+            value = self._receiver_values.get(expression.id)
+            if value is not None:
+                return (
+                    next(iter(value.types))
+                    if value.project_only and len(value.types) == 1
+                    else None
+                )
             return self.local_types.get(expression.id)
         if isinstance(expression, ast.Attribute) and expression.attr == "__class__":
             return self._infer_expression_type(expression.value)
@@ -2267,6 +2472,47 @@ class _ExecutionVisitor:
             if target is not None and target.return_annotation is not None:
                 return self._resolve_annotation(target.return_annotation)
         return None
+
+    def _receiver_value(self, expression: ast.expr) -> ReceiverValue:
+        if isinstance(expression, ast.Name) and expression.id in self._receiver_values:
+            return self._receiver_values[expression.id]
+        if isinstance(expression, ast.IfExp):
+            return self._receiver_value(expression.body).join(
+                self._receiver_value(expression.orelse)
+            )
+        if isinstance(expression, ast.Call):
+            target = self._resolve(expression.func)
+            alternatives = self._alternative_targets(expression.func, target)
+            if alternatives:
+                result = ReceiverValue()
+                type_name: str | None
+                for possible in ([target] if target is not None else []) + alternatives:
+                    if possible.kind is NodeKind.CLASS:
+                        type_name = f"{possible.module}.{possible.qualified_name}"
+                    else:
+                        type_name = (
+                            self._resolve_annotation(possible.return_annotation)
+                            if possible.return_annotation is not None
+                            else None
+                        )
+                    result = result.join(
+                        ReceiverValue(frozenset({type_name}))
+                        if type_name is not None
+                        else UNKNOWN_RECEIVER
+                    )
+                if target is None:
+                    result = result.join(UNKNOWN_RECEIVER)
+                return result
+        inferred = self._infer_expression_type(expression)
+        if inferred is not None:
+            return ReceiverValue(frozenset({inferred}))
+        if (
+            isinstance(expression, ast.Call)
+            and self._resolve(expression.func) is None
+            and (self.resolver.is_external(expression.func, self.module))
+        ):
+            return EXTERNAL_RECEIVER
+        return UNKNOWN_RECEIVER
 
     def _is_external_module(self, receiver: ast.expr) -> bool:
         """``pkg`` or ``pkg.sub`` where ``pkg`` is imported from outside the project.
@@ -2288,25 +2534,31 @@ class _ExecutionVisitor:
     def _receiver_methods(self, receiver: ast.expr) -> tuple[NodeId, ...] | None:
         """Methods, inherited ones too, that an attribute of ``receiver`` of known type may be."""
 
-        receiver_type = self._infer_expression_type(receiver)
-        if receiver_type is None and isinstance(receiver, ast.Name):
-            receiver_type = self.local_types.get(receiver.id)
-        if receiver_type is None:
-            return None
-        class_symbol = self.resolver.class_named(receiver_type)
+        value = self._receiver_values.get(receiver.id) if isinstance(receiver, ast.Name) else None
+        if value is not None:
+            if not value.project_only:
+                return None
+            receiver_types = value.types
+        else:
+            receiver_type = self._infer_expression_type(receiver)
+            if receiver_type is None:
+                return None
+            receiver_types = frozenset({receiver_type})
         # The value may be an instance of a project subclass, as ``getattr(self, ...)`` in a
         # base class of a visitor: its methods count as well.
-        owners = (
-            [
-                f"{item.module}.{item.qualified_name}"
-                for item in (
-                    *self.resolver.mro(class_symbol),
-                    *self.resolver.subclasses_of(class_symbol),
+        owners: list[str] = []
+        for receiver_type in sorted(receiver_types):
+            class_symbol = self.resolver.class_named(receiver_type)
+            if class_symbol is None:
+                owners.append(receiver_type)
+            else:
+                owners.extend(
+                    f"{item.module}.{item.qualified_name}"
+                    for item in (
+                        *self.resolver.mro(class_symbol),
+                        *self.resolver.subclasses_of(class_symbol),
+                    )
                 )
-            ]
-            if class_symbol is not None
-            else [receiver_type]
-        )
         return tuple(
             sorted(
                 {
@@ -2405,7 +2657,22 @@ class _ExecutionVisitor:
 
     def _record_escaped_project_callables(self, call: ast.Call) -> None:
         escaped: set[NodeId] = set()
+        consumer = self._external_name(call.func)
+        if (
+            isinstance(call.func, ast.Name)
+            and call.func.id in self._locals
+            and call.func.id not in self._local_imports
+        ):
+            consumer = None  # an unresolved local callable is not a builtin of that name
         for argument in call_arguments(call):
+            if _consumer_calls_instance_methods(consumer) and not (
+                self._stores_in_container(call.func)
+            ):
+                value = self._receiver_value(argument.value)
+                for possible_type in value.types:
+                    instance_class = self.resolver.class_named(possible_type)
+                    if instance_class is not None:
+                        escaped.add(instance_class.id)
             # ``add_task(Core(user).cleanup)`` passes a method of an instance built in place.
             target = self._resolve(argument.value) or (
                 self._inferred_member(argument.value)

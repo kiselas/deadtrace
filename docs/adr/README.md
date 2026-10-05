@@ -86,4 +86,6 @@ each other. Typo and link fixes are fine.
 - [ADR-0031](0031-bounded-artifact-parsing.md) — Bound opened inputs and reject ambiguous saved
   JSON. Accepted.
 - [ADR-0032](0032-receiver-flow-violations.md) — Pin independently demonstrated receiver flow
-  violations. Accepted; algorithmic fixes remain pending.
+  violations. Accepted; resolved by ADR-0033.
+- [ADR-0033](0033-receiver-control-flow.md) — Join receiver types across branches and loop back
+  edges (model revision 23). Accepted; resolves ADR-0032.
