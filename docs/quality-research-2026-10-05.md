@@ -25,6 +25,53 @@ the latest historical holdout scan has 80 findings without verdicts. No holdout 
 available. Development precision and injection recall are useful diagnostic evidence, but do
 not establish market leadership. Detailed target identities stay outside this repository.
 
+## Fresh package measurements
+
+`fieldkit` scanned existing pinned development copies on clean commit `2dd21bd`, model 22,
+with `--jobs 1`. Scan batch: `20261005-133647-r22-quality-20261005`; injection batch:
+`20261005-133709-r22-inject7-quality-20261005`, seed 7. No target code executed.
+
+| Package | Findings | Injected definitions reported |
+|---|---:|---:|
+| rich 15.0.0 | 1 | 59 / 76 |
+| pydantic 2.13.5 | 0 | 0 / 76 |
+| typer 0.27.2 | 5 | 55 / 76 |
+| pluggy 1.6.0 | 2 | 36 / 42 |
+| packaging 26.3 | 2 | 57 / 76 |
+
+All five scans were complete. There were zero NEW and zero LOST findings against the previous
+model-22 batch for these targets. Existing source-digest verdicts account for all ten findings:
+six true, four false, no unsure or unverified findings. This small development sample has 60%
+finding precision under those inherited verdicts; it is neither a fresh blind review nor a
+holdout estimate. The two false findings in packaging concern historical pickle compatibility
+classes; the two in pluggy concern tracer methods used by pytest through a public instance path.
+Their mechanisms were already recorded, and the current sources confirm the consumers.
+
+The injection harness reported 207 / 346 (59.8%). Functions and new classes each scored
+44 / 56; methods in existing project-base classes scored 19 / 55, external-base classes
+25 / 62, and no-base classes 30 / 59. These are synthetic detection rates, not general recall.
+Reflective consumers, API policy, omitted distribution metadata and external consumers limit
+what can be inferred from source-only package copies.
+
+Pydantic's broad guard at `pydantic/v1/utils.py:661` accounts for 60 of its misses: `path_type`
+iterates a fixed dictionary of filesystem method names and calls `getattr(p, method)()`. The
+guard spreads far beyond those names. A finite string-value domain for such iteration can
+constrain dispatch without assuming a type annotation is enforced at runtime. This is a
+specific development case for step 3 below, with an unknown-name safety control required.
+
+The ledger and archived reports remain in the companion field repository. Its
+`reports/2026-10-05-package-quality-score.txt` is the output of `fieldkit score`, not a new
+unrecorded analyzer run. No private target names or paths are copied here.
+
+## Verification of this cycle
+
+Ruff check and format, mypy on Windows and with the Linux target, pytest with branch coverage
+(353 passed, one Windows symlink-permission skip; 92.79%), both required case validators, and
+the known-violation validator passed. Build succeeded offline using cached isolated build
+dependencies; the online attempt was stopped after stalling. The installed wheel passed the
+portable smoke check outside the checkout, including no target execution. Linux runtime CI
+has not been run locally. No dependency, lock, model revision, or report schema changed.
+
 ## Research and tools
 
 | Source | Approach | Consequence for Deadtrace |
