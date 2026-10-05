@@ -1,0 +1,94 @@
+name: Publish verified alpha
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag on main (for example v0.1.0a1)
+        required: true
+        type: string
+      ci_run_id:
+        description: Successful main push CI run for the exact tagged commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.candidate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+      - run: uv python install 3.12
+      - name: Verify tag and successful exact-commit CI
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(a|b|rc)?[0-9]*$ ]]
+          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]]
+          sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$sha"
+          git merge-base --is-ancestor "$sha" origin/main
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID" > candidate-ci.json
+          export CANDIDATE_SHA="$sha"
+          uv run --isolated --no-project --python 3.12 python - <<'PY'
+          import json, os, tomllib
+          from pathlib import Path
+          run = json.loads(Path('candidate-ci.json').read_text())
+          assert run['repository']['full_name'] == os.environ['GITHUB_REPOSITORY']
+          assert run['head_repository']['full_name'] == os.environ['GITHUB_REPOSITORY']
+          assert run['path'] == '.github/workflows/ci.yml'
+          assert run['event'] == 'push' and run['head_branch'] == 'main'
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          assert run['head_sha'] == os.environ['CANDIDATE_SHA']
+          project = tomllib.loads(Path('pyproject.toml').read_text())['project']
+          assert os.environ['RELEASE_TAG'] == 'v' + project['version']
+          PY
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: deadtrace-${{ steps.candidate.outputs.sha }}-distributions
+          path: dist
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify distribution identity and checksums
+        env:
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          uv run --isolated --no-project --python 3.12 python scripts/release_artifacts.py verify --sha "$CANDIDATE_SHA"
+          mkdir publish-dist
+          cp dist/*.whl dist/*.tar.gz publish-dist/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-${{ steps.candidate.outputs.sha }}
+          path: publish-dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-${{ needs.verify.outputs.sha }}
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

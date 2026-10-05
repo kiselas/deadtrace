@@ -1,9 +1,27 @@
 # Changelog
 
 All notable changes will be documented here. The project follows Semantic Versioning once public
-compatibility commitments are defined; pre-alpha schemas may change between releases.
+compatibility commitments are defined; alpha schemas may change between releases.
 
 ## Unreleased
+
+## 0.1.0a1 - 2026-10-05
+
+First public alpha for Python 3.12. Scanner model `python-fastapi-dishka/31`; inventory schema 0,
+semantic report schema 1. Findings require human review; no deletion-safety guarantee is made.
+
+- Static scanning, saved explanations, baselines, report comparison and diagnostic bundles.
+- Documented analysis contract, supported scope and exact-commit release acceptance.
+- Python receiver control-flow joins, finite local dispatch names, external nominal reflection,
+  stored literal callable/re-export protection, and public object-field/declared-return API closure
+  accumulated through ADR-0033 to ADR-0046.
+- A single CI-built wheel and source distribution are sealed with SHA-256 checksums, exercised
+  on Linux and Windows, and published through GitHub OIDC without rebuilding (ADR-0049).
+- The independently pinned `object.__setattr__` recall gap remains guarded on model 31;
+  the selected model-32 refinement is deferred. General dynamic dispatch and unmodeled behavior
+  retain conservative protection. Field measurements are not market-wide precision claims.
+
+The entries below describe the development history included in this first public distribution.
 
 ### Added
 

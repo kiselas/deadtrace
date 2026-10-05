@@ -118,3 +118,5 @@ each other. Typo and link fixes are fine.
   facts/injections and measure exact-consumer cuts; scanner revision 31 unchanged.
 - [ADR-0048](0048-object-setattr-store-summary.md) — Pin a recall gap before refining literal
   builtin object.__setattr__ stores on self; cast receiver escapes remain deferred.
+
+- [ADR-0049](0049-public-alpha-release.md) — Public read-only alpha, frozen model 31 and exact CI artifact publication through OIDC. Accepted.

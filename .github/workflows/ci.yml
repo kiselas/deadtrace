@@ -12,8 +12,8 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           enable-cache: true
       - run: uv python install 3.12
@@ -32,38 +32,53 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync --locked --all-groups
       - run: uv run pytest
 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+      - run: uv python install 3.12
+      - run: uv build --python 3.12
+      - name: Seal exact candidate distributions
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: uv run --isolated --no-project --python 3.12 python scripts/release_artifacts.py seal --sha "$CANDIDATE_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deadtrace-${{ github.sha }}-distributions
+          path: dist/*
+          if-no-files-found: error
+
   wheel-smoke:
+    needs: build
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
       - run: uv python install 3.12
-      - run: uv build
-      - name: Install wheel outside the source tree (Linux)
-        if: runner.os == 'Linux'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: deadtrace-${{ github.sha }}-distributions
+          path: dist
+      - name: Verify and smoke installed candidate
         shell: bash
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
         run: |
-          wheel="$(find "$GITHUB_WORKSPACE/dist" -name '*.whl' -print -quit)"
+          uv run --isolated --no-project --python 3.12 python scripts/release_artifacts.py verify --sha "$CANDIDATE_SHA"
+          workspace="$PWD"
+          wheel="$(find "$workspace/dist" -name '*.whl' -print -quit)"
           cd "$(mktemp -d)"
-          uv run --isolated --no-project --python 3.12 --with "$wheel" python "$GITHUB_WORKSPACE/scripts/wheel_smoke.py"
-      - name: Install wheel outside the source tree (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $wheel = (Get-ChildItem "$env:GITHUB_WORKSPACE\dist\*.whl")[0].FullName
-          $smoke = Join-Path $env:RUNNER_TEMP "deadtrace-wheel-smoke"
-          New-Item -ItemType Directory -Force $smoke | Out-Null
-          Set-Location $smoke
-          uv run --isolated --no-project --python 3.12 --with $wheel python "$env:GITHUB_WORKSPACE/scripts/wheel_smoke.py"
+          uv run --isolated --no-project --python 3.12 --with "$wheel" python "$workspace/scripts/wheel_smoke.py"

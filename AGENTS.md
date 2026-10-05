@@ -2,7 +2,8 @@
 
 Read `CONTRIBUTING.md` and the decision records in `docs/adr/` before semantic changes.
 
-- Keep one active semantic milestone. The current milestone is inventory-only PR-01.
+- Keep one active milestone. The current milestone is the public read-only alpha release
+  (ADR-0049); freeze scanner semantics at model 31 while preparing 0.1.0a1.
 - Never import or execute target code from scanner paths.
 - Do not infer future semantics from fixture expectations.
 - Update `CASE.md` and `CASE.toml` only when the independent expected behavior changes.

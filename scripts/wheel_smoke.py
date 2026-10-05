@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -42,7 +43,10 @@ def main() -> None:
         )
         if Path(location.stdout.strip()).resolve().is_relative_to(checkout):
             raise RuntimeError("wheel smoke imported Deadtrace from the checkout")
-        assert command("--version").startswith("deadtrace ")
+        expected_version = tomllib.loads((checkout / "pyproject.toml").read_text(encoding="utf-8"))[
+            "project"
+        ]["version"]
+        assert command("--version").strip() == f"deadtrace {expected_version}"
         assert "scan" in command("--help")
 
         target = work / "target"
@@ -68,6 +72,7 @@ def main() -> None:
         first = command("scan", str(target), "--format", "json", "--require-complete")
         assert first == command("scan", str(target), "--format", "json", "--require-complete")
         report = json.loads(first)
+        assert report["tool"]["version"] == expected_version
         assert report["schema_version"] == 1
         assert report["analysis_state"] == "complete"
         finding = next(item for item in report["findings"] if item["code"] == "RCH001")
