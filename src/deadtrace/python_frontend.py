@@ -36,6 +36,7 @@ from deadtrace.inventory import (
     iter_definitions,
     parse_source,
 )
+from deadtrace.nominal_types import NOMINAL_FAMILIES, ROOT_BASES, may_supply_nominal_value
 from deadtrace.receiver_flow import (
     EXTERNAL_RECEIVER,
     UNKNOWN_RECEIVER,
@@ -568,6 +569,15 @@ class _Resolver:
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
+        self._nominal_rebindings = {
+            module.name: frozenset(
+                name
+                for part in ast.walk(module.tree)
+                if isinstance(part, (ast.Name, ast.Attribute)) and isinstance(part.ctx, ast.Store)
+                if (name := _dotted_name(part)) is not None
+            )
+            for module in modules.values()
+        }
         direct: set[int] = set()
         for module in modules.values():
             direct.update(
@@ -1243,10 +1253,10 @@ class _ExecutionVisitor:
                 if (
                     annotation is not None
                     and parameter.name in self.external_locals
-                    and self._has_external_value_annotation(annotation)
+                    and (origin := self._external_value_annotation_origin(annotation)) is not None
                 ):
                     self._receiver_values[parameter.name] = ReceiverValue(
-                        external=True, external_annotation=True
+                        external=True, external_annotation=True, external_nominal=origin
                     )
         self._container_locals: set[str] = set()
         self._string_values: dict[str, StringValue] = {}
@@ -2487,7 +2497,7 @@ class _ExecutionVisitor:
                 self.external_locals.add(parameter.name)
         return result
 
-    def _has_external_value_annotation(self, annotation: ast.expr) -> bool:
+    def _external_value_annotation_origin(self, annotation: ast.expr) -> str | None:
         """A simple imported external value type, under the existing annotation contract.
 
         Generic, structural/opaque typing annotations, unions and module types cannot justify
@@ -2496,31 +2506,33 @@ class _ExecutionVisitor:
         if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
             parsed = _parsed_annotation(annotation.value)
             if parsed is None:
-                return False
+                return None
             annotation = parsed
         if not isinstance(annotation, (ast.Name, ast.Attribute)):
-            return False
+            return None
         if not self.resolver.annotation_is_external(annotation, self.module):
-            return False
+            return None
         dotted = _dotted_name(annotation)
         assert dotted is not None
         head, _, rest = dotted.partition(".")
         binding = self.module.imports[head]
         bindings = self.module.import_alternatives.get(head, (binding,))
         origins = {f"{item.target}.{rest}" if rest else item.target for item in bindings}
-        return len(origins) == 1 and all(
+        accepted = len(origins) == 1 and all(
             not origin.startswith(("typing.", "typing_extensions."))
             and origin != "types.ModuleType"
             and not self.resolver.in_project(origin)
             for origin in origins
         )
+        return next(iter(origins)) if accepted else None
 
     def _external_reflection_targets(self, receiver: ast.expr) -> tuple[NodeId, ...] | None:
         """All project class members remain possible, including subclasses and stand-ins.
 
         An external base may itself inherit another unscanned external base. Without dependency
-        source, matching its spelling to the parameter annotation is insufficient. Do not narrow
-        this set by ancestry or method name. Escaped callable values retain their own guards.
+        source, matching its spelling to the parameter annotation is insufficient. Recognized
+        standard nominal families refine ancestry; opaque bases retain protection. Escaped
+        callable values retain their own guards. Method-name filtering is not applied here.
         """
         value = self._receiver_values.get(receiver.id) if isinstance(receiver, ast.Name) else None
         if (
@@ -2531,12 +2543,58 @@ class _ExecutionVisitor:
             or value.types
         ):
             return None
+        owners: set[NodeId] | None = None
+        if value.external_nominal in NOMINAL_FAMILIES:
+            owners = set()
+            for symbol in self.resolver.symbols.values():
+                if symbol.kind is not NodeKind.CLASS:
+                    continue
+                possible = is_test_path(symbol.path)
+                for ancestor in self.resolver.mro(symbol):
+                    assert isinstance(ancestor.node, ast.ClassDef)
+                    module = self.resolver.modules[ancestor.module]
+                    for base in ancestor.node.bases:
+                        resolved = self.resolver.resolve_expression(
+                            base,
+                            module=module,
+                            current=self.resolver.enclosing_scope(ancestor),
+                            local_types={},
+                            class_field_types={},
+                        )
+                        if resolved is not None and resolved.kind is NodeKind.CLASS:
+                            continue
+                        name = _base_name(self.resolver, base, module)
+                        # Bare builtin spellings can be rebound; never treat them as metadata
+                        # when their head is bound by source or by an enclosing local scope.
+                        head = _dotted_name(base.value if isinstance(base, ast.Subscript) else base)
+                        scope = self.resolver.enclosing_scope(ancestor)
+                        head_name = head.split(".")[0] if head is not None else ""
+                        shadowed = (
+                            (scope is not None and head_name in self.resolver.local_names(scope))
+                            or head_name in module.import_alternatives
+                            or (
+                                name in ROOT_BASES
+                                and name in self.resolver.top_level_bindings(module)
+                            )
+                            or head_name in self.resolver._nominal_rebindings[module.name]
+                            or head in self.resolver._nominal_rebindings[module.name]
+                        )
+                        if (
+                            resolved is not None
+                            or shadowed
+                            or head is None
+                            or may_supply_nominal_value(name, value.external_nominal)
+                        ):
+                            possible = True
+                if possible:
+                    owners.update(item.id for item in self.resolver.mro(symbol))
         return tuple(
             sorted(
                 symbol.id
                 for symbol in self.resolver.symbols.values()
                 if symbol.owner is not None
                 and self.resolver.symbols[symbol.owner].kind is NodeKind.CLASS
+                and (owners is None or symbol.owner in owners)
             )
         )
 

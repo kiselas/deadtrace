@@ -95,3 +95,5 @@ each other. Typo and link fixes are fine.
   annotated subclass. Accepted; resolved by ADR-0036.
 - [ADR-0036](0036-localize-external-value-reflection.md) — Preserve subclass and stand-in members
   while localizing reflection on externally annotated values (model revision 25). Accepted.
+- [ADR-0037](0037-standard-nominal-reflection-families.md) — Refine standard nominal-family
+  reflection while preserving opaque bases and test stand-ins (model revision 26). Accepted.

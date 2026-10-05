@@ -11,6 +11,7 @@ class ReceiverValue:
     unknown: bool = False
     external: bool = False
     external_annotation: bool = False
+    external_nominal: str | None = None
 
     def join(self, other: ReceiverValue) -> ReceiverValue:
         return ReceiverValue(
@@ -20,6 +21,13 @@ class ReceiverValue:
             (self.external or other.external)
             and (not self.external or self.external_annotation)
             and (not other.external or other.external_annotation),
+            self.external_nominal
+            if not other.external
+            else other.external_nominal
+            if not self.external
+            else self.external_nominal
+            if self.external_nominal == other.external_nominal
+            else None,
         )
 
     @property

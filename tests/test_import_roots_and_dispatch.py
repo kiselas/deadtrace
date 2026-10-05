@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from deadtrace.core import ReachabilityKind, WorldId, WorldPlan, WorldResult, solve
+from deadtrace.nominal_types import may_supply_nominal_value
 from deadtrace.pytest_semantics import PytestCollection, read_pytest_collection
 from deadtrace.python_frontend import (
     PythonProgram,
@@ -412,8 +413,9 @@ def test_external_annotation_reflection_protects_members_without_module_wide_gua
         }
     )
     world = _world(program, "main:main")
-    for target in ("main:Derived.check", "main:Indirect.run", "main:Plain.check"):
+    for target in ("main:Derived.check", "main:Indirect.run"):
         assert _state(program, world, target) is not None
+    assert _state(program, world, "main:Plain.check") is None
     assert _state(program, world, "tests.test_double:Double.check") is not None
     assert _state(program, world, "main:_unused") is None
 
@@ -500,3 +502,117 @@ def test_external_annotation_provenance_joins_and_forgets_untyped_external_origi
     assert annotated.join(ReceiverValue()).external_annotation
     assert not annotated.join(EXTERNAL_RECEIVER).external_annotation
     assert annotated.join(UNKNOWN_RECEIVER).unknown
+
+
+def test_external_annotation_provenance_survives_destructured_loop_and_return() -> None:
+    program = _program(
+        **{
+            "main.py": "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n    from pathlib import Path\n"
+            "names = {'check': 'result'}\n"
+            "class Derived(Path):\n    def check(self): pass\n"
+            "def _unused(): pass\n"
+            "def main(p: 'Path') -> str:\n"
+            "    assert p.exists(), 'path does not exist'\n"
+            "    for method, name in names.items():\n"
+            "        if getattr(p, method)():\n"
+            "            return name\n"
+            "    return 'unknown'\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Derived.check") is not None
+    assert _state(program, world, "main:_unused") is None
+
+
+@pytest.mark.parametrize(
+    "imports,base",
+    [
+        ("from logging import LogRecord\nfrom pathlib import Path", "LogRecord"),
+        ("from pathlib import Path", "object"),
+        ("from pathlib import Path\nimport builtins", "builtins.object"),
+        (
+            "from pathlib import Path\nfrom typing import Generic, TypeVar\nT = TypeVar('T')",
+            "Generic[T]",
+        ),
+    ],
+)
+def test_standard_nominal_summary_excludes_unrelated_roots(imports: str, base: str) -> None:
+    program = _program(
+        **{
+            "main.py": imports + f"\nclass Other({base}):\n    def idle(self): pass\n"
+            "def main(value: Path, name):\n    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Other.idle") is None
+
+
+@pytest.mark.parametrize(
+    "imports,base",
+    [
+        ("from pathlib import Path\nfrom external import Bridge", "Bridge"),
+        ("from pathlib import Path\nobject = factory()", "object"),
+        (
+            "from pathlib import Path\nfrom logging import LogRecord\nLogRecord = factory()",
+            "LogRecord",
+        ),
+        (
+            "from pathlib import Path\nimport logging\nlogging.LogRecord = factory()",
+            "logging.LogRecord",
+        ),
+        (
+            "from pathlib import Path\nif flag:\n    from external import Base\n"
+            "else:\n    from logging import LogRecord as Base",
+            "Base",
+        ),
+        ("from pathlib import Path\ndef factory(): pass", "factory()"),
+    ],
+)
+def test_opaque_and_rebound_external_bases_keep_project_members(imports: str, base: str) -> None:
+    program = _program(
+        **{
+            "main.py": imports + f"\nclass Possible({base}):\n    def check(self): pass\n"
+            "def main(value: Path, name):\n    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Possible.check") is not None
+
+
+def test_path_summary_retains_methods_inherited_from_plain_project_mixin() -> None:
+    program = _program(
+        **{
+            "main.py": "from pathlib import Path\n"
+            "class Mixin:\n    def check(self): pass\n"
+            "class Derived(Mixin, Path): pass\n"
+            "def main(value: Path, name):\n    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Mixin.check") is not None
+
+
+def test_nominal_origins_join_conservatively() -> None:
+    path = ReceiverValue(external=True, external_annotation=True, external_nominal="pathlib.Path")
+    record = ReceiverValue(
+        external=True, external_annotation=True, external_nominal="logging.LogRecord"
+    )
+    assert path.join(path).external_nominal == "pathlib.Path"
+    assert path.join(ReceiverValue()).external_nominal == "pathlib.Path"
+    assert ReceiverValue().join(path).external_nominal == "pathlib.Path"
+    assert path.join(record).external_nominal is None
+    assert path.join(EXTERNAL_RECEIVER).external_nominal is None
+
+
+@pytest.mark.parametrize(
+    "base,possible",
+    [
+        ("pathlib.PurePosixPath", True),
+        ("logging.Handler", False),
+        ("unknown.Bridge", True),
+        ("builtins.object", False),
+    ],
+)
+def test_standard_nominal_metadata_keeps_unknown_ancestry(base: str, possible: bool) -> None:
+    assert may_supply_nominal_value(base, "pathlib.Path") is possible
