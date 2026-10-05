@@ -86,6 +86,8 @@ Source inspection of `_decorators.py:165–208` shows a wrapped descriptor, sett
 `partial(self._call_wrapped_attr, name=attr)`, followed by dynamic `getattr(self.wrapped, name)(func)`.
 This requires argument/callback/field provenance. A keyword bound by partial can be overridden by
 a caller, so merely copying its two initial strings into the callee is not a sufficient safety proof.
+The keyword override behavior is specified by the
+[Python 3.12 partial API](https://docs.python.org/3.12/library/functools.html#functools.partial).
 
 The next bounded proposal should improve guard-chain diagnostics and specify independent cases
 for partial keyword overrides, escaping callbacks, descriptor aliases and unknown external callers
