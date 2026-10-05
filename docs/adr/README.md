@@ -107,3 +107,5 @@ each other. Typo and link fixes are fine.
   project import and star-re-export chains (model revision 28). Accepted; resolves ADR-0040.
 - [ADR-0042](0042-literal-classinfo-consumer-summary.md) — Distinguish nested literal class-info
   tuples consumed by inspecting builtins from arbitrary escaped class registries (revision 29).
+- [ADR-0043](0043-public-object-field-violation.md) — Pin externally callable methods exposed
+  through an exported object's public field chain before fixing API closure.
