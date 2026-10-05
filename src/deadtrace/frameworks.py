@@ -366,7 +366,7 @@ def build_framework_model(
             FrameworkCapability("django.migrations-runpython", 2, "modeled"),
             FrameworkCapability("python.project-entry-points", 2, "modeled"),
             FrameworkCapability("python.script-roots", 1, "modeled"),
-            FrameworkCapability("python.library-roots", 2, "modeled"),
+            FrameworkCapability("python.library-roots", 3, "modeled"),
             FrameworkCapability("frameworks.application-roots", 1, "guarded"),
             FrameworkCapability("celery.autodiscover-tasks", 1, "guarded"),
             FrameworkCapability("django.installed-apps", 2, "modeled"),
@@ -2135,6 +2135,8 @@ def _library_world(state: _BuildState, packages: set[str] | None = None) -> tupl
                     if not member.name.startswith("_")
                 )
                 api.extend(public_values.get(symbol.id, ()))
+            elif is_function(symbol):
+                api.extend(_public_return_classes(program, symbol))
     for root in roots:
         state.auto_provenance[("library", root)] = ("library_public_api", root)
     return (WorldConfig("production", "library", tuple(roots), ("python",)),) if roots else ()
@@ -2185,9 +2187,75 @@ def _export_world(state: _BuildState) -> tuple[WorldConfig, ...]:
                 if not member.name.startswith("_")
             )
             api.extend(public_values.get(symbol.id, ()))
+        elif is_function(symbol):
+            api.extend(_public_return_classes(program, symbol))
     for root in roots:
         state.auto_provenance[("exports", root)] = ("package_exports", root)
     return (WorldConfig("production", "exports", tuple(roots), ("python",)),) if roots else ()
+
+
+def _public_return_classes(program: PythonProgram, symbol: PythonSymbol) -> list[PythonSymbol]:
+    """Project objects declared as returned API values, without treating inputs as outputs.
+
+    Nominal types, unions and transparent typing wrappers expose objects. An arbitrary
+    generic exposes its project outer class, rather than all mentioned type arguments.
+    In particular Callable inputs and Annotated metadata do not describe returned objects.
+    """
+    module = program.modules[symbol.module]
+    result: list[PythonSymbol] = []
+
+    def visit(expression: ast.expr) -> None:
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            try:
+                parsed = ast.parse(expression.value.strip(), mode="eval")
+            except (SyntaxError, ValueError):
+                return
+            visit(parsed.body)
+        elif isinstance(expression, ast.BinOp) and isinstance(expression.op, ast.BitOr):
+            visit(expression.left)
+            visit(expression.right)
+        elif isinstance(expression, ast.Subscript):
+            base = _expanded_name(module, expression.value)
+            elements = (
+                expression.slice.elts
+                if isinstance(expression.slice, ast.Tuple)
+                else [expression.slice]
+            )
+            if base in {
+                "typing.Union",
+                "typing.Optional",
+                "typing.Type",
+                "typing_extensions.Union",
+                "typing_extensions.Optional",
+                "typing_extensions.Type",
+            }:
+                for element in elements:
+                    visit(element)
+            elif base in {"typing.Annotated", "typing_extensions.Annotated"}:
+                if elements:
+                    visit(elements[0])
+            else:
+                visit(expression.value)
+        elif isinstance(expression, ast.Name | ast.Attribute):
+            dotted = _dotted_name(expression)
+            if dotted is None:
+                return
+            first, _, rest = dotted.partition(".")
+            binding = module.imports.get(first)
+            alternatives = module.import_alternatives.get(first) or ((binding,) if binding else ())
+            names = (
+                [f"{item.target}.{rest}" if rest else item.target for item in alternatives]
+                if alternatives
+                else [f"{module.name}.{dotted}"]
+            )
+            for name in names:
+                target = program.resolve_symbol(name)
+                if target is not None and target.kind is NodeKind.CLASS:
+                    result.append(target)
+
+    if symbol.return_annotation is not None:
+        visit(symbol.return_annotation)
+    return result
 
 
 def _public_field_classes(program: PythonProgram) -> dict[NodeId, list[PythonSymbol]]:

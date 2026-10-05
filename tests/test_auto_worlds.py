@@ -163,6 +163,86 @@ def test_cyclic_public_field_types_terminate_and_keep_both_apis() -> None:
         assert symbol is not None and symbol.id in plan.roots
 
 
+@pytest.mark.parametrize(
+    "annotation",
+    ["Worker", "'Worker'", "Worker | None", "Maybe[Worker]", "Meta[Worker, Other]", "Worker[int]"],
+)
+def test_public_factory_return_contract_exposes_only_its_objects(annotation: str) -> None:
+    program, model = _model(**_return_sources(annotation))
+    plan = _plan(model, "production:library")
+    for name in ("Worker.run", "Child.use"):
+        symbol = program.resolve_symbol(f"pkg._objects:{name}")
+        assert symbol is not None and symbol.id in plan.roots
+    for name in ("Worker._unused", "Other.use"):
+        symbol = program.resolve_symbol(f"pkg._objects:{name}")
+        assert symbol is not None and symbol.id not in plan.roots
+
+
+def _return_sources(annotation: str = "Worker") -> dict[str, str]:
+    return {
+        "pkg/__init__.py": "from ._api import make as make\n",
+        "pkg/_api.py": (
+            "from typing import Optional as Maybe, Annotated as Meta, Callable, Literal\n"
+            "from ._objects import Worker, Other\n"
+            f"def make(value: Other) -> {annotation}:\n    return factory()\n"
+        ),
+        "pkg/_objects.py": (
+            "class Worker:\n    def run(self) -> 'Child': return factory()\n"
+            "    def _unused(self) -> Other: return factory()\n"
+            "class Child:\n    def use(self) -> Worker: return factory()\n"
+            "class Other:\n    def use(self): pass\n"
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    "annotation", ["Callable[[Worker], None]", "Literal['Worker']", "list[Worker]"]
+)
+def test_annotation_mentions_are_not_direct_returned_objects(annotation: str) -> None:
+    program, model = _model(**_return_sources(annotation))
+    symbol = program.resolve_symbol("pkg._objects:Worker.run")
+    assert symbol is not None and symbol.id not in _plan(model, "production:library").roots
+
+
+def test_returned_objects_expand_fields_and_property_return_contracts() -> None:
+    sources = _return_sources()
+    sources["pkg/_objects.py"] = (
+        "class Worker:\n    @property\n    def child(self) -> 'Child': return factory()\n"
+        "class Child:\n    def __init__(self): self.other: Other = factory()\n"
+        "class Other:\n    def use(self): pass\n"
+    )
+    program, model = _model(**sources)
+    target = program.resolve_symbol("pkg._objects:Other.use")
+    assert target is not None and target.id in _plan(model, "production:library").roots
+
+
+def test_conditional_return_type_bindings_preserve_both_apis() -> None:
+    sources = _return_sources()
+    sources["pkg/_api.py"] = (
+        "if choice:\n    from ._objects import Worker\n"
+        "else:\n    from ._objects import Other as Worker\n"
+        "def make() -> Worker: return factory()\n"
+    )
+    program, model = _model(**sources)
+    plan = _plan(model, "production:library")
+    for name in ("Worker.run", "Other.use"):
+        symbol = program.resolve_symbol(f"pkg._objects:{name}")
+        assert symbol is not None and symbol.id in plan.roots
+
+
+def test_export_world_follows_factory_return_and_explicit_world_does_not() -> None:
+    sources = _return_sources()
+    sources["main.py"] = "from fastapi import FastAPI\napp = FastAPI()\n"
+    program, model = _model(**sources)
+    symbol = program.resolve_symbol("pkg._objects:Worker.run")
+    assert symbol is not None and symbol.id in _plan(model, "production:exports").roots
+    explicit = build_framework_model(
+        program,
+        Config(worlds=(WorldConfig("production", "script", ("pkg._api:make",), ("python",)),)),
+    )
+    assert symbol.id not in _plan(explicit, "production:script").roots
+
+
 def _plan(model: FrameworkModel, key: str) -> WorldPlan:
     return next(plan for plan in model.plans if plan.id.key == key)
 

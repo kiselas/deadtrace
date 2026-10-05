@@ -111,3 +111,6 @@ each other. Typo and link fixes are fine.
   through an exported object's public field chain before fixing API closure.
 - [ADR-0044](0044-public-object-field-api-closure.md) — Follow source-known public object fields
   and project bases in automatic library/export API discovery (revision 30); resolves ADR-0043.
+- [ADR-0045](0045-public-return-api-violation.md) — Pin a public factory return API violation.
+- [ADR-0046](0046-declared-public-return-api.md) — Follow declared public returned objects in
+  automatic API closure (revision 31); resolves ADR-0045.

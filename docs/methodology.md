@@ -14,8 +14,9 @@ is complete. Standard nominal families in
 milestone in [ADR-0039](adr/0039-preserve-stored-literal-callables.md) is complete.
 Reflected module re-exports in [ADR-0041](adr/0041-reflected-module-export-graph.md) are complete.
 Literal class-info tuple summaries in [ADR-0042](adr/0042-literal-classinfo-consumer-summary.md) are
-complete. The current bounded milestone follows source-known public object fields in automatic
-API discovery, [ADR-0044](adr/0044-public-object-field-api-closure.md). Local tuple aliases are deferred.
+complete. Public-field API closure in [ADR-0044](adr/0044-public-object-field-api-closure.md) is
+complete. The current bounded milestone follows declared public return contracts in automatic
+API discovery, [ADR-0046](adr/0046-declared-public-return-api.md). Local tuple aliases are deferred.
 Other proposed tracks remain unaccepted.
 See [the audit and improvement plan](audit-2026-10-01.md) for current repository checks.
 
