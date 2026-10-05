@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import sys
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from hashlib import sha256
 from pathlib import Path
@@ -77,9 +79,33 @@ class AnalysisResult:
         )
 
 
+ANALYSIS_RECURSION_LIMIT = 10_000
+"""Python-level recursion depth during analysis.
+
+Resolvers and visitors recurse over expression and attribute chains. Since Python 3.12 pure-Python
+recursion does not consume the C stack, so a deeper limit is safe; the default of 1000 failed on
+long but legal chains. Deeper input still ends as a reported internal error, never a crash.
+"""
+
+
+@contextmanager
+def _deep_recursion() -> Iterator[None]:
+    previous = sys.getrecursionlimit()
+    sys.setrecursionlimit(max(previous, ANALYSIS_RECURSION_LIMIT))
+    try:
+        yield
+    finally:
+        sys.setrecursionlimit(previous)
+
+
 def analyze(scan_path: Path, config: Config) -> AnalysisResult:
     """Run one immutable, read-only analysis snapshot."""
 
+    with _deep_recursion():
+        return _analyze(scan_path, config)
+
+
+def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
     timings = StageTimings()
     started = perf_counter()
     collection = collect_sources(scan_path, timings=timings, exclude=config.exclude)

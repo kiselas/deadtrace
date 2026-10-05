@@ -17,6 +17,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ### Fixed
 
+- Analysis runs with a Python recursion limit of 10,000: a 3,000-link attribute chain exhausted the
+  default 1,000 on Python 3.14. JSON artifacts nested deeper than 200 levels are rejected the same way
+  on every interpreter (3.14's parser accepted 10,000 levels).
 - A source file whose expression nesting exceeds the parser's recursion limit raised an unhandled
   `RecursionError` and aborted the scan; it is now a `DT1001` for that file only.
 - A Python source file larger than 16 MiB is skipped with `DT1001` instead of being read whole; one

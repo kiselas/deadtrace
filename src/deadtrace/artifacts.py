@@ -58,7 +58,26 @@ def read_json_artifact(path: Path) -> dict[str, Any]:
         raise ArtifactError(f"cannot read artifact {path}: {error}") from error
     if not isinstance(payload, dict):
         raise ArtifactError(f"artifact {path} must contain a JSON object")
+    if _depth_exceeds(payload, MAX_JSON_DEPTH):
+        raise ArtifactError(f"cannot read artifact {path}: nesting deeper than {MAX_JSON_DEPTH}")
     return payload
+
+
+MAX_JSON_DEPTH = 200
+"""Deeper nesting is rejected on every interpreter; reports nest a few levels."""
+
+
+def _depth_exceeds(value: Any, limit: int) -> bool:
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if depth > limit:
+            return True
+        if isinstance(item, dict):
+            stack.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            stack.extend((child, depth + 1) for child in item)
+    return False
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
