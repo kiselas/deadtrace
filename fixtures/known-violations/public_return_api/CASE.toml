@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "public-return-api"
+description = "An exported factory exposes its declared returned object's public methods."
+
+[[targets]]
+path = "pkg/_objects.py"
+kind = "function"
+qualified_name = "Worker.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "pkg/_objects.py"
+kind = "function"
+qualified_name = "Worker._unused"
+expectation = "candidate"

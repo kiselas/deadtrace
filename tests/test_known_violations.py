@@ -18,8 +18,10 @@ import pytest
 
 from deadtrace.case_validator import unmet_targets
 
-KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
-"""Empty: public object field-chain case moved to corpus after the model-30 fix."""
+KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {
+    "public_return_api": ("pkg/_objects.py:Worker.run",),
+}
+"""Public factory return contract pinned before changing automatic API discovery."""
 
 
 def _cases_root(project_root: Path) -> Path:
