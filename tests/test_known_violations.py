@@ -18,10 +18,8 @@ import pytest
 
 from deadtrace.case_validator import unmet_targets
 
-KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {
-    "external_reflection_value": ("_tool.py:ProjectPath.check",),
-}
-"""Current false candidate for a stored reflected method of an external-type subclass."""
+KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
+"""Empty: external reflected-value case moved to corpus after the model-25 fix."""
 
 
 def _cases_root(project_root: Path) -> Path:

@@ -91,3 +91,7 @@ each other. Typo and link fixes are fine.
   edges (model revision 23). Accepted; resolves ADR-0032.
 - [ADR-0034](0034-finite-local-dispatch-names.md) — Propagate finite immutable local names for
   dynamic dispatch on known receivers (model revision 24). Accepted.
+- [ADR-0035](0035-external-reflection-provenance.md) — Pin a reflected method of an externally
+  annotated subclass. Accepted; resolved by ADR-0036.
+- [ADR-0036](0036-localize-external-value-reflection.md) — Preserve subclass and stand-in members
+  while localizing reflection on externally annotated values (model revision 25). Accepted.

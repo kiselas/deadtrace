@@ -19,6 +19,7 @@ from deadtrace.python_frontend import (
     conftest_directories,
     is_test_path,
 )
+from deadtrace.receiver_flow import EXTERNAL_RECEIVER, UNKNOWN_RECEIVER, ReceiverValue
 from deadtrace.scanner import SourceCollection, SourceUnit
 
 
@@ -377,3 +378,125 @@ def test_an_inherited_member_used_through_a_subclass_uses_the_subclass() -> None
     assert _state(program, world, "factories:ItemFactory") is not None
     assert _state(program, world, "factories:ItemFactory._create") is not None
     assert _state(program, world, "factories:OtherFactory") is None
+
+
+@pytest.mark.parametrize("annotation", ["Path", '"Path"'])
+@pytest.mark.parametrize("conditional_import", [False, True])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "getattr(value, name)()",
+        "alias = value\n    getattr(alias, name)()",
+        "callback = getattr(value, name)\n    callback()",
+        'callback = getattr(value, "check")\n    callback()',
+    ],
+)
+def test_external_annotation_reflection_protects_members_without_module_wide_guard(
+    annotation: str, conditional_import: bool, body: str
+) -> None:
+    imports = (
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from pathlib import Path\n"
+        if conditional_import
+        else "from pathlib import Path\n"
+    )
+    program = _program(
+        **{
+            "main.py": imports
+            + "from external import Bridge\n"
+            + "class Derived(Path):\n    def check(self): pass\n"
+            + "class Indirect(Bridge):\n    def run(self): pass\n"
+            + "class Plain:\n    def check(self): pass\n"
+            + "def _unused(): pass\n"
+            + f"def main(value: {annotation}, name):\n    {body}\n",
+            "tests/test_double.py": "class Double:\n    def check(self): pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+    for target in ("main:Derived.check", "main:Indirect.run", "main:Plain.check"):
+        assert _state(program, world, target) is not None
+    assert _state(program, world, "tests.test_double:Double.check") is not None
+    assert _state(program, world, "main:_unused") is None
+
+
+@pytest.mark.parametrize(
+    "imports,annotation,body",
+    [
+        ("from pathlib import Path", "Path", "value = unknown\n    getattr(value, name)()"),
+        (
+            "from pathlib import Path",
+            "Path",
+            "if name:\n        value = unknown\n    getattr(value, name)()",
+        ),
+        ("from pathlib import Path", "Path", "value = factory()\n    getattr(value, name)()"),
+        (
+            "from pathlib import Path",
+            "Path",
+            "alias = value\n    del alias\n    getattr(alias, name)()",
+        ),
+        (
+            "from pathlib import Path",
+            "Path",
+            "for value in unknown:\n        getattr(value, name)()",
+        ),
+        (
+            "from pathlib import Path",
+            "Path",
+            "with unknown as value:\n        getattr(value, name)()",
+        ),
+        ("from pathlib import Path", "Path", "value, other = unknown\n    getattr(value, name)()"),
+        (
+            "from pathlib import Path",
+            "Path",
+            "try:\n        value = unknown\n    finally:\n        getattr(value, name)()",
+        ),
+        ("from pathlib import Path", "Path", "(value := unknown)\n    getattr(value, name)()"),
+        ("from typing import Any", "Any", "getattr(value, name)()"),
+        ("from typing import Protocol", "Protocol", "getattr(value, name)()"),
+        ("from types import ModuleType", "ModuleType", "getattr(value, name)()"),
+        ("from pathlib import Path", "list[Path]", "getattr(value, name)()"),
+        ("from pathlib import Path", "Path | None", "getattr(value, name)()"),
+        ("from pathlib import Path", "unknown", "getattr(value, name)()"),
+        (
+            "if flag:\n    from pathlib import Path\nelse:\n    from external import Path",
+            "Path",
+            "getattr(value, name)()",
+        ),
+    ],
+)
+def test_external_reflection_unknown_origins_keep_the_whole_graph_guard(
+    imports: str, annotation: str, body: str
+) -> None:
+    program = _program(
+        **{
+            "main.py": imports
+            + "\nfrom external import factory\n"
+            + "def _possibly_attached(): pass\n"
+            + f"def main(value: {annotation}, name, unknown):\n    {body}\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:_possibly_attached") is not None
+
+
+def test_external_reflection_keeps_escaped_function_attributes_protected() -> None:
+    program = _program(
+        **{
+            "main.py": "from pathlib import Path\n"
+            "def _attached(): pass\n"
+            "def _unused(): pass\n"
+            "def main(value: Path, name):\n"
+            "    value.callback = _attached\n"
+            "    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:_attached") is not None
+    assert _state(program, world, "main:_unused") is None
+
+
+def test_external_annotation_provenance_joins_and_forgets_untyped_external_origins() -> None:
+    annotated = ReceiverValue(external=True, external_annotation=True)
+    assert annotated.join(annotated).external_annotation
+    assert annotated.join(ReceiverValue()).external_annotation
+    assert not annotated.join(EXTERNAL_RECEIVER).external_annotation
+    assert annotated.join(UNKNOWN_RECEIVER).unknown

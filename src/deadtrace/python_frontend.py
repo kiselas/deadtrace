@@ -1237,6 +1237,17 @@ class _ExecutionVisitor:
             for name, type_name in self.local_types.items()
         }
         self._receiver_values.update((name, EXTERNAL_RECEIVER) for name in self.external_locals)
+        if current is not None:
+            for parameter in current.parameters:
+                annotation = parameter.annotation
+                if (
+                    annotation is not None
+                    and parameter.name in self.external_locals
+                    and self._has_external_value_annotation(annotation)
+                ):
+                    self._receiver_values[parameter.name] = ReceiverValue(
+                        external=True, external_annotation=True
+                    )
         self._container_locals: set[str] = set()
         self._string_values: dict[str, StringValue] = {}
         # These constructs need expression/closure scope modeling before strong string updates.
@@ -1323,9 +1334,12 @@ class _ExecutionVisitor:
             else:
                 if isinstance(statement, (ast.Import, ast.ImportFrom)):
                     for alias in statement.names:
-                        self._string_values.pop(alias.asname or alias.name.split(".")[0], None)
+                        name = alias.asname or alias.name.split(".")[0]
+                        self._string_values.pop(name, None)
+                        self._forget_external_annotation(name)
                 elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                     self._string_values.pop(statement.name, None)
+                    self._forget_external_annotation(statement.name)
                 self._visit_nodes(flow_nodes((statement,)))
 
     def _receiver_state(self) -> ReceiverState:
@@ -1359,6 +1373,11 @@ class _ExecutionVisitor:
             self.local_types[name] = min(value.types)
         elif value.external and not (value.types or value.unknown):
             self.external_locals.add(name)
+
+    def _forget_external_annotation(self, name: str) -> None:
+        value = self._receiver_values.get(name)
+        if value is not None and value.external_annotation:
+            self._receiver_values[name] = ReceiverValue(value.types, value.unknown, value.external)
 
     def _revisit(self, statements: Iterable[ast.stmt]) -> None:
         # Expression references handled during an earlier loop pass must be evaluated again.
@@ -2468,6 +2487,59 @@ class _ExecutionVisitor:
                 self.external_locals.add(parameter.name)
         return result
 
+    def _has_external_value_annotation(self, annotation: ast.expr) -> bool:
+        """A simple imported external value type, under the existing annotation contract.
+
+        Generic, structural/opaque typing annotations, unions and module types cannot justify
+        restricting reflection to instance members. Alternative bindings must agree.
+        """
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            parsed = _parsed_annotation(annotation.value)
+            if parsed is None:
+                return False
+            annotation = parsed
+        if not isinstance(annotation, (ast.Name, ast.Attribute)):
+            return False
+        if not self.resolver.annotation_is_external(annotation, self.module):
+            return False
+        dotted = _dotted_name(annotation)
+        assert dotted is not None
+        head, _, rest = dotted.partition(".")
+        binding = self.module.imports[head]
+        bindings = self.module.import_alternatives.get(head, (binding,))
+        origins = {f"{item.target}.{rest}" if rest else item.target for item in bindings}
+        return len(origins) == 1 and all(
+            not origin.startswith(("typing.", "typing_extensions."))
+            and origin != "types.ModuleType"
+            and not self.resolver.in_project(origin)
+            for origin in origins
+        )
+
+    def _external_reflection_targets(self, receiver: ast.expr) -> tuple[NodeId, ...] | None:
+        """All project class members remain possible, including subclasses and stand-ins.
+
+        An external base may itself inherit another unscanned external base. Without dependency
+        source, matching its spelling to the parameter annotation is insufficient. Do not narrow
+        this set by ancestry or method name. Escaped callable values retain their own guards.
+        """
+        value = self._receiver_values.get(receiver.id) if isinstance(receiver, ast.Name) else None
+        if (
+            not self._track_strings
+            or value is None
+            or not value.external_annotation
+            or value.unknown
+            or value.types
+        ):
+            return None
+        return tuple(
+            sorted(
+                symbol.id
+                for symbol in self.resolver.symbols.values()
+                if symbol.owner is not None
+                and self.resolver.symbols[symbol.owner].kind is NodeKind.CLASS
+            )
+        )
+
     def _resolve_annotation(self, annotation: ast.expr) -> str | None:
         """The one project class an annotation names; ``A | B`` names no single class (ADR-0022)."""
 
@@ -2629,13 +2701,19 @@ class _ExecutionVisitor:
         """
 
         arguments = call_arguments(call)
-        if len(arguments) < 2 or isinstance(arguments[1].value, ast.Constant):
+        if len(arguments) < 2:
             return
         receiver = arguments[0].value
         if self._is_external_module(receiver):
             return
-        targets = self._receiver_methods(receiver) or self._module_members(receiver)
-        targets = self._named_like(targets, arguments[1].value)
+        external_targets = self._external_reflection_targets(receiver)
+        if external_targets is not None:
+            targets = external_targets
+        else:
+            if isinstance(arguments[1].value, ast.Constant):
+                return
+            targets = self._receiver_methods(receiver) or self._module_members(receiver)
+            targets = self._named_like(targets, arguments[1].value)
         if targets:
             self.boundaries.append(
                 UnknownBoundary(
@@ -2690,6 +2768,18 @@ class _ExecutionVisitor:
             receiver = arguments[0].value
             if self._is_external_module(receiver):
                 return  # an attribute of a module outside the project is not project code
+            external_targets = self._external_reflection_targets(receiver)
+            if external_targets is not None:
+                if external_targets:
+                    self.boundaries.append(
+                        UnknownBoundary(
+                            source=self.source,
+                            domain="dynamic_attribute_dispatch",
+                            reason="external value may supply a project subclass or stand-in",
+                            targets=external_targets,
+                        )
+                    )
+                return
             targets = self._receiver_methods(receiver) or ()
             if len(arguments) > 1:
                 names = self._string_value(arguments[1].value)

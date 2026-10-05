@@ -7,7 +7,9 @@ Reviewed during the 2026-10-01 repository audit. This inherited draft is a resea
 not an accepted milestone or implementation commitment. On 2026-10-05 the user approved replacing
 the inventory-only working milestone with the bounded receiver-flow milestone in
 [ADR-0033](adr/0033-receiver-control-flow.md), now completed. The user approved the next bounded
-finite-local-name milestone in [ADR-0034](adr/0034-finite-local-dispatch-names.md).
+finite-local-name milestone in [ADR-0034](adr/0034-finite-local-dispatch-names.md), now completed.
+The active approved milestone is external receiver reflection provenance in
+[ADR-0036](adr/0036-localize-external-value-reflection.md).
 Other proposed tracks remain unaccepted.
 See [the audit and improvement plan](audit-2026-10-01.md) for current repository checks.
 

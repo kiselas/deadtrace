@@ -10,12 +10,16 @@ class ReceiverValue:
     types: frozenset[str] = frozenset()
     unknown: bool = False
     external: bool = False
+    external_annotation: bool = False
 
     def join(self, other: ReceiverValue) -> ReceiverValue:
         return ReceiverValue(
             self.types | other.types,
             self.unknown or other.unknown,
             self.external or other.external,
+            (self.external or other.external)
+            and (not self.external or self.external_annotation)
+            and (not other.external or other.external_annotation),
         )
 
     @property
