@@ -883,11 +883,28 @@ def _project_ancestry(program: PythonProgram, class_symbol: PythonSymbol) -> lis
     return list(found.values())
 
 
+_UNITTEST_CASE_BASES = (
+    "unittest.TestCase",
+    "IsolatedAsyncioTestCase",
+    # Classes of widely used libraries that derive from unittest.TestCase; pytest collects their
+    # subclasses like any unittest case (ADR-0050).
+    "django.test.TestCase",
+    "django.test.SimpleTestCase",
+    "django.test.TransactionTestCase",
+    "django.test.LiveServerTestCase",
+    "django.contrib.staticfiles.testing.StaticLiveServerTestCase",
+    "rest_framework.test.APITestCase",
+    "rest_framework.test.APISimpleTestCase",
+    "rest_framework.test.APITransactionTestCase",
+    "rest_framework.test.APILiveServerTestCase",
+)
+
+
 def _is_unittest_case(program: PythonProgram, class_symbol: PythonSymbol) -> bool:
     module = program.modules[class_symbol.module]
     return any(
         follow_module_alias(program.modules, _expanded_name(module, base)).endswith(
-            ("unittest.TestCase", "IsolatedAsyncioTestCase")
+            _UNITTEST_CASE_BASES
         )
         for base in class_symbol.bases
     )

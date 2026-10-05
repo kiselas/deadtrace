@@ -17,6 +17,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ### Fixed
 
+- Model revision `python-fastapi-dishka/32` (ADR-0050): classes derived from Django and Django REST
+  framework test cases are collected as unittest cases; on a public held-out cohort they were the
+  largest class of false findings.
 - Analysis runs with a Python recursion limit of 10,000: a 3,000-link attribute chain exhausted the
   default 1,000 on Python 3.14. JSON artifacts nested deeper than 200 levels are rejected the same way
   on every interpreter (3.14's parser accepted 10,000 levels).
