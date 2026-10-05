@@ -780,3 +780,126 @@ def test_reexport_star_chain_longer_than_resolver_name_hint() -> None:
     world = _world(program, "main:main")
     assert _state(program, world, "worker:work") is ReachabilityKind.CONSERVATIVE
     assert _state(program, world, "worker:idle") is None
+
+
+@pytest.mark.parametrize("consumer", ["isinstance", "issubclass"])
+@pytest.mark.parametrize("classinfo", ["(First, Second)", "(First, (Second, int))"])
+def test_literal_classinfo_tuples_do_not_expose_ordinary_methods(
+    consumer: str, classinfo: str
+) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class First:\n    def idle(self): pass\n"
+                "class Second:\n    def idle(self): pass\n"
+                f"def main(value):\n    return {consumer}(value, {classinfo})\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    for owner in ("First", "Second"):
+        assert _state(program, world, f"main:{owner}") is not None
+        assert _state(program, world, f"main:{owner}.idle") is None
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "consume(value, (Checked,))",
+        "isinstance(value, [Checked])",
+        "isinstance(value, (*[Checked],))",
+        "isinstance(value, (make(Checked),))",
+    ],
+)
+def test_unmodeled_classinfo_consumers_retain_escape_protection(call: str) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "from external import consume, make\n"
+                "class Checked:\n    def idle(self): pass\n"
+                f"def main(value):\n    return {call}\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        "from external import isinstance\n",
+        "from external import factory\nisinstance = factory()\n",
+    ],
+)
+def test_shadowed_inspector_retains_tuple_escape_protection(binding: str) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                binding + "class Checked:\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_local_inspector_parameter_is_not_builtin_summary() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Checked:\n    def idle(self): pass\n"
+                "def main(value, isinstance):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_literal_inspection_retains_metaclass_check_and_its_calls() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "def hook(): pass\n"
+                "class Meta(type):\n    def __instancecheck__(cls, value):\n"
+                "        hook()\n        return True\n"
+                "class Checked(metaclass=Meta):\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Meta.__instancecheck__") is not None
+    assert _state(program, world, "main:hook") is not None
+    assert _state(program, world, "main:Checked.idle") is None
+
+
+def test_external_star_import_cannot_prove_builtin_inspector() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "from external import *\n"
+                "class Checked:\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_enclosing_parameter_cannot_prove_builtin_inspector() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Checked:\n    def idle(self): pass\n"
+                "def main(isinstance, value):\n"
+                "    def inner():\n        return isinstance(value, (Checked,))\n"
+                "    return inner()\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None

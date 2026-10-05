@@ -105,3 +105,5 @@ each other. Typo and link fixes are fine.
   imported callable alias before fixing it. Accepted.
 - [ADR-0041](0041-reflected-module-export-graph.md) — Follow reflected exported names through
   project import and star-re-export chains (model revision 28). Accepted; resolves ADR-0040.
+- [ADR-0042](0042-literal-classinfo-consumer-summary.md) — Distinguish nested literal class-info
+  tuples consumed by inspecting builtins from arbitrary escaped class registries (revision 29).

@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "inspection-classinfo-tuple"
+description = "Nested literal class-info tuples inspect classes without exposing ordinary methods."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Checked.idle"
+expectation = "candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Escaped.run"
+expectation = "not_candidate"

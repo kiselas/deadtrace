@@ -12,8 +12,9 @@ External receiver reflection provenance in [ADR-0036](adr/0036-localize-external
 is complete. Standard nominal families in
 [ADR-0037](adr/0037-standard-nominal-reflection-families.md) are complete. The stored-literal
 milestone in [ADR-0039](adr/0039-preserve-stored-literal-callables.md) is complete.
-The current bounded milestone follows reflected module re-exports in
-[ADR-0041](adr/0041-reflected-module-export-graph.md).
+Reflected module re-exports in [ADR-0041](adr/0041-reflected-module-export-graph.md) are complete.
+The current bounded milestone summarizes literal class-info tuples consumed by inspecting builtins
+in [ADR-0042](adr/0042-literal-classinfo-consumer-summary.md).
 Other proposed tracks remain unaccepted.
 See [the audit and improvement plan](audit-2026-10-01.md) for current repository checks.
 

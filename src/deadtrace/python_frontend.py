@@ -569,6 +569,14 @@ class _Resolver:
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
+        self._modules_with_star_imports = frozenset(
+            module.name
+            for module in modules.values()
+            if any(
+                isinstance(part, ast.ImportFrom) and any(alias.name == "*" for alias in part.names)
+                for part in ast.walk(module.tree)
+            )
+        )
         self._nominal_rebindings = {
             module.name: frozenset(
                 name
@@ -2901,6 +2909,35 @@ class _ExecutionVisitor:
             and call.func.id not in self._local_imports
         ):
             consumer = None  # an unresolved local callable is not a builtin of that name
+        if (
+            consumer in INSPECTING_CONSUMERS
+            and isinstance(call.func, ast.Name)
+            and call.func.id not in self.resolver.top_level_bindings(self.module)
+            and call.func.id not in self.resolver._nominal_rebindings[self.module.name]
+            and self.module.name not in self.resolver._modules_with_star_imports
+            and not any(
+                scope.kind is NodeKind.FUNCTION and call.func.id in self.resolver.local_names(scope)
+                for scope in self.resolver._scopes(self.current)
+            )
+            and len(call.args) == 2
+            and not call.keywords
+            and isinstance(call.args[1], ast.Tuple)
+        ):
+            # Class-info tuples are inspected, not arbitrary callback registries.
+            pending: list[ast.expr] = [call.args[1]]
+            while pending:
+                item = pending.pop()
+                if isinstance(item, ast.Tuple):
+                    pending.extend(item.elts)
+                elif isinstance(item, (ast.Name, ast.Attribute)):
+                    inspected = self._resolve(item)
+                    if inspected is not None and inspected.kind is NodeKind.CLASS:
+                        self.mark_references(item)
+                        escaped.add(inspected.id)
+                        escaped.update(
+                            alternative.id
+                            for alternative in self._alternative_targets(item, inspected)
+                        )
         for argument in call_arguments(call):
             if _consumer_calls_instance_methods(consumer) and not (
                 self._stores_in_container(call.func)
