@@ -60,3 +60,8 @@ unused controls. Local verification: Ruff check/format, Windows and Linux-target
 379 passing tests with 93.00% branch coverage, both case validators (114 corpus cases,
 403 targets), offline isolated build and outside-checkout wheel smoke. Two skips are Windows
 symlink privileges and the empty known-violation parameter set. Runtime Linux CI remains pending.
+
+The [package comparison](../receiver-flow-results-2026-10-05.md) records zero changed findings
+on five development packages and a five-package holdout subset. Synthetic hits decrease by two
+because newly tracked receiver alternatives expose instances to unresolved consumers. This
+milestone establishes the safety fix, not a claim of improved market precision or recall.
