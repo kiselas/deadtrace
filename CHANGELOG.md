@@ -19,6 +19,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 - A source file whose expression nesting exceeds the parser's recursion limit raised an unhandled
   `RecursionError` and aborted the scan; it is now a `DT1001` for that file only.
+- A Python source file larger than 16 MiB is skipped with `DT1001` instead of being read whole; one
+  18 MB generated file used to take two minutes.
 - The `DT1001` syntax-error message says that syntax newer than the interpreter running Deadtrace is
   reported the same way.
 

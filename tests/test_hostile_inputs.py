@@ -109,3 +109,16 @@ def test_missing_path_is_an_operational_error(tmp_path: Path) -> None:
     result = runner.invoke(app, ["scan", str(tmp_path / "absent")])
 
     assert result.exit_code == 2
+
+
+def test_source_file_over_the_input_limit_is_skipped_with_dt1001(tmp_path: Path) -> None:
+    (tmp_path / "ok.py").write_text("def f():\n    pass\n", encoding="utf-8")
+    with (tmp_path / "huge.py").open("wb") as stream:
+        stream.truncate(16 * 1024 * 1024 + 1)
+
+    result = runner.invoke(app, ["scan", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 2
+    assert "huge.py" in result.stderr
+    assert "DT1001" in result.stderr
+    assert "too large" in result.stderr

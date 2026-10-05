@@ -11,6 +11,7 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 from deadtrace.config import Config
 from deadtrace.inventory import ParsedSource, inventory_source, parse_source
 from deadtrace.model import Definition, InventoryReport, ScanIssue
@@ -112,7 +113,7 @@ def _collect_source_attempt(
                 units.append(SourceUnit(relative, file_path, source, digest))
                 signatures[file_path] = f"ok:{digest}"
                 timings.count("collect.characters", len(source))
-            except (OSError, UnicodeError, SyntaxError, LookupError) as error:
+            except (OSError, UnicodeError, SyntaxError, LookupError, InputTooLargeError) as error:
                 message = _single_line(error)
                 issues.append(ScanIssue(code="DT1001", path=relative, message=message))
                 signatures[file_path] = f"error:{type(error).__name__}:{message}"
@@ -141,7 +142,13 @@ def _collect_source_attempt(
                 try:
                     _source, digest = _read_python_source(file_path)
                     signature = f"ok:{digest}"
-                except (OSError, UnicodeError, SyntaxError, LookupError) as error:
+                except (
+                    OSError,
+                    UnicodeError,
+                    SyntaxError,
+                    LookupError,
+                    InputTooLargeError,
+                ) as error:
                     message = _single_line(error)
                     signature = f"error:{type(error).__name__}:{message}"
                 if signatures[file_path] != signature:
@@ -360,7 +367,7 @@ def _read_python_source(path: Path) -> tuple[str, str]:
 
     for attempt in range(2):
         before = path.stat()
-        data = path.read_bytes()
+        data = read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES)
         after = path.stat()
         stable = (before.st_size, before.st_mtime_ns) == (after.st_size, after.st_mtime_ns)
         if stable:
