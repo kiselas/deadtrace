@@ -103,3 +103,5 @@ each other. Typo and link fixes are fine.
   by stored literal getattr (model revision 27). Accepted; resolves ADR-0038.
 - [ADR-0040](0040-reflected-reexport-violation.md) — Pin unsafe stored reflection through an
   imported callable alias before fixing it. Accepted.
+- [ADR-0041](0041-reflected-module-export-graph.md) — Follow reflected exported names through
+  project import and star-re-export chains (model revision 28). Accepted; resolves ADR-0040.

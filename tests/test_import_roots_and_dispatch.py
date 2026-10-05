@@ -707,3 +707,76 @@ def test_partial_keyword_override_retains_broad_dispatch_protection() -> None:
     )
     world = _world(program, "main:main")
     assert _state(program, world, "main:Worker.other") is not None
+
+
+@pytest.mark.parametrize("name", ["'run'", "name"])
+@pytest.mark.parametrize(
+    "exports",
+    [
+        {"api.py": "from worker import work as run\n"},
+        {
+            "api.py": "from bridge import relay as run\n",
+            "bridge.py": "from worker import work as relay\n",
+        },
+        {"api.py": "from bridge import *\n", "bridge.py": "from worker import work as run\n"},
+        {
+            "api.py": "from bridge import *\n",
+            "bridge.py": "from api import *\nfrom worker import work as run\n",
+        },
+    ],
+)
+def test_stored_getattr_follows_exported_names_through_imports(
+    name: str, exports: dict[str, str]
+) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import api\ndef main(name):\n"
+                f"    callback = getattr(api, {name})\n    callback()\n"
+            ),
+            "worker.py": "def work(): pass\ndef idle(): pass\n",
+            **exports,
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:work") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+def test_reflected_conditional_reexports_retain_both_callables() -> None:
+    program = _program(
+        **{
+            "main.py": """import api
+def main():
+    callback = getattr(api, 'run')
+    callback()
+""",
+            "api.py": (
+                "import os\nif os.environ.get('CHOICE'):\n    from worker import first as run\n"
+                "else:\n    from worker import second as run\nfrom worker import idle\n"
+            ),
+            "worker.py": "def first(): pass\ndef second(): pass\ndef idle(): pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:first") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:second") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+def test_reexport_star_chain_longer_than_resolver_name_hint() -> None:
+    exports = {f"layer{i}.py": f"from layer{i + 1} import *\n" for i in range(5)}
+    exports["layer5.py"] = "from worker import work as run\n"
+    program = _program(
+        **{
+            "main.py": (
+                "import layer0\ndef main():\n"
+                "    callback = getattr(layer0, 'run')\n    callback()\n"
+            ),
+            "worker.py": "def work(): pass\ndef idle(): pass\n",
+            **exports,
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:work") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None

@@ -10,9 +10,10 @@ the inventory-only working milestone with the bounded receiver-flow milestone in
 finite-local-name milestone in [ADR-0034](adr/0034-finite-local-dispatch-names.md), now completed.
 External receiver reflection provenance in [ADR-0036](adr/0036-localize-external-value-reflection.md)
 is complete. Standard nominal families in
-[ADR-0037](adr/0037-standard-nominal-reflection-families.md) are complete. The current bounded
-milestone preserves stored literal reflection in
-[ADR-0039](adr/0039-preserve-stored-literal-callables.md).
+[ADR-0037](adr/0037-standard-nominal-reflection-families.md) are complete. The stored-literal
+milestone in [ADR-0039](adr/0039-preserve-stored-literal-callables.md) is complete.
+The current bounded milestone follows reflected module re-exports in
+[ADR-0041](adr/0041-reflected-module-export-graph.md).
 Other proposed tracks remain unaccepted.
 See [the audit and improvement plan](audit-2026-10-01.md) for current repository checks.
 

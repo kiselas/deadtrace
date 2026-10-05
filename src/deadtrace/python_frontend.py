@@ -2739,8 +2739,12 @@ class _ExecutionVisitor:
             )
         )
 
-    def _module_members(self, receiver: ast.expr) -> tuple[NodeId, ...]:
-        """Top-level functions and classes of the project module ``receiver`` names."""
+    def _module_members(self, receiver: ast.expr, name: ast.expr) -> tuple[NodeId, ...]:
+        """Selected definitions and imported callable aliases of a project module.
+
+        Select names in each exporting namespace before traversing its import bindings;
+        an exported ``run`` can name a definition called ``work`` in another module.
+        """
 
         if not isinstance(receiver, ast.Name):
             return ()
@@ -2748,7 +2752,39 @@ class _ExecutionVisitor:
         module = self.resolver.modules.get(binding.target) if binding is not None else None
         if module is None:
             return ()
-        return tuple(sorted(symbol.id for symbol in module.symbols if symbol.owner is None))
+        value = self._string_value(name)
+        selection = None if value.unknown else value.names
+        pending: list[tuple[str, frozenset[str] | None]] = [(module.name, selection)]
+        seen: set[tuple[str, frozenset[str] | None]] = set()
+        targets: set[NodeId] = set()
+        while pending:
+            module_name, selected = pending.pop()
+            key = (module_name, selected)
+            if key in seen:
+                continue
+            seen.add(key)
+            owner = self.resolver.modules.get(module_name)
+            if owner is None:
+                continue
+            direct = tuple(
+                symbol.id
+                for symbol in owner.symbols
+                if symbol.owner is None and (selected is None or symbol.name in selected)
+            )
+            if owner is module and selected is None:
+                direct = self._named_like(direct, name)
+            targets.update(direct)
+            for local, imported in owner.imports.items():
+                if selected is not None and local not in selected:
+                    continue
+                for alternative in owner.import_alternatives.get(local, (imported,)):
+                    full_name = alternative.target
+                    targets.update(symbol.id for symbol in self.resolver.index.named(full_name))
+                    parent, _, attribute = full_name.rpartition(".")
+                    if parent in self.resolver.modules:
+                        pending.append((parent, frozenset({attribute})))
+            pending.extend((base, selected) for base in owner.star_imports)
+        return tuple(sorted(targets))
 
     def _record_getattr_value(self, call: ast.Call) -> None:
         """``getattr(core, name)`` may return a callable that is invoked later.
@@ -2768,8 +2804,11 @@ class _ExecutionVisitor:
         if external_targets is not None:
             targets = external_targets
         else:
-            targets = self._receiver_methods(receiver) or self._module_members(receiver)
-            targets = self._named_like(targets, arguments[1].value)
+            targets = self._receiver_methods(receiver) or ()
+            if targets:
+                targets = self._named_like(targets, arguments[1].value)
+            else:
+                targets = self._module_members(receiver, arguments[1].value)
         if targets:
             self.boundaries.append(
                 UnknownBoundary(

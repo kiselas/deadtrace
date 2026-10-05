@@ -18,10 +18,8 @@ import pytest
 
 from deadtrace.case_validator import unmet_targets
 
-KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {
-    "reflected_reexport": ("worker.py:work",),
-}
-"""Imported alias reflection is pinned before its semantic fix."""
+KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
+"""Empty: imported alias reflection moved to corpus after the model-28 fix."""
 
 
 def _cases_root(project_root: Path) -> Path:
