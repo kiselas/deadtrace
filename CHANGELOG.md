@@ -5,6 +5,25 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+### Added
+
+- Python 3.13 and 3.14 are supported runtimes; CI runs the tests and the installed-wheel smoke on
+  3.12, 3.13, and 3.14. Reports of the 123 corpus projects are byte-identical between 3.12 and 3.13.
+- `--debug` (or `DEADTRACE_DEBUG=1`) shows the traceback of an internal error. Without it an
+  unexpected exception ends as one line, `DT0001`, with exit code 2, instead of a traceback.
+- Tests that feed hostile inputs (deeply nested expressions, NUL bytes, invalid encodings, broken
+  configuration and lock files, huge lines, cyclic star imports) to `scan`, `doctor`, and
+  `support-bundle`.
+
+### Fixed
+
+- A source file whose expression nesting exceeds the parser's recursion limit raised an unhandled
+  `RecursionError` and aborted the scan; it is now a `DT1001` for that file only.
+- The `DT1001` syntax-error message says that syntax newer than the interpreter running Deadtrace is
+  reported the same way.
+
+## 0.1.0a1 - 2026-10-05
+
 ## 0.1.0a1 - 2026-10-05
 
 First public alpha for Python 3.12. Scanner model `python-fastapi-dishka/31`; inventory schema 0,

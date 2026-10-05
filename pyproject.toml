@@ -7,7 +7,7 @@ name = "deadtrace"
 version = "0.1.0a1"
 description = "Explainable, framework-aware dead-code analysis"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 license = "Apache-2.0"
 authors = [
   { name = "Aleksandr Kisel" },
@@ -20,6 +20,8 @@ classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
@@ -36,7 +38,7 @@ Repository = "https://github.com/kiselas/deadtrace"
 Issues = "https://github.com/kiselas/deadtrace/issues"
 
 [project.scripts]
-deadtrace = "deadtrace.cli:app"
+deadtrace = "deadtrace.cli:run"
 
 [dependency-groups]
 dev = [

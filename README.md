@@ -55,7 +55,9 @@ boundaries protect most code, the report names the widest ones and where they ar
 
 ## Install
 
-Deadtrace requires Python 3.12. With [uv](https://docs.astral.sh/uv/):
+Deadtrace runs on CPython 3.12, 3.13, and 3.14. It never imports the project it scans, so the
+interpreter that runs it only needs to be new enough to parse that project's syntax (a file with newer
+syntax is reported as `DT1001`). With [uv](https://docs.astral.sh/uv/):
 
 ```console
 uv tool install --python 3.12 "deadtrace==0.1.0a1"
