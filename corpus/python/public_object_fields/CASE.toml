@@ -2,6 +2,12 @@ schema_version = 1
 case_id = "public-object-fields"
 description = "A library's exported object exposes methods through public typed field chains."
 
+[analysis]
+complete = true
+worlds = ["production:library"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
 [[targets]]
 path = "pkg/_objects.py"
 kind = "function"

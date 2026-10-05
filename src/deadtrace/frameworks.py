@@ -366,7 +366,7 @@ def build_framework_model(
             FrameworkCapability("django.migrations-runpython", 2, "modeled"),
             FrameworkCapability("python.project-entry-points", 2, "modeled"),
             FrameworkCapability("python.script-roots", 1, "modeled"),
-            FrameworkCapability("python.library-roots", 1, "modeled"),
+            FrameworkCapability("python.library-roots", 2, "modeled"),
             FrameworkCapability("frameworks.application-roots", 1, "guarded"),
             FrameworkCapability("celery.autodiscover-tasks", 1, "guarded"),
             FrameworkCapability("django.installed-apps", 2, "modeled"),
@@ -2091,6 +2091,7 @@ def _library_world(state: _BuildState, packages: set[str] | None = None) -> tupl
     """
 
     program = state.program
+    public_values = _public_field_classes(program)
     roots: dict[str, None] = {}
     for name, module in sorted(program.modules.items()):
         if _is_non_library_module(module) or any(part.startswith("_") for part in name.split(".")):
@@ -2133,6 +2134,7 @@ def _library_world(state: _BuildState, packages: set[str] | None = None) -> tupl
                     for member in program.index.members(symbol.id)
                     if not member.name.startswith("_")
                 )
+                api.extend(public_values.get(symbol.id, ()))
     for root in roots:
         state.auto_provenance[("library", root)] = ("library_public_api", root)
     return (WorldConfig("production", "library", tuple(roots), ("python",)),) if roots else ()
@@ -2147,6 +2149,7 @@ def _export_world(state: _BuildState) -> tuple[WorldConfig, ...]:
     """
 
     program = state.program
+    public_values = _public_field_classes(program)
     api: list[PythonSymbol] = []
     for name, module in sorted(program.modules.items()):
         if "." in name or not module.path.endswith("__init__.py") or _is_test_module(module):
@@ -2181,9 +2184,33 @@ def _export_world(state: _BuildState) -> tuple[WorldConfig, ...]:
                 for member in program.index.members(symbol.id)
                 if not member.name.startswith("_")
             )
+            api.extend(public_values.get(symbol.id, ()))
     for root in roots:
         state.auto_provenance[("exports", root)] = ("package_exports", root)
     return (WorldConfig("production", "exports", tuple(roots), ("python",)),) if roots else ()
+
+
+def _public_field_classes(program: PythonProgram) -> dict[NodeId, list[PythonSymbol]]:
+    """Source-known public field types and project bases of exposed API classes.
+
+    Consumers of an API instance may call public methods on objects obtained through its
+    public fields. Private fields and unknown inferred types contribute no new roots here.
+    """
+    result: defaultdict[NodeId, list[PythonSymbol]] = defaultdict(list)
+    for (owner, name), type_name in sorted(program.class_field_types.items()):
+        if name.startswith("_"):
+            continue
+        source = program.resolve_symbol(owner)
+        target = program.resolve_symbol(type_name)
+        if source is not None and target is not None and target.kind is NodeKind.CLASS:
+            result[source.id].append(target)
+    for edge in program.graph.edges:
+        if edge.kind is not EdgeKind.INHERIT:
+            continue
+        target = program.symbols.get(edge.target)
+        if target is not None and target.kind is NodeKind.CLASS:
+            result[edge.source].append(target)
+    return dict(result)
 
 
 def _is_test_module(module: PythonModule) -> bool:

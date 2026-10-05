@@ -18,10 +18,8 @@ import pytest
 
 from deadtrace.case_validator import unmet_targets
 
-KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {
-    "public_object_fields": ("pkg/_objects.py:Trace.setwriter",),
-}
-"""Public object field-chain violation pinned before its semantic fix."""
+KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
+"""Empty: public object field-chain case moved to corpus after the model-30 fix."""
 
 
 def _cases_root(project_root: Path) -> Path:

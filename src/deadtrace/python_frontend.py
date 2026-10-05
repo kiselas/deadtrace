@@ -327,6 +327,8 @@ class PythonProgram:
     limitations: tuple[PythonLimitation, ...]
     index: SymbolIndex = field(repr=False, compare=False)
     """Index over ``symbols``, which is complete and never changes once the program is built."""
+    class_field_types: dict[tuple[str, str], str] = field(repr=False, compare=False)
+    """Existing source-inferred field types, shared with automatic public API discovery."""
     _through_imports: dict[str, PythonSymbol | None] = field(
         default_factory=dict, repr=False, compare=False
     )
@@ -491,6 +493,7 @@ def build_python_program(
             symbols=symbols,
             limitations=tuple(sorted(set(limitations), key=_limitation_sort_key)),
             index=index,
+            class_field_types=class_fields,
         )
     timings.count("frontend.edges", len(graph.edges))
     timings.count("frontend.boundaries", len(graph.boundaries))

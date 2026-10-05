@@ -56,6 +56,113 @@ def _module(source: str) -> PythonModule:
     return _program(**{"module.py": source}).modules["module"]
 
 
+def _public_objects_sources(
+    field: str = "self.trace: Wrapper = Wrapper(Trace())",
+) -> dict[str, str]:
+    return {
+        "pkg/__init__.py": "from ._api import Manager as Manager\n",
+        "pkg/_api.py": (
+            "from typing import Final\nfrom ._objects import Trace, Wrapper\n"
+            f"class Manager:\n    def __init__(self):\n        {field}\n"
+        ),
+        "pkg/_objects.py": (
+            "class Trace:\n    def setwriter(self, writer): pass\n"
+            "    def _unused(self): pass\n"
+            "class Wrapper:\n    def __init__(self, root: Trace):\n        self.root = root\n"
+            "class Unrelated:\n    def configure(self): pass\n"
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "self.trace: Wrapper = Wrapper(Trace())",
+        "self.trace: Final[Wrapper] = factory()",
+        "self.trace: 'Wrapper' = factory()",
+    ],
+)
+def test_library_public_field_chain_exposes_methods(field: str) -> None:
+    program, model = _model(**_public_objects_sources(field))
+    plan = _plan(model, "production:library")
+    exposed = program.resolve_symbol("pkg._objects:Trace.setwriter")
+    private = program.resolve_symbol("pkg._objects:Trace._unused")
+    unrelated = program.resolve_symbol("pkg._objects:Unrelated.configure")
+    assert exposed is not None and exposed.id in plan.roots
+    assert private is not None and private.id not in plan.roots
+    assert unrelated is not None and unrelated.id not in plan.roots
+    world = solve(model.graph, model.plans).world(plan.id)
+    assert world.state_of(exposed.id) is not None
+    assert world.state_of(private.id) is None
+    assert world.state_of(unrelated.id) is None
+
+
+def test_private_fields_do_not_expose_another_objects_api() -> None:
+    program, model = _model(**_public_objects_sources("self._trace: Wrapper = factory()"))
+    symbol = program.resolve_symbol("pkg._objects:Trace.setwriter")
+    assert symbol is not None
+    world = solve(model.graph, model.plans).world(WorldId("production", "library"))
+    assert world.state_of(symbol.id) is None
+
+
+def test_explicit_script_roots_do_not_expand_public_object_api() -> None:
+    sources = _public_objects_sources()
+    sources["main.py"] = "from pkg import Manager\ndef main():\n    return Manager()\n"
+    program = _program(**sources)
+    model = build_framework_model(
+        program, Config(worlds=(WorldConfig("production", "script", ("main:main",), ("python",)),))
+    )
+    symbol = program.resolve_symbol("pkg._objects:Trace.setwriter")
+    assert symbol is not None
+    world = solve(model.graph, model.plans).world(WorldId("production", "script"))
+    assert world.state_of(symbol.id) is None
+
+
+def test_export_world_expands_public_fields_next_to_framework_application() -> None:
+    sources = _public_objects_sources()
+    sources["main.py"] = "from fastapi import FastAPI\napp = FastAPI()\n"
+    program, model = _model(**sources)
+    plan = _plan(model, "production:exports")
+    exposed = program.resolve_symbol("pkg._objects:Trace.setwriter")
+    assert exposed is not None and exposed.id in plan.roots
+
+
+def test_private_project_base_exposes_inherited_public_methods_and_fields() -> None:
+    sources = _public_objects_sources()
+    sources["pkg/_api.py"] = (
+        "from ._objects import Wrapper, Trace\n"
+        "class Base:\n    def __init__(self):\n        self.trace: Wrapper = Wrapper(Trace())\n"
+        "    def configure(self): pass\n    def _private(self): pass\n"
+        "class Manager(Base): pass\n"
+    )
+    program, model = _model(**sources)
+    plan = _plan(model, "production:library")
+    for name in ("pkg._api:Base.configure", "pkg._objects:Trace.setwriter"):
+        symbol = program.resolve_symbol(name)
+        assert symbol is not None and symbol.id in plan.roots
+    private = program.resolve_symbol("pkg._api:Base._private")
+    assert private is not None
+    assert solve(model.graph, model.plans).world(plan.id).state_of(private.id) is None
+
+
+def test_cyclic_public_field_types_terminate_and_keep_both_apis() -> None:
+    program, model = _model(
+        **{
+            "pkg/__init__.py": "from ._objects import First as First\n",
+            "pkg/_objects.py": (
+                "class First:\n    def __init__(self):\n        self.peer: 'Second' = factory()\n"
+                "    def one(self): pass\n"
+                "class Second:\n    def __init__(self):\n        self.peer: First = factory()\n"
+                "    def two(self): pass\n"
+            ),
+        }
+    )
+    plan = _plan(model, "production:library")
+    for name in ("pkg._objects:First.one", "pkg._objects:Second.two"):
+        symbol = program.resolve_symbol(name)
+        assert symbol is not None and symbol.id in plan.roots
+
+
 def _plan(model: FrameworkModel, key: str) -> WorldPlan:
     return next(plan for plan in model.plans if plan.id.key == key)
 

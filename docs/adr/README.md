@@ -109,3 +109,5 @@ each other. Typo and link fixes are fine.
   tuples consumed by inspecting builtins from arbitrary escaped class registries (revision 29).
 - [ADR-0043](0043-public-object-field-violation.md) — Pin externally callable methods exposed
   through an exported object's public field chain before fixing API closure.
+- [ADR-0044](0044-public-object-field-api-closure.md) — Follow source-known public object fields
+  and project bases in automatic library/export API discovery (revision 30); resolves ADR-0043.

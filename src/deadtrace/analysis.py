@@ -31,7 +31,7 @@ from deadtrace.target_environment import (
 )
 from deadtrace.timing import StageTimings
 
-MODEL_REVISION = "python-fastapi-dishka/29"
+MODEL_REVISION = "python-fastapi-dishka/30"
 
 
 @dataclass(frozen=True, slots=True)
