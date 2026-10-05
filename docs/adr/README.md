@@ -89,3 +89,5 @@ each other. Typo and link fixes are fine.
   violations. Accepted; resolved by ADR-0033.
 - [ADR-0033](0033-receiver-control-flow.md) — Join receiver types across branches and loop back
   edges (model revision 23). Accepted; resolves ADR-0032.
+- [ADR-0034](0034-finite-local-dispatch-names.md) — Propagate finite immutable local names for
+  dynamic dispatch on known receivers (model revision 24). Accepted.

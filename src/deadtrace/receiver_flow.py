@@ -27,11 +27,26 @@ UNKNOWN_RECEIVER = ReceiverValue(unknown=True)
 EXTERNAL_RECEIVER = ReceiverValue(external=True)
 
 
+@dataclass(frozen=True)
+class StringValue:
+    """A bounded set of immutable strings, or an explicitly unknown value."""
+
+    names: frozenset[str] = frozenset()
+    unknown: bool = True
+
+    def join(self, other: StringValue) -> StringValue:
+        names = self.names | other.names
+        if self.unknown or other.unknown or len(names) > 32:
+            return StringValue()
+        return StringValue(names, unknown=False)
+
+
 @dataclass
 class ReceiverState:
     values: dict[str, ReceiverValue] = field(default_factory=dict)
     containers: set[str] = field(default_factory=set)
     dynamic_modules: set[str] = field(default_factory=set)
+    strings: dict[str, StringValue] = field(default_factory=dict)
 
     def join(self, other: ReceiverState) -> ReceiverState:
         return ReceiverState(
@@ -43,4 +58,10 @@ class ReceiverState:
             },
             self.containers & other.containers,
             self.dynamic_modules | other.dynamic_modules,
+            {
+                name: self.strings.get(name, StringValue()).join(
+                    other.strings.get(name, StringValue())
+                )
+                for name in self.strings.keys() | other.strings.keys()
+            },
         )

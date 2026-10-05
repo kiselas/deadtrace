@@ -41,6 +41,7 @@ from deadtrace.receiver_flow import (
     UNKNOWN_RECEIVER,
     ReceiverState,
     ReceiverValue,
+    StringValue,
 )
 from deadtrace.scanner import ParsedCollection, SourceCollection, SourceUnit
 from deadtrace.timing import StageTimings
@@ -1237,6 +1238,16 @@ class _ExecutionVisitor:
         }
         self._receiver_values.update((name, EXTERNAL_RECEIVER) for name in self.external_locals)
         self._container_locals: set[str] = set()
+        self._string_values: dict[str, StringValue] = {}
+        # These constructs need expression/closure scope modeling before strong string updates.
+        self._track_strings = (
+            current is not None
+            and isinstance(current.node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and not any(
+                isinstance(node, (ast.NamedExpr, ast.Global, ast.Nonlocal, ast.comprehension))
+                for node in ast.walk(current.node)
+            )
+        )
         self._container_attributes = _container_attributes(resolver, current)
         self._handled: set[int] = set()
         self._escaped: set[NodeId] = set()
@@ -1310,11 +1321,19 @@ class _ExecutionVisitor:
                     merged = merged.join(self._receiver_state())
                 self._restore_receiver_state(merged)
             else:
+                if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                    for alias in statement.names:
+                        self._string_values.pop(alias.asname or alias.name.split(".")[0], None)
+                elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    self._string_values.pop(statement.name, None)
                 self._visit_nodes(flow_nodes((statement,)))
 
     def _receiver_state(self) -> ReceiverState:
         return ReceiverState(
-            dict(self._receiver_values), set(self._container_locals), set(self._dynamic_modules)
+            dict(self._receiver_values),
+            set(self._container_locals),
+            set(self._dynamic_modules),
+            dict(self._string_values),
         )
 
     def _restore_receiver_state(self, state: ReceiverState) -> None:
@@ -1329,8 +1348,10 @@ class _ExecutionVisitor:
         }
         self._container_locals = set(state.containers)
         self._dynamic_modules = set(state.dynamic_modules)
+        self._string_values = dict(state.strings)
 
     def _set_receiver(self, name: str, value: ReceiverValue) -> None:
+        self._string_values.pop(name, None)
         self._receiver_values[name] = value
         self.local_types.pop(name, None)
         self.external_locals.discard(name)
@@ -1397,6 +1418,7 @@ class _ExecutionVisitor:
                 exceptional.values[part.id] = exceptional.values.get(
                     part.id, UNKNOWN_RECEIVER
                 ).join(UNKNOWN_RECEIVER)
+                exceptional.strings.pop(part.id, None)
         self.visit_statements(node.orelse)
         merged = self._receiver_state()
         for handler in node.handlers:
@@ -2342,6 +2364,7 @@ class _ExecutionVisitor:
                 self._set_receiver(target.id, EXTERNAL_RECEIVER)
 
     def _visit_assign(self, node: ast.Assign) -> None:
+        string_value = self._string_value(node.value)
         if (
             isinstance(node.value, ast.Call)
             and self._external_name(node.value.func) in DYNAMIC_IMPORTS
@@ -2365,6 +2388,8 @@ class _ExecutionVisitor:
             else:
                 self._container_locals.discard(target.id)
             self._set_receiver(target.id, value)
+            if self._track_strings:
+                self._string_values[target.id] = string_value
             self._dynamic_modules.discard(target.id)
 
     def _visit_named_expression(self, node: ast.NamedExpr) -> None:
@@ -2373,6 +2398,7 @@ class _ExecutionVisitor:
         self._container_locals.discard(node.target.id)
 
     def _visit_ann_assign(self, node: ast.AnnAssign) -> None:
+        string_value = self._string_value(node.value) if node.value is not None else StringValue()
         calls = _outermost_calls(node.annotation) if self._evaluates_annotations else []
         inside_calls = {id(part) for call in calls for part in ast.walk(call)}
         for part in ast.walk(node.annotation):
@@ -2408,6 +2434,19 @@ class _ExecutionVisitor:
                 self._set_receiver(node.target.id, ReceiverValue(frozenset({inferred})))
             else:
                 self._set_receiver(node.target.id, value)
+            if self._track_strings and node.value is not None:
+                self._string_values[node.target.id] = string_value
+
+    def _string_value(self, expression: ast.expr) -> StringValue:
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            return StringValue(frozenset({expression.value}), unknown=False)
+        if not self._track_strings:
+            return StringValue()
+        if isinstance(expression, ast.Name):
+            return self._string_values.get(expression.id, StringValue())
+        if isinstance(expression, ast.IfExp):
+            return self._string_value(expression.body).join(self._string_value(expression.orelse))
+        return StringValue()
 
     def _initial_local_types(self) -> dict[str, str]:
         result: dict[str, str] = {}
@@ -2616,6 +2655,14 @@ class _ExecutionVisitor:
 
         if not targets:
             return targets
+        value = self._string_value(name)
+        if not value.unknown:
+            return tuple(
+                target
+                for target in targets
+                if (symbol := self.resolver.symbols.get(target)) is not None
+                and symbol.name in value.names
+            )
         prefix, suffix = _constant_affixes(name)
         if not (prefix or suffix) and isinstance(name, ast.Name) and self.current is not None:
             values = [
@@ -2645,6 +2692,11 @@ class _ExecutionVisitor:
                 return  # an attribute of a module outside the project is not project code
             targets = self._receiver_methods(receiver) or ()
             if len(arguments) > 1:
+                names = self._string_value(arguments[1].value)
+                if not names.unknown and targets:
+                    targets = self._named_like(targets, arguments[1].value)
+                    if not targets:
+                        return  # Empty finite selection must not become a whole-graph guard.
                 targets = self._named_like(targets, arguments[1].value)
         self.boundaries.append(
             UnknownBoundary(

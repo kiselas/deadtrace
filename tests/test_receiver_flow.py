@@ -9,7 +9,101 @@ import pytest
 
 from deadtrace.core import ReachabilityKind, WorldId, WorldPlan, solve
 from deadtrace.python_frontend import build_python_program
+from deadtrace.receiver_flow import StringValue
 from deadtrace.scanner import SourceCollection, SourceUnit
+
+
+@pytest.mark.parametrize(
+    "setup, expression",
+    [
+        ('name = "run"', "name"),
+        ('name = "other"\nname = "run"', "name"),
+        ('name: str = "run"', "name"),
+        ('name = "run"\nalias = name\nname = unknown', "alias"),
+        ('if flag:\n    name = "run"\nelse:\n    name = "run"', "name"),
+        ("", '"run" if flag else "run"'),
+    ],
+)
+def test_finite_local_names_leave_unrelated_methods_unprotected(
+    setup: str, expression: str
+) -> None:
+    states = _states(f"item = First()\n{setup}\ngetattr(item, {expression})()\n")
+    assert states["First.run"] is not None
+    assert states["First.other"] is None
+    assert states["Second.run"] is None
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [
+        'if flag:\n    name = "run"\nelse:\n    name = "other"',
+        'name = "run" if flag else "other"',
+        'name = "run"\nwhile flag:\n    getattr(item, name)()\n    name = "other"',
+    ],
+)
+def test_string_joins_and_back_edges_preserve_all_selected_methods(setup: str) -> None:
+    states = _states(f"item = First()\n{setup}\ngetattr(item, name)()\n")
+    assert states["First.run"] is not None
+    assert states["First.other"] is not None
+    assert states["First.change"] is None
+    assert states["Second.run"] is None
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [
+        'name = "run"\nname = unknown',
+        'if flag:\n    name = "run"',
+        'name = "run"\nif flag:\n    name = unknown',
+        'name = "run"\nname += unknown',
+        'name = "run"\ndel name',
+        'name = "run"\nname, value = unknown',
+        'name = "run"\nfrom external import value as name',
+        'name = "run"\n@unknown\ndef name(): pass',
+        'name = "run"\nfor name in unknown:\n    pass',
+        'name = "run"\nwith unknown as name:\n    pass',
+        'name = "run"\nmatch unknown:\n    case {"key": name}: pass',
+        'name = "run"\n(name := unknown)',
+        'name = "run"\ntry:\n    name = unknown\nexcept Exception:\n    pass',
+        'name = "run"\ndef mutate():\n    nonlocal name\n    name = "other"\nmutate()',
+        'name = "run"\n[getattr(item, name)() for name in unknown]',
+        'names = {"run": 1}\nnames[unknown] = 2\nname = next(iter(names))',
+    ],
+)
+def test_opaque_writes_and_mutable_containers_keep_the_guard(setup: str) -> None:
+    states = _states(f"item = First()\n{setup}\ngetattr(item, name)()\n")
+    assert states["First.run"] is not None
+    assert states["First.other"] is not None
+
+
+def test_empty_finite_selection_does_not_open_a_whole_graph_guard() -> None:
+    states = _states('item = First()\nname = "absent"\ngetattr(item, name)()\n')
+    assert states["First.run"] is None
+    assert states["First.other"] is None
+    assert states["Second.run"] is None
+
+
+def test_finite_name_on_opaque_receiver_keeps_aliasable_functions_protected() -> None:
+    states = _states('name = "run"\ngetattr(unknown, name)()\n', extra="def different(): pass\n")
+    assert states["different"] is not None
+    assert states["First.other"] is not None
+
+
+def test_finite_string_domain_widens_on_unknown_or_excessive_alternatives() -> None:
+    values = StringValue(frozenset({"run"}), unknown=False)
+    assert values.join(StringValue()).unknown
+    for index in range(31):
+        values = values.join(StringValue(frozenset({str(index)}), unknown=False))
+    assert not values.unknown
+    assert values.join(StringValue(frozenset({"overflow"}), unknown=False)).unknown
+
+
+def test_excessive_string_alternatives_keep_the_dynamic_guard() -> None:
+    setup = 'item = First()\nname = "run"\n'
+    setup += "".join(f'if flag:\n    name = "name{index}"\n' for index in range(33))
+    states = _states(setup + "getattr(item, name)()\n")
+    assert states["First.run"] is not None
+    assert states["First.other"] is not None
 
 
 def _states(body: str, *, extra: str = "") -> dict[str, ReachabilityKind | None]:
