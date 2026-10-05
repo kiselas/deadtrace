@@ -18,8 +18,10 @@ import pytest
 
 from deadtrace.case_validator import unmet_targets
 
-KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
-"""Empty: external reflected-value case moved to corpus after the model-25 fix."""
+KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {
+    "stored_literal_reflection": ("_tool.py:Worker.run",),
+}
+"""Literal reflected-value violation pinned before its semantic fix."""
 
 
 def _cases_root(project_root: Path) -> Path:

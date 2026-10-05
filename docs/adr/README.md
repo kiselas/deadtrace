@@ -97,3 +97,5 @@ each other. Typo and link fixes are fine.
   while localizing reflection on externally annotated values (model revision 25). Accepted.
 - [ADR-0037](0037-standard-nominal-reflection-families.md) — Refine standard nominal-family
   reflection while preserving opaque bases and test stand-ins (model revision 26). Accepted.
+- [ADR-0038](0038-stored-literal-reflection.md) — Pin an executable stored literal getattr
+  target before its bounded fix. Accepted.
