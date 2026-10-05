@@ -586,6 +586,12 @@ class _Resolver:
             )
             for module in modules.values()
         }
+        self._inspection_rebound_builtins = frozenset(
+            name.rsplit(".", 1)[-1]
+            for names in self._nominal_rebindings.values()
+            for name in names
+            if "." in name and name.rsplit(".", 1)[-1] in INSPECTING_CONSUMERS
+        )
         direct: set[int] = set()
         for module in modules.values():
             direct.update(
@@ -2911,6 +2917,7 @@ class _ExecutionVisitor:
             consumer = None  # an unresolved local callable is not a builtin of that name
         if (
             consumer in INSPECTING_CONSUMERS
+            and consumer not in self.resolver._inspection_rebound_builtins
             and isinstance(call.func, ast.Name)
             and call.func.id not in self.resolver.top_level_bindings(self.module)
             and call.func.id not in self.resolver._nominal_rebindings[self.module.name]

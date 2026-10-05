@@ -20,7 +20,8 @@ without treating their ordinary methods as callable callbacks. Preserve alternat
 Unknown expressions, starred elements, calls, lists and unsupported class-info expressions continue
 through ordinary traversal and retain escape protection. Earlier or separate escapes are unaffected.
 
-Reject this refinement when module bindings/writes, local or enclosing function bindings, or any
+Reject this refinement when module bindings/writes, qualified writes to inspector names anywhere
+in the project, local or enclosing function bindings, or any
 star import can shadow the builtin. Index modules containing star imports once, including external
 stars and conditional imports, as a transient source-derived fact. Do not infer builtin aliases or
 parameter/return container contents. Existing implicit class/metaclass execution guards retain

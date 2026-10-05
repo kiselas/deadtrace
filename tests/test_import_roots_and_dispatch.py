@@ -903,3 +903,20 @@ def test_enclosing_parameter_cannot_prove_builtin_inspector() -> None:
     )
     world = _world(program, "main:main")
     assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_qualified_inspector_write_in_another_module_blocks_summary() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import patcher\nclass Checked:\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            ),
+            "patcher.py": """import builtins as b
+from external import consumer
+b.isinstance = consumer
+""",
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
