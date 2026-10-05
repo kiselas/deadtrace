@@ -116,3 +116,5 @@ each other. Typo and link fixes are fine.
   automatic API closure (revision 31); resolves ADR-0045.
 - [ADR-0047](0047-field-direct-guard-attribution.md) — Record direct guard coverage in new field
   facts/injections and measure exact-consumer cuts; scanner revision 31 unchanged.
+- [ADR-0048](0048-object-setattr-store-summary.md) — Pin a recall gap before refining literal
+  builtin object.__setattr__ stores on self; cast receiver escapes remain deferred.
