@@ -114,3 +114,5 @@ each other. Typo and link fixes are fine.
 - [ADR-0045](0045-public-return-api-violation.md) — Pin a public factory return API violation.
 - [ADR-0046](0046-declared-public-return-api.md) — Follow declared public returned objects in
   automatic API closure (revision 31); resolves ADR-0045.
+- [ADR-0047](0047-field-direct-guard-attribution.md) — Record direct guard coverage in new field
+  facts/injections and measure exact-consumer cuts; scanner revision 31 unchanged.
