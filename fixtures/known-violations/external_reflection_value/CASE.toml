@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "external-reflection-value"
+description = "A callable read from an externally annotated receiver may be a project override."
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "ProjectPath.check"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "_unused_control"
+expectation = "candidate"
