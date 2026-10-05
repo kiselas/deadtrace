@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "reflected-reexport"
+description = "A module's exported alias can return a callable defined in another module."
+
+[[targets]]
+path = "worker.py"
+kind = "function"
+qualified_name = "work"
+expectation = "not_candidate"
+
+[[targets]]
+path = "worker.py"
+kind = "function"
+qualified_name = "idle"
+expectation = "candidate"

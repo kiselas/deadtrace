@@ -101,3 +101,5 @@ each other. Typo and link fixes are fine.
   target before its bounded fix. Accepted.
 - [ADR-0039](0039-preserve-stored-literal-callables.md) — Preserve selected callables retrieved
   by stored literal getattr (model revision 27). Accepted; resolves ADR-0038.
+- [ADR-0040](0040-reflected-reexport-violation.md) — Pin unsafe stored reflection through an
+  imported callable alias before fixing it. Accepted.
