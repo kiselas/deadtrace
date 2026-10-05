@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -46,11 +47,21 @@ app = typer.Typer(
     add_completion=False,
     help="Explainable, framework-aware dead-code analysis without target execution.",
     no_args_is_help=True,
+    pretty_exceptions_enable=False,
+    epilog=(
+        "Exit codes: 0 completed; 1 an explicitly selected finding policy failed; "
+        "2 operational error, failed completeness or comparability requirement, "
+        "or internal error (DT0001)."
+    ),
 )
 cases_app = typer.Typer(help="Validate development case fixtures.", no_args_is_help=True)
 baseline_app = typer.Typer(help="Manage explicit reviewed-finding baselines.", no_args_is_help=True)
 app.add_typer(cases_app, name="cases")
 app.add_typer(baseline_app, name="baseline")
+
+
+_DEBUG_ENV = "DEADTRACE_DEBUG"
+_debug = False
 
 
 class OutputFormat(StrEnum):
@@ -70,10 +81,38 @@ def main(
         bool | None,
         typer.Option("--version", callback=_version_callback, is_eager=True, help="Show version."),
     ] = None,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            envvar=_DEBUG_ENV,
+            help="Show the full traceback of an internal error instead of a one-line DT0001.",
+        ),
+    ] = False,
 ) -> None:
     """Deadtrace never imports or executes the project being scanned."""
 
+    global _debug
+    _debug = debug
     del version
+
+
+def run() -> None:
+    """Console entry point: an unexpected exception becomes DT0001, not a traceback."""
+
+    try:
+        app()
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
+    except Exception as error:
+        if _debug or os.environ.get(_DEBUG_ENV):
+            raise
+        typer.echo(
+            f"deadtrace: internal error DT0001 ({type(error).__name__}). Re-run with --debug "
+            f"for the traceback and report it: https://github.com/kiselas/deadtrace/issues",
+            err=True,
+        )
+        raise SystemExit(2) from None
 
 
 @app.command("scan")

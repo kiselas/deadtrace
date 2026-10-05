@@ -167,6 +167,8 @@ def parse_collection(
                 parsed[unit.path] = parse_source(unit.source)
             except SyntaxError as error:
                 parsed[unit.path] = error
+            except RecursionError:
+                parsed[unit.path] = SyntaxError("expression nesting exceeds the parser's limit")
     return parsed
 
 
@@ -375,4 +377,5 @@ def _single_line(error: BaseException) -> str:
 
 def _syntax_message(error: SyntaxError) -> str:
     location = f" at line {error.lineno}, column {error.offset}" if error.lineno else ""
-    return f"syntax error{location}: {_single_line(Exception(error.msg))}"
+    hint = " (syntax newer than the interpreter running deadtrace is reported the same way)"
+    return f"syntax error{location}: {_single_line(Exception(error.msg))}{hint}"

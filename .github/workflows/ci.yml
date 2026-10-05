@@ -30,15 +30,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
         with:
           enable-cache: true
-      - run: uv python install 3.12
-      - run: uv sync --locked --all-groups
-      - run: uv run pytest
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --locked --all-groups --python ${{ matrix.python }}
+      - run: uv run --python ${{ matrix.python }} pytest
 
   build:
     runs-on: ubuntu-latest
@@ -63,11 +64,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
-      - run: uv python install 3.12
+      - run: uv python install 3.12 ${{ matrix.python }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: deadtrace-${{ github.sha }}-distributions
@@ -81,4 +83,4 @@ jobs:
           workspace="$PWD"
           wheel="$(find "$workspace/dist" -name '*.whl' -print -quit)"
           cd "$(mktemp -d)"
-          uv run --isolated --no-project --python 3.12 --with "$wheel" python "$workspace/scripts/wheel_smoke.py"
+          uv run --isolated --no-project --python ${{ matrix.python }} --with "$wheel" python "$workspace/scripts/wheel_smoke.py"
