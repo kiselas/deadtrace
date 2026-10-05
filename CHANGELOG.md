@@ -17,6 +17,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ### Fixed
 
+- Model revision `python-fastapi-dishka/33` (ADR-0051): an application built in a test module is a
+  fixture, not a production world, and no longer hides a library's public API (a Flask fixture in
+  `conftest.py` made every public class of a library "test-only").
 - Model revision `python-fastapi-dishka/32` (ADR-0050): classes derived from Django and Django REST
   framework test cases are collected as unittest cases; on a public held-out cohort they were the
   largest class of false findings.
