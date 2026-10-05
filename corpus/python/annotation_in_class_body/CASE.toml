@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "annotation-in-class-body"
+description = "A bare name in an annotation of a class body or a method signature is a member of the class first."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Request.Item"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Request.Row"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "class"
+qualified_name = "Request.Unused"
+expectation = "candidate"

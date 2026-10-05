@@ -1,16 +1,26 @@
 # Deadtrace Development Roadmap
 
-Status date: 2026-09-26. This is the canonical execution roadmap kept with the code. Decision
-records live in `docs/adr/`; the analysis contract and architecture notes are pending there as
-well. This file defines what to build next, in what order, and what evidence is required before a
-task may be marked done.
+Current milestone, 2026-10-05: public read-only alpha 0.1.0a1, scanner model 31 (ADR-0049).
+The owner has requested PyPI publication. Release preparation freezes existing scanner semantics;
+model 32's selected attribute-store refinement remains follow-up work. The previous inventory-only
+PR-01 instruction is superseded by this release decision. This is not acceptance of the complete
+future roadmap or a promise that findings are safe deletion instructions.
+
+The [analysis contract](docs/analysis-contract.md), [architecture](docs/architecture.md),
+[support matrix](docs/support-matrix.md), and [release acceptance](docs/releasing.md) define
+the alpha. Latest recorded local model-31 evidence is 510 passing tests, 93.21% coverage and
+123 semantic corpus cases; the release requires fresh local checks and hosted Linux/Windows CI
+on the exact release commit. See docs/pydantic-recall-review-2026-10-05.md.
+
+The plan and baseline below are the historical 2026-09-26 snapshot, retained for traceability;
+their model-15 counts are not the current release's verification or active task queue.
 
 Deadtrace is a static, explainable dead-code analyzer. The immediate product is a dependable
 read-only tool for Python 3.12 applications using FastAPI, Dishka, Pydantic, pytest, and nearby
 integration patterns. Broader frameworks, evidence import, patch preview, verification, and other
 languages are gated extensions—not shortcuts around proving the primary workflow.
 
-PyPI publication is explicitly out of scope until the owner requests it.
+PyPI publication was deferred in this historical snapshot; ADR-0049 now authorizes the alpha.
 
 ## Status vocabulary
 
@@ -351,6 +361,22 @@ reproduced, fixed, and added to the corpus.
 **Status:** implemented on 2026-09-29 (ADR-0026, model revision 19). Fifty-seven more packages, from
 Django and Celery to `sentry_sdk` and `typer`, had 86 findings, of which 29 were false, of five
 kinds; all were reproduced, fixed, and added to the corpus.
+
+### FIELD-10 — recall of dead methods
+
+**Status:** implemented on 2026-09-29 (ADR-0027, model revision 20). Dead code injected into six
+field projects showed that methods of existing classes were often not reported; five rules kept
+them (a class a Dishka binding builds, an instance stored in a list, a class attribute read, an
+abstract implementation, a Django class without a base). All were reproduced, fixed, and added to
+the corpus.
+
+### FIELD-11 — more installed packages
+
+**Status:** implemented on 2026-09-29 (ADR-0028, model revision 21). Seventy more packages had 299
+findings, about a third of them false, of ten kinds (Hypothesis, `addopts -p`, conditional bases and
+imports, aliases of external classes, `unittest.main()`, script file names, computed attribute
+names, lazy export tables, reserved module names); all were reproduced, fixed, and added to the
+corpus.
 
 ### ORACLE-01 — capability-to-oracle inventory
 

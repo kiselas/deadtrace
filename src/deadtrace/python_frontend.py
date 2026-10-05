@@ -36,6 +36,14 @@ from deadtrace.inventory import (
     iter_definitions,
     parse_source,
 )
+from deadtrace.nominal_types import NOMINAL_FAMILIES, ROOT_BASES, may_supply_nominal_value
+from deadtrace.receiver_flow import (
+    EXTERNAL_RECEIVER,
+    UNKNOWN_RECEIVER,
+    ReceiverState,
+    ReceiverValue,
+    StringValue,
+)
 from deadtrace.scanner import ParsedCollection, SourceCollection, SourceUnit
 from deadtrace.timing import StageTimings
 
@@ -163,6 +171,17 @@ BUILTIN_MANAGERS = frozenset({"open", "memoryview"})
 OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
 INSPECTING_CONSUMERS = frozenset({"isinstance", "issubclass"})
 """Consumers that inspect a class they receive without calling anything on it."""
+UNITTEST_RUNNERS = frozenset({"unittest.main", "unittest.TestProgram"})
+"""Calls that run the ``TestCase`` classes of the module they are in."""
+CONTAINER_TYPES = frozenset(
+    {"list", "dict", "set", "deque", "defaultdict", "OrderedDict", "List", "Dict", "Set", "Deque"}
+)
+"""Builtin and typing containers: what a value stored in one is later called through is judged at
+the call that reads it back."""
+CONTAINER_STORES = frozenset(
+    {"append", "appendleft", "add", "extend", "extendleft", "insert", "setdefault", "update"}
+)
+"""Methods of a container that only keep the values they receive."""
 
 _COMPOUND_STATEMENTS = (
     *DEFINITION_TYPES,
@@ -308,6 +327,8 @@ class PythonProgram:
     limitations: tuple[PythonLimitation, ...]
     index: SymbolIndex = field(repr=False, compare=False)
     """Index over ``symbols``, which is complete and never changes once the program is built."""
+    class_field_types: dict[tuple[str, str], str] = field(repr=False, compare=False)
+    """Existing source-inferred field types, shared with automatic public API discovery."""
     _through_imports: dict[str, PythonSymbol | None] = field(
         default_factory=dict, repr=False, compare=False
     )
@@ -472,6 +493,7 @@ def build_python_program(
             symbols=symbols,
             limitations=tuple(sorted(set(limitations), key=_limitation_sort_key)),
             index=index,
+            class_field_types=class_fields,
         )
     timings.count("frontend.edges", len(graph.edges))
     timings.count("frontend.boundaries", len(graph.boundaries))
@@ -550,6 +572,29 @@ class _Resolver:
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
+        self._modules_with_star_imports = frozenset(
+            module.name
+            for module in modules.values()
+            if any(
+                isinstance(part, ast.ImportFrom) and any(alias.name == "*" for alias in part.names)
+                for part in ast.walk(module.tree)
+            )
+        )
+        self._nominal_rebindings = {
+            module.name: frozenset(
+                name
+                for part in ast.walk(module.tree)
+                if isinstance(part, (ast.Name, ast.Attribute)) and isinstance(part.ctx, ast.Store)
+                if (name := _dotted_name(part)) is not None
+            )
+            for module in modules.values()
+        }
+        self._inspection_rebound_builtins = frozenset(
+            name.rsplit(".", 1)[-1]
+            for names in self._nominal_rebindings.values()
+            for name in names
+            if "." in name and name.rsplit(".", 1)[-1] in INSPECTING_CONSUMERS
+        )
         direct: set[int] = set()
         for module in modules.values():
             direct.update(
@@ -856,15 +901,28 @@ class _Resolver:
         return False
 
     def annotation_classes(
-        self, annotation: ast.expr, module: PythonModule
+        self, annotation: ast.expr, module: PythonModule, scope: str | None = None
     ) -> tuple[PythonSymbol, ...]:
-        """Project classes an evaluated annotation names; string annotations name none."""
+        """Project classes an evaluated annotation names; string annotations name none.
+
+        ``scope`` is the class whose body evaluates the annotation: a field of the body or a
+        signature of one of its methods, where a bare name is a member of the class first. An
+        attribute chain that reaches no definition, as ``Meta.Models.Alias``, uses the classes
+        it goes through (ADR-0027, class attributes).
+        """
 
         found: dict[NodeId, PythonSymbol] = {}
         for name in _annotation_names(annotation, module.text, generics=True):
-            symbol = self._annotation_symbol(name, module)
-            if symbol is not None and symbol.kind is NodeKind.CLASS:
+            symbol = self._annotation_symbol(name, module, scope)
+            while symbol is None and "." in name:
+                name = name.rpartition(".")[0]
+                symbol = self._annotation_symbol(name, module, scope)
+            while symbol is not None and symbol.kind is NodeKind.CLASS:
                 found[symbol.id] = symbol
+                owner = symbol.owner_qualified_name
+                symbol = (
+                    self.index.resolve(f"{symbol.module}.{owner}") if owner is not None else None
+                )
         return tuple(found[key] for key in sorted(found))
 
     def annotation_is_external(self, annotation: ast.expr, module: PythonModule) -> bool:
@@ -878,14 +936,18 @@ class _Resolver:
             for name in names
         )
 
-    def _annotation_symbol(self, name: str, module: PythonModule) -> PythonSymbol | None:
+    def _annotation_symbol(
+        self, name: str, module: PythonModule, scope: str | None = None
+    ) -> PythonSymbol | None:
         first, _, rest = name.partition(".")
         binding = module.imports.get(first)
         if binding is not None:
-            candidate = f"{binding.target}.{rest}" if rest else binding.target
-        else:
-            candidate = f"{module.name}.{name}"
-        return self.resolve_full_name(candidate)
+            return self.resolve_full_name(f"{binding.target}.{rest}" if rest else binding.target)
+        if scope is not None:
+            in_scope = self.resolve_full_name(f"{module.name}.{scope}.{name}")
+            if in_scope is not None:
+                return in_scope
+        return self.resolve_full_name(f"{module.name}.{name}")
 
     def resolve_full_name(self, full_name: str) -> PythonSymbol | None:
         """The symbol a full name reaches, directly or through re-exporting imports."""
@@ -1164,7 +1226,10 @@ class _Resolver:
         if binding is None:
             return dotted
         suffix = ".".join(rest)
-        return f"{binding.target}.{suffix}" if suffix else binding.target
+        full = f"{binding.target}.{suffix}" if suffix else binding.target
+        # ``from .util import TestCase`` where ``util`` says ``TestCase = unittest.TestCase``.
+        resolved = follow_module_alias(self.modules, full)
+        return resolved if not self.is_project_name(resolved) else full
 
 
 class _ExecutionVisitor:
@@ -1194,10 +1259,40 @@ class _ExecutionVisitor:
             if not resolver.is_project_name(binding.target)
         )
         self.local_types = self._initial_local_types()
+        self._receiver_values = {
+            name: ReceiverValue(frozenset({type_name}))
+            for name, type_name in self.local_types.items()
+        }
+        self._receiver_values.update((name, EXTERNAL_RECEIVER) for name in self.external_locals)
+        if current is not None:
+            for parameter in current.parameters:
+                annotation = parameter.annotation
+                if (
+                    annotation is not None
+                    and parameter.name in self.external_locals
+                    and (origin := self._external_value_annotation_origin(annotation)) is not None
+                ):
+                    self._receiver_values[parameter.name] = ReceiverValue(
+                        external=True, external_annotation=True, external_nominal=origin
+                    )
+        self._container_locals: set[str] = set()
+        self._string_values: dict[str, StringValue] = {}
+        # These constructs need expression/closure scope modeling before strong string updates.
+        self._track_strings = (
+            current is not None
+            and isinstance(current.node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and not any(
+                isinstance(node, (ast.NamedExpr, ast.Global, ast.Nonlocal, ast.comprehension))
+                for node in ast.walk(current.node)
+            )
+        )
+        self._container_attributes = _container_attributes(resolver, current)
         self._handled: set[int] = set()
         self._escaped: set[NodeId] = set()
+        self._named_classes: set[NodeId] = set()
         self._dispatched: set[str] = set()
         self._dynamic_modules: set[str] = set()
+        self._flow_pass_budget = 256
         self._stand_ins: set[str] = set()
         """Methods called on values from outside the project, which tests may replace."""
         """Locals bound to a module imported by a computed name."""
@@ -1208,7 +1303,181 @@ class _ExecutionVisitor:
         self._evaluates_annotations = current is None or current.kind is NodeKind.CLASS
 
     def visit_statements(self, statements: Iterable[ast.stmt]) -> None:
-        self._visit_nodes(flow_nodes(statements))
+        for statement in statements:
+            if isinstance(statement, ast.Assign):
+                self.visit_expression(statement.value)
+                self._visit_assign(statement)
+                for target in statement.targets:
+                    self.visit_expression(target)
+            elif isinstance(statement, ast.AnnAssign):
+                if statement.value is not None:
+                    self.visit_expression(statement.value)
+                self._visit_ann_assign(statement)
+            elif isinstance(statement, (ast.AugAssign, ast.Delete)):
+                self._visit_nodes(flow_nodes((statement,)))
+                targets = (
+                    statement.targets if isinstance(statement, ast.Delete) else [statement.target]
+                )
+                for target in targets:
+                    for child in ast.walk(target):
+                        if isinstance(child, ast.Name):
+                            self._set_receiver(child.id, UNKNOWN_RECEIVER)
+                            self._container_locals.discard(child.id)
+            elif isinstance(statement, ast.If):
+                self._visit_if(statement)
+                self.visit_expression(statement.test)
+                entry = self._receiver_state()
+                self.visit_statements(statement.body)
+                left = self._receiver_state()
+                self._restore_receiver_state(entry)
+                self.visit_statements(statement.orelse)
+                self._restore_receiver_state(left.join(self._receiver_state()))
+            elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+                self._visit_receiver_loop(statement)
+            elif isinstance(statement, (ast.Try, ast.TryStar)):
+                self._visit_receiver_try(statement)
+            elif isinstance(statement, (ast.With, ast.AsyncWith)):
+                for item in statement.items:
+                    self.visit_expression(item.context_expr)
+                self._visit_with(statement)
+                self.visit_statements(statement.body)
+            elif isinstance(statement, ast.Match):
+                self.visit_expression(statement.subject)
+                entry = self._receiver_state()
+                merged = entry
+                for case in statement.cases:
+                    self._restore_receiver_state(entry)
+                    self._visit_nodes(ast.walk(case.pattern))
+                    for node in ast.walk(case.pattern):
+                        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+                            self._set_receiver(node.name, UNKNOWN_RECEIVER)
+                        elif isinstance(node, ast.MatchMapping) and node.rest:
+                            self._set_receiver(node.rest, UNKNOWN_RECEIVER)
+                    if case.guard is not None:
+                        self.visit_expression(case.guard)
+                    self.visit_statements(case.body)
+                    merged = merged.join(self._receiver_state())
+                self._restore_receiver_state(merged)
+            else:
+                if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                    for alias in statement.names:
+                        name = alias.asname or alias.name.split(".")[0]
+                        self._string_values.pop(name, None)
+                        self._forget_external_annotation(name)
+                elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    self._string_values.pop(statement.name, None)
+                    self._forget_external_annotation(statement.name)
+                self._visit_nodes(flow_nodes((statement,)))
+
+    def _receiver_state(self) -> ReceiverState:
+        return ReceiverState(
+            dict(self._receiver_values),
+            set(self._container_locals),
+            set(self._dynamic_modules),
+            dict(self._string_values),
+        )
+
+    def _restore_receiver_state(self, state: ReceiverState) -> None:
+        self._receiver_values = dict(state.values)
+        self.local_types = {
+            name: min(value.types) for name, value in state.values.items() if value.project_only
+        }
+        self.external_locals = {
+            name
+            for name, value in state.values.items()
+            if value.external and not (value.types or value.unknown)
+        }
+        self._container_locals = set(state.containers)
+        self._dynamic_modules = set(state.dynamic_modules)
+        self._string_values = dict(state.strings)
+
+    def _set_receiver(self, name: str, value: ReceiverValue) -> None:
+        self._string_values.pop(name, None)
+        self._receiver_values[name] = value
+        self.local_types.pop(name, None)
+        self.external_locals.discard(name)
+        if value.project_only:
+            self.local_types[name] = min(value.types)
+        elif value.external and not (value.types or value.unknown):
+            self.external_locals.add(name)
+
+    def _forget_external_annotation(self, name: str) -> None:
+        value = self._receiver_values.get(name)
+        if value is not None and value.external_annotation:
+            self._receiver_values[name] = ReceiverValue(value.types, value.unknown, value.external)
+
+    def _revisit(self, statements: Iterable[ast.stmt]) -> None:
+        # Expression references handled during an earlier loop pass must be evaluated again.
+        statements = tuple(statements)
+        self._handled.difference_update(
+            id(node) for statement in statements for node in ast.walk(statement)
+        )
+        self.visit_statements(statements)
+
+    def _visit_receiver_loop(self, node: ast.For | ast.AsyncFor | ast.While) -> None:
+        entry = self._receiver_state()
+        head = entry
+        converged = False
+        for _ in range(32):
+            if self._flow_pass_budget <= 0:
+                break
+            self._flow_pass_budget -= 1
+            self._restore_receiver_state(head)
+            if isinstance(node, ast.While):
+                self.visit_expression(node.test)
+            else:
+                self.visit_expression(node.iter)
+                for target in ast.walk(node.target):
+                    if isinstance(target, ast.Name):
+                        self._set_receiver(target.id, UNKNOWN_RECEIVER)
+                        self._container_locals.discard(target.id)
+            self._revisit(node.body)
+            joined = head.join(entry).join(self._receiver_state())
+            if joined == head:
+                converged = True
+                break
+            head = joined
+        if not converged:
+            # Widen to unknown; a convergence budget must never discard possible receivers.
+            head = ReceiverState(
+                {name: value.join(UNKNOWN_RECEIVER) for name, value in head.values.items()},
+                dynamic_modules=head.dynamic_modules,
+            )
+            self._restore_receiver_state(head)
+            self._revisit(node.body)
+            head = head.join(self._receiver_state())
+        self._restore_receiver_state(head)
+        self.visit_statements(node.orelse)
+        # A break may skip the else; return/continue paths are conservatively included too.
+        self._restore_receiver_state(head.join(self._receiver_state()))
+
+    def _visit_receiver_try(self, node: ast.Try | ast.TryStar) -> None:
+        entry = self._receiver_state()
+        exceptional = entry
+        for statement in node.body:
+            self.visit_statements((statement,))
+            exceptional = exceptional.join(self._receiver_state())
+        # A nested statement can raise between two writes not visible in its final state.
+        # Keep such locals explicitly unknown at exception/finally entries.
+        for part in flow_nodes(node.body):
+            if isinstance(part, ast.Name) and isinstance(part.ctx, ast.Store):
+                exceptional.values[part.id] = exceptional.values.get(
+                    part.id, UNKNOWN_RECEIVER
+                ).join(UNKNOWN_RECEIVER)
+                exceptional.strings.pop(part.id, None)
+        self.visit_statements(node.orelse)
+        merged = self._receiver_state()
+        for handler in node.handlers:
+            self._restore_receiver_state(exceptional)
+            if handler.type is not None:
+                self.visit_expression(handler.type)
+            if handler.name is not None:
+                self._set_receiver(handler.name, UNKNOWN_RECEIVER)
+            self.visit_statements(handler.body)
+            merged = merged.join(self._receiver_state())
+        # Finally also runs on an exception/return before the final statement of the try.
+        self._restore_receiver_state(merged.join(exceptional))
+        self.visit_statements(node.finalbody)
 
     def visit_expression(self, expression: ast.expr) -> None:
         self._visit_nodes(ast.walk(expression))
@@ -1216,7 +1485,8 @@ class _ExecutionVisitor:
     def finish(self) -> None:
         """Record references that escaped from this scope as one boundary."""
 
-        self._escaped = self.resolver.with_exposed_methods(self._escaped)
+        self._escaped = self.resolver.with_exposed_methods(self._escaped) | self._named_classes
+        self._named_classes = set()
         self._escaped -= {edge.target for edge in self.edges if edge.source == self.source}
         if self._escaped:
             self.boundaries.append(
@@ -1282,6 +1552,9 @@ class _ExecutionVisitor:
         if dotted is None:
             return False
         first = dotted.split(".")[0]
+        value = self._receiver_values.get(first)
+        if value is not None:
+            return value.project_only
         return first in self.local_types or first in {"self", "cls"}
 
     def visit_definition_header(self, node: DefinitionNode) -> None:
@@ -1339,6 +1612,7 @@ class _ExecutionVisitor:
             ast.If: self._visit_if,
             ast.With: self._visit_with,
             ast.AsyncWith: self._visit_with,
+            ast.NamedExpr: self._visit_named_expression,
         }
         handled = self._handled
         for node in nodes:
@@ -1437,10 +1711,17 @@ class _ExecutionVisitor:
     ) -> list[PythonSymbol]:
         """Definitions an expression may name besides ``target``, when bindings are alternatives."""
 
-        redefined = target is not None and target.id in self._redefined
-        if not redefined and not self._name_alternatives:
-            return []
         found: dict[NodeId, PythonSymbol] = {}
+        dotted = _dotted_name(expression)
+        if dotted is not None:
+            first, *rest = dotted.split(".")
+            value = self._receiver_values.get(first)
+            if value is not None and rest:
+                for type_name in value.types:
+                    member = self.resolver.typed_member(type_name, rest)
+                    if member is not None:
+                        found[member.id] = member
+        redefined = target is not None and target.id in self._redefined
         if target is not None and redefined:
             found.update((item.id, item) for item in self.resolver.alternatives(target))
         head: ast.expr = expression
@@ -1470,9 +1751,33 @@ class _ExecutionVisitor:
         value = node.value
         if type(value) is not str or len(value) > 200 or not ("." in value or ":" in value):
             return
+        if value.endswith(".py") and _SCRIPT_FILE.fullmatch(value):
+            # ``subprocess.run([sys.executable, "fail_script.py"])`` runs the module by its file
+            # name (ADR-0028).
+            suffix = "/" + value.removeprefix("./")
+            matches = [
+                module
+                for module in self.resolver.modules.values()
+                if ("/" + module.path).endswith(suffix)
+            ]
+            if 0 < len(matches) <= 3:
+                self._escaped.update(module.node_id for module in matches)
+            return
+        if value.startswith(".") and value.strip("."):
+            # ``"._process.cmdexec:cmdexec"`` in a package's lazy export table (ADR-0028).
+            module_part, colon, attribute = value.partition(":")
+            is_package = self.module.path.rpartition("/")[2] == "__init__.py"
+            package = self.module.name if is_package else self.module.name.rpartition(".")[0]
+            absolute = _relative_import_name(module_part, package or None)
+            if absolute is None:
+                return
+            value = absolute + colon + attribute
         target = self.resolver.named_by_string(value)
         if target is not None:
             self._escaped.add(target)
+            symbol = self.resolver.symbols.get(target)
+            if symbol is not None:
+                self._escaped.update(item.id for item in self.resolver.alternatives(symbol))
 
     def _record_dynamic_import(self, call: ast.Call) -> None:
         arguments = positional_arguments(call)
@@ -1578,6 +1883,11 @@ class _ExecutionVisitor:
         while isinstance(head, ast.Attribute):
             head = head.value
         if isinstance(head, ast.Name):
+            value = self._receiver_values.get(head.id)
+            if value is not None and (
+                not value.project_only or not isinstance(expression, ast.Attribute)
+            ):
+                return self._nested_definition(expression)
             binding = self._local_imports.get(head.id)
             if binding is not None:
                 dotted = _dotted_name(expression)
@@ -1693,6 +2003,18 @@ class _ExecutionVisitor:
             self._escaped.update(
                 member.id for member in self.resolver.index.members(self.current.id)
             )
+        if self._external_name(func) in UNITTEST_RUNNERS:
+            # ``unittest.main()`` collects the test cases of ``__main__``, this module (ADR-0028).
+            self._escaped.update(
+                symbol.id
+                for symbol in self.module.symbols
+                if symbol.owner is None
+                and symbol.kind is NodeKind.CLASS
+                and any(
+                    name.endswith(("unittest.TestCase", "unittest.IsolatedAsyncioTestCase"))
+                    for name in self.resolver.external_bases(symbol)
+                )
+            )
         if _dotted_name(func) == "getattr" and "getattr" not in self._locals:
             self._record_getattr_value(node)
         if isinstance(func, ast.Attribute) and self._is_super(func):
@@ -1705,7 +2027,11 @@ class _ExecutionVisitor:
                 target = self._inferred_member(func)
                 through_instance = target is not None
         for alternative in self._alternative_targets(func, target):
-            self._call_edges(node, alternative, through_instance=False)
+            self._call_edges(
+                node,
+                alternative,
+                through_instance=isinstance(func, ast.Attribute) and self._through_instance(func),
+            )
         if target is not None:
             self._call_edges(node, target, through_instance=through_instance)
             self._inherited_through_class(func, target)
@@ -1854,6 +2180,19 @@ class _ExecutionVisitor:
                     found[member.id] = member
         return [found[key] for key in sorted(found)]
 
+    def _use(self, symbol: PythonSymbol) -> None:
+        """A definition whose attribute the code reads, and that nothing resolved to a member.
+
+        A class is needed for its attribute, a field or a member of a base outside the project. The
+        attribute is not one of its methods, for a method would have resolved, so the methods do
+        not run with it (ADR-0027).
+        """
+
+        if symbol.kind is NodeKind.CLASS:
+            self._named_classes.add(symbol.id)
+        else:
+            self._escaped.add(symbol.id)
+
     def _reference_receiver(self, attribute: ast.Attribute) -> None:
         """An attribute that did not resolve: its receiver escapes or its type is unknown."""
 
@@ -1885,7 +2224,7 @@ class _ExecutionVisitor:
             )
         symbol = self._resolve(receiver) if _dotted_name(receiver) is not None else None
         if symbol is not None:
-            self._escaped.add(symbol.id)
+            self._use(symbol)
             return
         # ``Status.ACTIVE.value``: ``Status.ACTIVE`` is no project symbol, but ``Status`` is, and
         # evaluating the chain uses it (ADR-0017).
@@ -1893,7 +2232,7 @@ class _ExecutionVisitor:
         while isinstance(prefix, (ast.Attribute, ast.Name)):
             found = self._resolve(prefix)
             if found is not None:
-                self._escaped.add(found.id)
+                self._use(found)
                 break
             prefix = prefix.value if isinstance(prefix, ast.Attribute) else None
         if self._known_receiver(receiver):
@@ -1915,6 +2254,9 @@ class _ExecutionVisitor:
         if not isinstance(head, ast.Name):
             return False
         name = head.id
+        value = self._receiver_values.get(name)
+        if value is not None:
+            return value.unknown or (bool(value.types) and value.external)
         return (
             name in self._locals
             and name not in self.local_types
@@ -1944,6 +2286,9 @@ class _ExecutionVisitor:
         dotted = _dotted_name(receiver)
         if dotted is not None:
             first, *rest = dotted.split(".")
+            value = self._receiver_values.get(first)
+            if value is not None and not rest:
+                return not value.unknown and bool(value.types or value.external)
             if first in self.external_locals:
                 return True
             if not rest and (first in self.local_types or first in {"self", "cls"}):
@@ -2048,6 +2393,8 @@ class _ExecutionVisitor:
             target = item.optional_vars
             if not isinstance(target, ast.Name):
                 continue
+            self._set_receiver(target.id, UNKNOWN_RECEIVER)
+            self._container_locals.discard(target.id)
             manager = item.context_expr
             if not isinstance(manager, ast.Call) or self._resolve(manager.func) is not None:
                 continue
@@ -2060,37 +2407,44 @@ class _ExecutionVisitor:
                 and function.id in BUILTIN_MANAGERS
             )
             if builtin or self.resolver.is_external(function, self.module):
-                self.external_locals.add(target.id)
-                self.local_types.pop(target.id, None)
+                self._set_receiver(target.id, EXTERNAL_RECEIVER)
 
     def _visit_assign(self, node: ast.Assign) -> None:
+        string_value = self._string_value(node.value)
         if (
             isinstance(node.value, ast.Call)
             and self._external_name(node.value.func) in DYNAMIC_IMPORTS
         ):
             names = {target.id for target in node.targets if isinstance(target, ast.Name)}
             self._dynamic_modules.update(names)
-            self.external_locals.difference_update(names)
+            for name in names:
+                self._set_receiver(name, UNKNOWN_RECEIVER)
             return
-        inferred = self._infer_expression_type(node.value)
-        external = (
-            inferred is None
-            and isinstance(node.value, ast.Call)
-            and (
-                self._resolve(node.value.func) is None
-                and self.resolver.is_external(node.value.func, self.module)
-            )
-        )
+        value = self._receiver_value(node.value)
+        container = _is_container_value(node.value)
         for target in node.targets:
             if not isinstance(target, ast.Name):
+                for child in ast.walk(target):
+                    if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                        self._set_receiver(child.id, UNKNOWN_RECEIVER)
+                        self._container_locals.discard(child.id)
                 continue
-            if inferred is not None:
-                self.local_types[target.id] = inferred
-                self.external_locals.discard(target.id)
-            elif external:
-                self.external_locals.add(target.id)
+            if container:
+                self._container_locals.add(target.id)
+            else:
+                self._container_locals.discard(target.id)
+            self._set_receiver(target.id, value)
+            if self._track_strings:
+                self._string_values[target.id] = string_value
+            self._dynamic_modules.discard(target.id)
+
+    def _visit_named_expression(self, node: ast.NamedExpr) -> None:
+        self.visit_expression(node.value)
+        self._set_receiver(node.target.id, self._receiver_value(node.value))
+        self._container_locals.discard(node.target.id)
 
     def _visit_ann_assign(self, node: ast.AnnAssign) -> None:
+        string_value = self._string_value(node.value) if node.value is not None else StringValue()
         calls = _outermost_calls(node.annotation) if self._evaluates_annotations else []
         inside_calls = {id(part) for call in calls for part in ast.walk(call)}
         for part in ast.walk(node.annotation):
@@ -2099,7 +2453,10 @@ class _ExecutionVisitor:
         for call in calls:
             self._visit_annotation_calls(call)
         if self._evaluates_annotations:
-            for class_symbol in self.resolver.annotation_classes(node.annotation, self.module):
+            scope = self.current.qualified_name if self.current is not None else None
+            for class_symbol in self.resolver.annotation_classes(
+                node.annotation, self.module, scope
+            ):
                 self.edges.append(
                     ExecutionEdge(
                         self.source,
@@ -2109,9 +2466,33 @@ class _ExecutionVisitor:
                     )
                 )
         if isinstance(node.target, ast.Name):
+            if _is_container_annotation(node.annotation) or (
+                node.value is not None and _is_container_value(node.value)
+            ):
+                self._container_locals.add(node.target.id)
+            else:
+                self._container_locals.discard(node.target.id)
             inferred = self._resolve_annotation(node.annotation)
-            if inferred is not None:
-                self.local_types[node.target.id] = inferred
+            value = self._receiver_value(node.value) if node.value is not None else UNKNOWN_RECEIVER
+            if node.value is not None:
+                self._set_receiver(node.target.id, value)
+            elif inferred is not None:
+                self._set_receiver(node.target.id, ReceiverValue(frozenset({inferred})))
+            else:
+                self._set_receiver(node.target.id, value)
+            if self._track_strings and node.value is not None:
+                self._string_values[node.target.id] = string_value
+
+    def _string_value(self, expression: ast.expr) -> StringValue:
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            return StringValue(frozenset({expression.value}), unknown=False)
+        if not self._track_strings:
+            return StringValue()
+        if isinstance(expression, ast.Name):
+            return self._string_values.get(expression.id, StringValue())
+        if isinstance(expression, ast.IfExp):
+            return self._string_value(expression.body).join(self._string_value(expression.orelse))
+        return StringValue()
 
     def _initial_local_types(self) -> dict[str, str]:
         result: dict[str, str] = {}
@@ -2133,6 +2514,107 @@ class _ExecutionVisitor:
                 self.external_locals.add(parameter.name)
         return result
 
+    def _external_value_annotation_origin(self, annotation: ast.expr) -> str | None:
+        """A simple imported external value type, under the existing annotation contract.
+
+        Generic, structural/opaque typing annotations, unions and module types cannot justify
+        restricting reflection to instance members. Alternative bindings must agree.
+        """
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            parsed = _parsed_annotation(annotation.value)
+            if parsed is None:
+                return None
+            annotation = parsed
+        if not isinstance(annotation, (ast.Name, ast.Attribute)):
+            return None
+        if not self.resolver.annotation_is_external(annotation, self.module):
+            return None
+        dotted = _dotted_name(annotation)
+        assert dotted is not None
+        head, _, rest = dotted.partition(".")
+        binding = self.module.imports[head]
+        bindings = self.module.import_alternatives.get(head, (binding,))
+        origins = {f"{item.target}.{rest}" if rest else item.target for item in bindings}
+        accepted = len(origins) == 1 and all(
+            not origin.startswith(("typing.", "typing_extensions."))
+            and origin != "types.ModuleType"
+            and not self.resolver.in_project(origin)
+            for origin in origins
+        )
+        return next(iter(origins)) if accepted else None
+
+    def _external_reflection_targets(self, receiver: ast.expr) -> tuple[NodeId, ...] | None:
+        """All project class members remain possible, including subclasses and stand-ins.
+
+        An external base may itself inherit another unscanned external base. Without dependency
+        source, matching its spelling to the parameter annotation is insufficient. Recognized
+        standard nominal families refine ancestry; opaque bases retain protection. Escaped
+        callable values retain their own guards. Method-name filtering is not applied here.
+        """
+        value = self._receiver_values.get(receiver.id) if isinstance(receiver, ast.Name) else None
+        if (
+            not self._track_strings
+            or value is None
+            or not value.external_annotation
+            or value.unknown
+            or value.types
+        ):
+            return None
+        owners: set[NodeId] | None = None
+        if value.external_nominal in NOMINAL_FAMILIES:
+            owners = set()
+            for symbol in self.resolver.symbols.values():
+                if symbol.kind is not NodeKind.CLASS:
+                    continue
+                possible = is_test_path(symbol.path)
+                for ancestor in self.resolver.mro(symbol):
+                    assert isinstance(ancestor.node, ast.ClassDef)
+                    module = self.resolver.modules[ancestor.module]
+                    for base in ancestor.node.bases:
+                        resolved = self.resolver.resolve_expression(
+                            base,
+                            module=module,
+                            current=self.resolver.enclosing_scope(ancestor),
+                            local_types={},
+                            class_field_types={},
+                        )
+                        if resolved is not None and resolved.kind is NodeKind.CLASS:
+                            continue
+                        name = _base_name(self.resolver, base, module)
+                        # Bare builtin spellings can be rebound; never treat them as metadata
+                        # when their head is bound by source or by an enclosing local scope.
+                        head = _dotted_name(base.value if isinstance(base, ast.Subscript) else base)
+                        scope = self.resolver.enclosing_scope(ancestor)
+                        head_name = head.split(".")[0] if head is not None else ""
+                        shadowed = (
+                            (scope is not None and head_name in self.resolver.local_names(scope))
+                            or head_name in module.import_alternatives
+                            or (
+                                name in ROOT_BASES
+                                and name in self.resolver.top_level_bindings(module)
+                            )
+                            or head_name in self.resolver._nominal_rebindings[module.name]
+                            or head in self.resolver._nominal_rebindings[module.name]
+                        )
+                        if (
+                            resolved is not None
+                            or shadowed
+                            or head is None
+                            or may_supply_nominal_value(name, value.external_nominal)
+                        ):
+                            possible = True
+                if possible:
+                    owners.update(item.id for item in self.resolver.mro(symbol))
+        return tuple(
+            sorted(
+                symbol.id
+                for symbol in self.resolver.symbols.values()
+                if symbol.owner is not None
+                and self.resolver.symbols[symbol.owner].kind is NodeKind.CLASS
+                and (owners is None or symbol.owner in owners)
+            )
+        )
+
     def _resolve_annotation(self, annotation: ast.expr) -> str | None:
         """The one project class an annotation names; ``A | B`` names no single class (ADR-0022)."""
 
@@ -2151,7 +2633,24 @@ class _ExecutionVisitor:
 
     def _infer_expression_type(self, expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
+            value = self._receiver_values.get(expression.id)
+            if value is not None:
+                return (
+                    next(iter(value.types))
+                    if value.project_only and len(value.types) == 1
+                    else None
+                )
             return self.local_types.get(expression.id)
+        if isinstance(expression, ast.Attribute) and expression.attr == "__class__":
+            return self._infer_expression_type(expression.value)
+        if (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Name)
+            and expression.func.id == "type"
+            and "type" not in self._locals
+            and len(expression.args) == 1
+        ):
+            return self._infer_expression_type(expression.args[0])
         if isinstance(expression, ast.Call):
             target = self._resolve(expression.func)
             if target is not None and target.kind is NodeKind.CLASS:
@@ -2159,6 +2658,47 @@ class _ExecutionVisitor:
             if target is not None and target.return_annotation is not None:
                 return self._resolve_annotation(target.return_annotation)
         return None
+
+    def _receiver_value(self, expression: ast.expr) -> ReceiverValue:
+        if isinstance(expression, ast.Name) and expression.id in self._receiver_values:
+            return self._receiver_values[expression.id]
+        if isinstance(expression, ast.IfExp):
+            return self._receiver_value(expression.body).join(
+                self._receiver_value(expression.orelse)
+            )
+        if isinstance(expression, ast.Call):
+            target = self._resolve(expression.func)
+            alternatives = self._alternative_targets(expression.func, target)
+            if alternatives:
+                result = ReceiverValue()
+                type_name: str | None
+                for possible in ([target] if target is not None else []) + alternatives:
+                    if possible.kind is NodeKind.CLASS:
+                        type_name = f"{possible.module}.{possible.qualified_name}"
+                    else:
+                        type_name = (
+                            self._resolve_annotation(possible.return_annotation)
+                            if possible.return_annotation is not None
+                            else None
+                        )
+                    result = result.join(
+                        ReceiverValue(frozenset({type_name}))
+                        if type_name is not None
+                        else UNKNOWN_RECEIVER
+                    )
+                if target is None:
+                    result = result.join(UNKNOWN_RECEIVER)
+                return result
+        inferred = self._infer_expression_type(expression)
+        if inferred is not None:
+            return ReceiverValue(frozenset({inferred}))
+        if (
+            isinstance(expression, ast.Call)
+            and self._resolve(expression.func) is None
+            and (self.resolver.is_external(expression.func, self.module))
+        ):
+            return EXTERNAL_RECEIVER
+        return UNKNOWN_RECEIVER
 
     def _is_external_module(self, receiver: ast.expr) -> bool:
         """``pkg`` or ``pkg.sub`` where ``pkg`` is imported from outside the project.
@@ -2180,25 +2720,31 @@ class _ExecutionVisitor:
     def _receiver_methods(self, receiver: ast.expr) -> tuple[NodeId, ...] | None:
         """Methods, inherited ones too, that an attribute of ``receiver`` of known type may be."""
 
-        receiver_type = self._infer_expression_type(receiver)
-        if receiver_type is None and isinstance(receiver, ast.Name):
-            receiver_type = self.local_types.get(receiver.id)
-        if receiver_type is None:
-            return None
-        class_symbol = self.resolver.class_named(receiver_type)
+        value = self._receiver_values.get(receiver.id) if isinstance(receiver, ast.Name) else None
+        if value is not None:
+            if not value.project_only:
+                return None
+            receiver_types = value.types
+        else:
+            receiver_type = self._infer_expression_type(receiver)
+            if receiver_type is None:
+                return None
+            receiver_types = frozenset({receiver_type})
         # The value may be an instance of a project subclass, as ``getattr(self, ...)`` in a
         # base class of a visitor: its methods count as well.
-        owners = (
-            [
-                f"{item.module}.{item.qualified_name}"
-                for item in (
-                    *self.resolver.mro(class_symbol),
-                    *self.resolver.subclasses_of(class_symbol),
+        owners: list[str] = []
+        for receiver_type in sorted(receiver_types):
+            class_symbol = self.resolver.class_named(receiver_type)
+            if class_symbol is None:
+                owners.append(receiver_type)
+            else:
+                owners.extend(
+                    f"{item.module}.{item.qualified_name}"
+                    for item in (
+                        *self.resolver.mro(class_symbol),
+                        *self.resolver.subclasses_of(class_symbol),
+                    )
                 )
-            ]
-            if class_symbol is not None
-            else [receiver_type]
-        )
         return tuple(
             sorted(
                 {
@@ -2210,8 +2756,12 @@ class _ExecutionVisitor:
             )
         )
 
-    def _module_members(self, receiver: ast.expr) -> tuple[NodeId, ...]:
-        """Top-level functions and classes of the project module ``receiver`` names."""
+    def _module_members(self, receiver: ast.expr, name: ast.expr) -> tuple[NodeId, ...]:
+        """Selected definitions and imported callable aliases of a project module.
+
+        Select names in each exporting namespace before traversing its import bindings;
+        an exported ``run`` can name a definition called ``work`` in another module.
+        """
 
         if not isinstance(receiver, ast.Name):
             return ()
@@ -2219,10 +2769,42 @@ class _ExecutionVisitor:
         module = self.resolver.modules.get(binding.target) if binding is not None else None
         if module is None:
             return ()
-        return tuple(sorted(symbol.id for symbol in module.symbols if symbol.owner is None))
+        value = self._string_value(name)
+        selection = None if value.unknown else value.names
+        pending: list[tuple[str, frozenset[str] | None]] = [(module.name, selection)]
+        seen: set[tuple[str, frozenset[str] | None]] = set()
+        targets: set[NodeId] = set()
+        while pending:
+            module_name, selected = pending.pop()
+            key = (module_name, selected)
+            if key in seen:
+                continue
+            seen.add(key)
+            owner = self.resolver.modules.get(module_name)
+            if owner is None:
+                continue
+            direct = tuple(
+                symbol.id
+                for symbol in owner.symbols
+                if symbol.owner is None and (selected is None or symbol.name in selected)
+            )
+            if owner is module and selected is None:
+                direct = self._named_like(direct, name)
+            targets.update(direct)
+            for local, imported in owner.imports.items():
+                if selected is not None and local not in selected:
+                    continue
+                for alternative in owner.import_alternatives.get(local, (imported,)):
+                    full_name = alternative.target
+                    targets.update(symbol.id for symbol in self.resolver.index.named(full_name))
+                    parent, _, attribute = full_name.rpartition(".")
+                    if parent in self.resolver.modules:
+                        pending.append((parent, frozenset({attribute})))
+            pending.extend((base, selected) for base in owner.star_imports)
+        return tuple(sorted(targets))
 
     def _record_getattr_value(self, call: ast.Call) -> None:
-        """``getattr(core, name)`` with a computed name may return any method of ``core``.
+        """``getattr(core, name)`` may return a callable that is invoked later.
 
         The value may be called anywhere later, as a ``message_generator`` argument, so its
         methods may run. Only receivers of a known project type are localized here; a call of
@@ -2230,12 +2812,20 @@ class _ExecutionVisitor:
         """
 
         arguments = call_arguments(call)
-        if len(arguments) < 2 or isinstance(arguments[1].value, ast.Constant):
+        if len(arguments) < 2:
             return
         receiver = arguments[0].value
         if self._is_external_module(receiver):
             return
-        targets = self._receiver_methods(receiver) or self._module_members(receiver)
+        external_targets = self._external_reflection_targets(receiver)
+        if external_targets is not None:
+            targets = external_targets
+        else:
+            targets = self._receiver_methods(receiver) or ()
+            if targets:
+                targets = self._named_like(targets, arguments[1].value)
+            else:
+                targets = self._module_members(receiver, arguments[1].value)
         if targets:
             self.boundaries.append(
                 UnknownBoundary(
@@ -2246,6 +2836,43 @@ class _ExecutionVisitor:
                 )
             )
 
+    def _named_like(self, targets: tuple[NodeId, ...], name: ast.expr) -> tuple[NodeId, ...]:
+        """The targets whose names fit the constant start and end of a computed attribute name.
+
+        ``getattr(self, "save_" + kind)`` reads a method that starts with ``save_``. The name may be
+        a local that one assignment gave such a value (ADR-0028).
+        """
+
+        if not targets:
+            return targets
+        value = self._string_value(name)
+        if not value.unknown:
+            return tuple(
+                target
+                for target in targets
+                if (symbol := self.resolver.symbols.get(target)) is not None
+                and symbol.name in value.names
+            )
+        prefix, suffix = _constant_affixes(name)
+        if not (prefix or suffix) and isinstance(name, ast.Name) and self.current is not None:
+            values = [
+                node.value
+                for node in ast.walk(self.current.node)
+                if isinstance(node, ast.Assign)
+                and any(isinstance(item, ast.Name) and item.id == name.id for item in node.targets)
+            ]
+            if len(values) == 1:
+                prefix, suffix = _constant_affixes(values[0])
+        if not (prefix or suffix):
+            return targets
+        return tuple(
+            target
+            for target in targets
+            if (symbol := self.resolver.symbols.get(target)) is not None
+            and symbol.name.startswith(prefix)
+            and symbol.name.endswith(suffix)
+        )
+
     def _record_dynamic_getattr(self, function: ast.Call) -> None:
         targets: tuple[NodeId, ...] = ()
         arguments = call_arguments(function)
@@ -2253,7 +2880,26 @@ class _ExecutionVisitor:
             receiver = arguments[0].value
             if self._is_external_module(receiver):
                 return  # an attribute of a module outside the project is not project code
+            external_targets = self._external_reflection_targets(receiver)
+            if external_targets is not None:
+                if external_targets:
+                    self.boundaries.append(
+                        UnknownBoundary(
+                            source=self.source,
+                            domain="dynamic_attribute_dispatch",
+                            reason="external value may supply a project subclass or stand-in",
+                            targets=external_targets,
+                        )
+                    )
+                return
             targets = self._receiver_methods(receiver) or ()
+            if len(arguments) > 1:
+                names = self._string_value(arguments[1].value)
+                if not names.unknown and targets:
+                    targets = self._named_like(targets, arguments[1].value)
+                    if not targets:
+                        return  # Empty finite selection must not become a whole-graph guard.
+                targets = self._named_like(targets, arguments[1].value)
         self.boundaries.append(
             UnknownBoundary(
                 source=self.source,
@@ -2265,7 +2911,52 @@ class _ExecutionVisitor:
 
     def _record_escaped_project_callables(self, call: ast.Call) -> None:
         escaped: set[NodeId] = set()
+        consumer = self._external_name(call.func)
+        if (
+            isinstance(call.func, ast.Name)
+            and call.func.id in self._locals
+            and call.func.id not in self._local_imports
+        ):
+            consumer = None  # an unresolved local callable is not a builtin of that name
+        if (
+            consumer in INSPECTING_CONSUMERS
+            and consumer not in self.resolver._inspection_rebound_builtins
+            and isinstance(call.func, ast.Name)
+            and call.func.id not in self.resolver.top_level_bindings(self.module)
+            and call.func.id not in self.resolver._nominal_rebindings[self.module.name]
+            and self.module.name not in self.resolver._modules_with_star_imports
+            and not any(
+                scope.kind is NodeKind.FUNCTION and call.func.id in self.resolver.local_names(scope)
+                for scope in self.resolver._scopes(self.current)
+            )
+            and len(call.args) == 2
+            and not call.keywords
+            and isinstance(call.args[1], ast.Tuple)
+        ):
+            # Class-info tuples are inspected, not arbitrary callback registries.
+            pending: list[ast.expr] = [call.args[1]]
+            while pending:
+                item = pending.pop()
+                if isinstance(item, ast.Tuple):
+                    pending.extend(item.elts)
+                elif isinstance(item, (ast.Name, ast.Attribute)):
+                    inspected = self._resolve(item)
+                    if inspected is not None and inspected.kind is NodeKind.CLASS:
+                        self.mark_references(item)
+                        escaped.add(inspected.id)
+                        escaped.update(
+                            alternative.id
+                            for alternative in self._alternative_targets(item, inspected)
+                        )
         for argument in call_arguments(call):
+            if _consumer_calls_instance_methods(consumer) and not (
+                self._stores_in_container(call.func)
+            ):
+                value = self._receiver_value(argument.value)
+                for possible_type in value.types:
+                    instance_class = self.resolver.class_named(possible_type)
+                    if instance_class is not None:
+                        escaped.add(instance_class.id)
             # ``add_task(Core(user).cleanup)`` passes a method of an instance built in place.
             target = self._resolve(argument.value) or (
                 self._inferred_member(argument.value)
@@ -2277,6 +2968,7 @@ class _ExecutionVisitor:
                 target is None
                 and isinstance(argument.value, (ast.Call, ast.Name))
                 and _consumer_calls_instance_methods(self._external_name(call.func))
+                and not self._stores_in_container(call.func)
             ):
                 # ``Controller(Handler(port))``: the consumer calls the methods of an instance of a
                 # project class, as a protocol such as a handler's ``handle_DATA`` (ADR-0022).
@@ -2307,6 +2999,25 @@ class _ExecutionVisitor:
             )
             if external not in INSPECTING_CONSUMERS:
                 self._expose_classes(escaped, external)
+
+    def _stores_in_container(self, function: ast.expr) -> bool:
+        """``items.append(Handler())`` on a builtin container keeps the instance, calls nothing.
+
+        The methods run where the value is read back, and a call there is resolved by the type of
+        the value or guarded by the name it calls (ADR-0027).
+        """
+
+        if not isinstance(function, ast.Attribute) or function.attr not in CONTAINER_STORES:
+            return False
+        receiver = function.value
+        if isinstance(receiver, ast.Name):
+            return receiver.id in self._container_locals
+        return (
+            isinstance(receiver, ast.Attribute)
+            and isinstance(receiver.value, ast.Name)
+            and receiver.value.id == "self"
+            and receiver.attr in self._container_attributes
+        )
 
     def _overrides_of_reference(
         self, expression: ast.expr, target: PythonSymbol
@@ -2476,14 +3187,16 @@ def _structural_edges(
             )
         if symbol.kind is NodeKind.CLASS:
             for base in resolver.bases(symbol):
-                edges.append(
-                    ExecutionEdge(
-                        symbol.id,
-                        base.id,
-                        EdgeKind.INHERIT,
-                        f"inherits from {base.module}.{base.qualified_name}",
+                # A base defined in both branches of a condition is whichever one ran.
+                for candidate in (base, *resolver.alternatives(base)):
+                    edges.append(
+                        ExecutionEdge(
+                            symbol.id,
+                            candidate.id,
+                            EdgeKind.INHERIT,
+                            f"inherits from {candidate.module}.{candidate.qualified_name}",
+                        )
                     )
-                )
             continue
         module = modules[symbol.module]
         implementation = _overload_implementation(symbol, module, resolver)
@@ -2498,10 +3211,12 @@ def _structural_edges(
             )
         annotations = [parameter.annotation for parameter in symbol.parameters]
         annotations.append(symbol.return_annotation)
+        # A method's signature is evaluated in the body of its class.
+        scope = symbol.owner_qualified_name
         for annotation in annotations:
             if annotation is None:
                 continue
-            for class_symbol in resolver.annotation_classes(annotation, module):
+            for class_symbol in resolver.annotation_classes(annotation, module, scope):
                 edges.append(
                     ExecutionEdge(
                         symbol.id,
@@ -2926,9 +3641,12 @@ def resolve_through_imports(
             continue
         first, rest = parts[cut], parts[cut + 1 :]
         binding = module.imports.get(first)
+        # A name imported in both branches of a condition, one of them from another package,
+        # is the project's whichever branch ran.
+        bindings = module.import_alternatives.get(first) or ((binding,) if binding else ())
         targets = (
-            [".".join((binding.target, *rest))]
-            if binding is not None
+            [".".join((item.target, *rest)) for item in bindings]
+            if bindings
             else [".".join((base, first, *rest)) for base in reversed(module.star_imports)]
         )
         for target in targets:
@@ -2943,6 +3661,94 @@ def resolve_through_imports(
 MODELED_CONSUMER_PACKAGES = ("dishka.", "fastapi.")
 """Packages whose calls the framework model interprets, so instances passed to them are not
 handed to an unknown consumer."""
+
+
+def follow_module_alias(modules: Mapping[str, PythonModule], full: str, depth: int = 0) -> str:
+    """``pkg.util.TestCase`` as ``unittest.TestCase`` when ``pkg.util`` binds it to that once."""
+
+    owner, _, attribute = full.rpartition(".")
+    source = modules.get(owner)
+    alias = _module_alias(source, attribute) if source is not None and depth < 4 else None
+    dotted = _dotted_name(alias) if alias is not None else None
+    if source is None or dotted is None:
+        return full
+    first, *rest = dotted.split(".")
+    binding = source.imports.get(first)
+    if binding is None:
+        return full
+    expanded = ".".join((binding.target, *rest))
+    return follow_module_alias(modules, expanded, depth + 1)
+
+
+def _module_alias(module: PythonModule, name: str) -> ast.expr | None:
+    """The dotted expression a module binds ``name`` to once: ``TestCase = unittest.TestCase``."""
+
+    found: ast.expr | None = None
+    for statement in module.tree.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in statement.targets
+        ):
+            if found is not None or _dotted_name(statement.value) is None:
+                return None
+            found = statement.value
+    return found
+
+
+def _is_container_value(value: ast.expr) -> bool:
+    """A display, a comprehension, or a call of a builtin container type."""
+
+    if isinstance(value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)):
+        return True
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in CONTAINER_TYPES
+    )
+
+
+def _is_container_annotation(annotation: ast.expr) -> bool:
+    head = annotation.value if isinstance(annotation, ast.Subscript) else annotation
+    return isinstance(head, ast.Name) and head.id in CONTAINER_TYPES
+
+
+@lru_cache(maxsize=256)
+def _class_container_attributes(node: ast.ClassDef) -> frozenset[str]:
+    names: set[str] = set()
+    for child in ast.walk(node):
+        value: ast.expr | None
+        annotation: ast.expr | None
+        if isinstance(child, ast.Assign):
+            targets, value, annotation = child.targets, child.value, None
+        elif isinstance(child, ast.AnnAssign):
+            targets, value, annotation = [child.target], child.value, child.annotation
+        else:
+            continue
+        if not (
+            (value is not None and _is_container_value(value))
+            or (annotation is not None and _is_container_annotation(annotation))
+        ):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+                if target.value.id == "self":
+                    names.add(target.attr)
+            elif isinstance(target, ast.Name) and child in node.body:
+                names.add(target.id)
+    return frozenset(names)
+
+
+def _container_attributes(resolver: _Resolver, current: PythonSymbol | None) -> frozenset[str]:
+    """``self`` attributes that a class binds to builtin containers anywhere in its body."""
+
+    if current is None:
+        return frozenset()
+    owner = _containing_class_qname(current)
+    if owner is None:
+        return frozenset()
+    symbol = resolver.class_named(f"{current.module}.{owner}")
+    if symbol is None or not isinstance(symbol.node, ast.ClassDef):
+        return frozenset()
+    return _class_container_attributes(symbol.node)
 
 
 def _consumer_calls_instance_methods(consumer: str | None) -> bool:
@@ -3027,6 +3833,8 @@ def _constant_affixes(expression: ast.expr | None) -> tuple[str, str]:
     return prefix, suffix
 
 
+_SCRIPT_FILE = re.compile(r"[\w][\w./-]*\.py")
+"""A string that is one relative file name of a Python module."""
 _PERCENT_FIELD = re.compile(r"%[-#0 +]*\d*(?:\.\d+)?[sdriouxXeEfFgGc]")
 _BRACE_FIELD = re.compile(r"\{[^{}]*\}")
 
@@ -3315,6 +4123,27 @@ def _unsupported_python_hook_boundaries(
                 )
             )
 
+        # A concrete class must implement the abstract methods of its bases, or it cannot be
+        # created; removing an implementation that no call reaches breaks the class (ADR-0027).
+        abstract_names = {
+            method.name
+            for base in resolver.mro(class_symbol)[1:]
+            for method in owned_methods[base.id]
+            if _is_abstract(method)
+        }
+        required = {
+            method.id for method in owned_methods[class_symbol.id] if method.name in abstract_names
+        }
+        if required:
+            boundaries.append(
+                UnknownBoundary(
+                    source=class_symbol.id,
+                    domain="abstract_implementation",
+                    reason="methods implement abstract methods that the class must define",
+                    targets=tuple(sorted(required)),
+                )
+            )
+
         external = resolver.external_bases(class_symbol)
         hooking = [name for name in external if not _hook_free(name)]
         methods = owned_methods[class_symbol.id]
@@ -3393,8 +4222,13 @@ def _unsupported_python_hook_boundaries(
                 symbol.id
                 for symbol in module.symbols
                 if symbol.owner is None
-                and symbol.kind is NodeKind.FUNCTION
-                and symbol.name in MODULE_HOOKS
+                and (
+                    (symbol.kind is NodeKind.FUNCTION and symbol.name in MODULE_HOOKS)
+                    or (
+                        symbol.kind in {NodeKind.FUNCTION, NodeKind.CLASS}
+                        and _is_reserved_name(symbol.name)
+                    )
+                )
             )
         )
         if module_hooks:
@@ -3403,7 +4237,8 @@ def _unsupported_python_hook_boundaries(
                     source=module.node_id,
                     domain="implicit_python_dispatch",
                     reason=(
-                        "module __getattr__ or __dir__ may execute when the module is accessed"
+                        "module __getattr__ or __dir__ may execute when the module is accessed,"
+                        " and a function or class named __like_this__ may be looked up by a host"
                     ),
                     targets=module_hooks,
                 )
@@ -3413,6 +4248,13 @@ def _unsupported_python_hook_boundaries(
 
 MODULE_HOOKS = frozenset({"__getattr__", "__dir__"})
 """Module-level functions that Python calls for missing attributes and ``dir()`` (PEP 562)."""
+
+
+def _is_reserved_name(name: str) -> bool:
+    """``__ExtensionFactory__``: Python reserves such names, and a host that loads the module
+    looks them up by name (ADR-0028)."""
+
+    return len(name) > 4 and name.startswith("__") and name.endswith("__")
 
 
 def _base_is_computed(
@@ -3511,6 +4353,15 @@ def _base_name(resolver: _Resolver, base: ast.expr, module: PythonModule) -> str
 
     expression = base.value if isinstance(base, ast.Subscript) else base
     return resolver.external_name(_unstarred(expression), module) or "a computed base"
+
+
+def _is_abstract(symbol: PythonSymbol) -> bool:
+    return any(
+        (name := _dotted_name(decorator)) is not None
+        and name.rsplit(".", 1)[-1]
+        in {"abstractmethod", "abstractproperty", "abstractclassmethod", "abstractstaticmethod"}
+        for decorator in symbol.decorators
+    )
 
 
 def _is_descriptor_hook(symbol: PythonSymbol) -> bool:

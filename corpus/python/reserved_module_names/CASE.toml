@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "reserved-module-names"
+description = "A function or class named like __this__ in a module is looked up by a host."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "__ExtensionFactory__"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

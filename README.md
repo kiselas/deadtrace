@@ -4,8 +4,8 @@ Deadtrace is an open-source, explainable dead-code analyzer for Python applicati
 framework registrations, dependency injection, callbacks, lifecycle hooks, and test consumers
 instead of treating “no textual references” as proof that code can be deleted.
 
-> **Alpha candidate:** scans are static and read-only. Findings are review units, never claims that
-> deletion is safe. PyPI publication is intentionally deferred.
+> **Public alpha:** scans are static and read-only. Findings are review units, never claims that
+> deletion is safe. APIs and artifact schemas may change during the alpha series.
 
 ## What works now
 
@@ -53,9 +53,23 @@ Source discovery skips virtual environments, `site-packages`, `node_modules`, an
 directories, and names what it skipped. When a scan reports little because unknown
 boundaries protect most code, the report names the widest ones and where they are.
 
-## Install from this repository
+## Install
 
 Deadtrace requires Python 3.12. With [uv](https://docs.astral.sh/uv/):
+
+```console
+uv tool install --python 3.12 "deadtrace==0.1.0a1"
+deadtrace --version
+deadtrace scan .
+```
+
+Or install into a Python 3.12 virtual environment:
+
+```console
+python -m pip install "deadtrace==0.1.0a1"
+```
+
+For development from this repository:
 
 ```console
 uv sync --locked --all-groups
@@ -67,11 +81,21 @@ To test the distributable package without importing the source tree:
 ```console
 uv build
 uv run --isolated --no-project --python 3.12 \
-  --with ./dist/deadtrace-0.1.0a0-py3-none-any.whl deadtrace --version
+  --with ./dist/deadtrace-0.1.0a1-py3-none-any.whl deadtrace --version
 ```
 
 The interpreter is selected explicitly because `--no-project` ignores `.python-version`, and the
 default `python` on PATH may be older than 3.12.
+
+Exercise scanning and saved artifacts from the installed wheel with:
+
+```console
+uv run --isolated --no-project --python 3.12 \
+  --with ./dist/deadtrace-0.1.0a1-py3-none-any.whl python scripts/wheel_smoke.py
+```
+
+The smoke script uses a temporary directory, rejects a source-tree package import, and checks
+inventory, analysis, determinism, explanations, baselines, comparisons, and no target execution.
 
 ## Quickstart: FastAPI + Dishka
 
@@ -184,8 +208,8 @@ not presented as version-verified.
 
 A pattern for which a complete world reports code that may run as unreached is a contract
 violation. It is recorded under [fixtures/known-violations](fixtures/known-violations/README.md)
-before it is fixed; the twenty-eight cases recorded so far are met from model revision 10 and
-live in `corpus/`. A method whose name is also used on a value of unknown type is protected
+before it is fixed. Recorded cases, including receiver-flow violations across branches and loop
+iterations fixed in model revision 23, now live in `corpus/`. A method whose name is also used on a value of unknown type is protected
 rather than reported, and a function under an unmodeled framework's decorator is protected in
 any world that loads its module. The methods of a class with an external base, other than
 builtins, `abc`, `typing`, `pydantic.BaseModel`, and `dishka.Provider`, are protected once the
@@ -219,10 +243,15 @@ ordinary `scan` never imports or executes target modules and does not use the ne
 ## Project documentation
 
 The canonical implementation plan is [ROADMAP.md](ROADMAP.md). Architecture decision records are
-in [docs/adr](docs/adr/README.md). The analysis contract, architecture notes, support matrix, and
-acceptance matrix are planned for `docs/` and have not been written yet. Repository policies are
+in [docs/adr](docs/adr/README.md). The [analysis contract](docs/analysis-contract.md),
+[architecture](docs/architecture.md), [support matrix](docs/support-matrix.md), and
+[release acceptance](docs/releasing.md) define this alpha's scope and verification. Repository policies are
 in [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
 [GOVERNANCE.md](GOVERNANCE.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+The [2026-10-01 repository audit and improvement plan](docs/audit-2026-10-01.md) records current
+verification and remaining priorities. [Methodology](docs/methodology.md) is a reviewed research
+proposal; it does not change the active milestone or authorize future target execution.
 
 ## License
 

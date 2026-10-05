@@ -19,7 +19,7 @@ import pytest
 from deadtrace.case_validator import unmet_targets
 
 KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
-"""Empty: every recorded case met its expectations and moved to corpus/."""
+"""Empty: public factory return case moved to corpus after the model-31 fix."""
 
 
 def _cases_root(project_root: Path) -> Path:

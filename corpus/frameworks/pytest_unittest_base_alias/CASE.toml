@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "pytest-unittest-base-alias"
+description = "A class derived from an alias of unittest.TestCase is collected as a test case."
+
+[analysis]
+complete = true
+worlds = ["production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/test_suite.py"
+kind = "class"
+qualified_name = "Suite"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/test_suite.py"
+kind = "function"
+qualified_name = "Suite.test_value"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

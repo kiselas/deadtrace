@@ -81,7 +81,9 @@ def build_findings(
     reached = set().union(
         *(world.resolved_may_run | world.conservative_may_run for world in production_worlds)
     )
-    retained = _with_members(model, set().union(*(world.retained for world in production_worlds)))
+    retained = _retained_with_members(
+        program, model, set().union(*(world.retained for world in production_worlds))
+    )
     test_worlds = tuple(world for world in snapshot.worlds if world.id.profile == "tests")
     test_reached = (
         set().union(*(world.resolved_may_run | world.conservative_may_run for world in test_worlds))
@@ -89,7 +91,7 @@ def build_findings(
         else set()
     )
     adjacency = _ownership_and_edge_adjacency(model)
-    framework_nodes = _framework_specific_nodes(model, program, adjacency)
+    framework_nodes = _framework_specific_nodes(model, program, adjacency, reached)
     findings.extend(
         _unrequested_binding_findings(
             program, model, adjacency, reached, retained, production_worlds
@@ -229,15 +231,40 @@ def _framework_specific_nodes(
     model: FrameworkModel,
     program: PythonProgram,
     adjacency: defaultdict[NodeId, set[NodeId]],
+    reached: set[NodeId],
 ) -> set[NodeId]:
+    """Nodes another finding accounts for, so ``RCH001`` leaves them out.
+
+    What hangs below a binding's factory is reported with that binding when nothing requests it
+    (``RCH003``). Below a factory that is reached, an unreached member is dead code like any
+    other (ADR-0027).
+    """
+
     nodes = {route.endpoint for route in model.routes}
     for binding in model.bindings:
-        nodes.update(_descendants(adjacency, binding.factory))
+        if binding.factory not in reached:
+            nodes.update(_descendants(adjacency, binding.factory))
         nodes.add(binding.provider_class)
         provider = program.symbols.get(binding.provider_class)
         if provider is not None:
             nodes.update(symbol.id for symbol in program.index.members(provider.id))
     return nodes
+
+
+def _retained_with_members(
+    program: PythonProgram, model: FrameworkModel, retained: set[NodeId]
+) -> set[NodeId]:
+    """Retained declarations with what is defined inside them, except the methods of a class that
+    a binding registers: the binding retains the class as a factory, and its methods are used or
+    unused like those of any other class (ADR-0027)."""
+
+    factories = {
+        binding.factory
+        for binding in model.bindings
+        if (symbol := program.symbols.get(binding.factory)) is not None
+        and symbol.kind is NodeKind.CLASS
+    }
+    return _with_members(model, retained - factories) | (retained & factories)
 
 
 def _with_members(model: FrameworkModel, retained: set[NodeId]) -> set[NodeId]:

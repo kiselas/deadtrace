@@ -63,7 +63,9 @@ def test_installed_apps_come_from_app_lists_and_app_configs() -> None:
                 'INSTALLED_APPS = ["django.contrib.admin", "catalog", *LOCAL_APPS]\n'
             ),
             "catalog/__init__.py": "",
-            "catalog/models.py": "class Item:\n    pass\n",
+            "catalog/models.py": (
+                "from django.db import models\n\nclass Item(models.Model):\n    pass\n"
+            ),
             "catalog/views.py": "def index():\n    pass\n",
             "orders/__init__.py": "",
             "orders/config.py": (

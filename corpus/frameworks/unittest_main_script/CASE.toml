@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "unittest-main-script"
+description = "unittest.main() in a script runs the TestCase classes of that script."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_checks.py"
+kind = "class"
+qualified_name = "Checks"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_checks.py"
+kind = "function"
+qualified_name = "Checks.testValue"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_checks.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

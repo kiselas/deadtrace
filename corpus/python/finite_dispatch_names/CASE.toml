@@ -1,0 +1,39 @@
+schema_version = 1
+case_id = "finite-dispatch-names"
+description = "Immutable local name sets narrow known receivers; unknown writes retain protection."
+
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "First.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "First.other"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "First.unused"
+expectation = "candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Second.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Second.other"
+expectation = "not_candidate"

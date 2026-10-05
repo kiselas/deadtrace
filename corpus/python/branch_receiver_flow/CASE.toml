@@ -1,0 +1,25 @@
+schema_version = 1
+case_id = "branch-receiver-flow"
+description = "Reachable methods must be protected across control flow."
+[analysis]
+complete = true
+worlds = ["production:script"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "First.run"
+expectation = "not_candidate"
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Second.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "_unused_control"
+expectation = "candidate"

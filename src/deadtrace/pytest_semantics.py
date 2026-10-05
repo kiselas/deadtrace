@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import ast
 import configparser
+import shlex
 import tomllib
 from collections.abc import Collection
 from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 from deadtrace.config import Config
 from deadtrace.core import (
     AssemblyState,
@@ -31,6 +33,7 @@ from deadtrace.python_frontend import (
     PythonSymbol,
     _dotted_name,
     call_arguments,
+    follow_module_alias,
     is_fixture_decorator,
     is_function,
     keyword_argument,
@@ -180,6 +183,8 @@ class PytestCollection:
     files: tuple[str, ...] = ("test_*.py", "*_test.py")
     classes: tuple[str, ...] = ("Test",)
     functions: tuple[str, ...] = ("test",)
+    plugins: tuple[str, ...] = ()
+    """Modules that ``addopts`` loads with ``-p``."""
 
 
 def read_pytest_collection(root: Path) -> PytestCollection:
@@ -208,6 +213,7 @@ def read_pytest_collection(root: Path) -> PytestCollection:
             files=values.get("python_files", default.files),
             classes=values.get("python_classes", default.classes),
             functions=values.get("python_functions", default.functions),
+            plugins=values.get("plugins", default.plugins),
         )
     return PytestCollection()
 
@@ -218,10 +224,13 @@ def _pytest_options(path: Path, section: str) -> dict[str, tuple[str, ...]] | No
     options: dict[str, tuple[str, ...]] = {}
     names = ("python_files", "python_classes", "python_functions")
     try:
+        source = read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8")
         if not section:
-            with path.open("rb") as stream:
-                document = tomllib.load(stream)
-            table = document.get("tool", {}).get("pytest", {})
+            document = tomllib.loads(source)
+            tool = document.get("tool", {})
+            if not isinstance(tool, dict):
+                return None
+            table = tool.get("pytest", {})
             table = table.get("ini_options", table) if isinstance(table, dict) else None
             if not isinstance(table, dict):
                 return None
@@ -231,17 +240,53 @@ def _pytest_options(path: Path, section: str) -> dict[str, tuple[str, ...]] | No
                     options[name] = tuple(value.split())
                 elif isinstance(value, list) and all(isinstance(item, str) for item in value):
                     options[name] = tuple(value)
+            _add_plugins(options, table.get("addopts"))
             return options
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read(path, encoding="utf-8")
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError, configparser.Error):
+        parser.read_string(source, source=str(path))
+    except (
+        OSError,
+        UnicodeError,
+        InputTooLargeError,
+        RecursionError,
+        tomllib.TOMLDecodeError,
+        configparser.Error,
+    ):
         return None
     if not parser.has_section(section):
         return None
     for name in names:
         if parser.has_option(section, name):
             options[name] = tuple(parser.get(section, name).split())
+    if parser.has_option(section, "addopts"):
+        _add_plugins(options, parser.get(section, "addopts"))
     return options
+
+
+def _add_plugins(options: dict[str, tuple[str, ...]], addopts: object) -> None:
+    """Modules named by ``-p`` in ``addopts``; ``-p no:name`` disables a plugin instead."""
+
+    if isinstance(addopts, str):
+        try:
+            words = shlex.split(addopts)
+        except ValueError:
+            return
+    elif isinstance(addopts, list) and all(isinstance(item, str) for item in addopts):
+        words = list(addopts)
+    else:
+        return
+    found: list[str] = []
+    for index, word in enumerate(words):
+        if word == "-p" and index + 1 < len(words):
+            name = words[index + 1]
+        elif word.startswith("-p") and len(word) > 2 and not word.startswith("--"):
+            name = word[2:]
+        else:
+            continue
+        if not name.startswith("no:"):
+            found.append(name)
+    if found:
+        options["plugins"] = tuple(found)
 
 
 def apply_pytest_model(
@@ -263,6 +308,7 @@ def apply_pytest_model(
 
     del config
     collection = collection if collection is not None else PytestCollection()
+    plugin_modules = (*plugin_modules, *collection.plugins)
     imported_functions, imported_classes = _imported_tests(program, collection)
     classes = _collected_classes(program, collection, set(imported_classes))
     native = {
@@ -840,7 +886,9 @@ def _project_ancestry(program: PythonProgram, class_symbol: PythonSymbol) -> lis
 def _is_unittest_case(program: PythonProgram, class_symbol: PythonSymbol) -> bool:
     module = program.modules[class_symbol.module]
     return any(
-        _expanded_name(module, base).endswith(("unittest.TestCase", "IsolatedAsyncioTestCase"))
+        follow_module_alias(program.modules, _expanded_name(module, base)).endswith(
+            ("unittest.TestCase", "IsolatedAsyncioTestCase")
+        )
         for base in class_symbol.bases
     )
 
@@ -1052,6 +1100,9 @@ def _parameterized_names(
 
     names: set[str] = set()
     for expression in _marks(program, module, symbol):
+        if _expanded_name(module, expression.func) in HYPOTHESIS_GIVEN:
+            names.update(_given_names(expression, symbol))
+            continue
         if not _expanded_name(module, expression.func).endswith("pytest.mark.parametrize"):
             continue
         argnames = keyword_argument(expression, "argnames")
@@ -1062,6 +1113,22 @@ def _parameterized_names(
         if _dotted_name(indirect) == "True":
             continue
         names.update(parsed - _argument_names(indirect))
+    return names
+
+
+HYPOTHESIS_GIVEN = frozenset({"hypothesis.given", "hypothesis.core.given"})
+
+
+def _given_names(expression: ast.Call, symbol: PythonSymbol) -> set[str]:
+    """Arguments that ``@given`` fills: keywords by name, positional strategies from the right."""
+
+    names = {keyword.arg for keyword in expression.keywords if keyword.arg is not None}
+    positional = len(expression.args)
+    if positional:
+        parameters = [item.name for item in symbol.parameters]
+        if parameters and parameters[0] in {"self", "cls"}:
+            parameters = parameters[1:]
+        names.update(parameters[-positional:])
     return names
 
 

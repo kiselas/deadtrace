@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "abstract-implementation-required"
+description = "A method that implements an abstract method of a base is not reported as unused."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Cancel.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Cancel.describe"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Cancel.extra"
+expectation = "candidate"

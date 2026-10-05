@@ -1,12 +1,38 @@
 # Changelog
 
 All notable changes will be documented here. The project follows Semantic Versioning once public
-compatibility commitments are defined; pre-alpha schemas may change between releases.
+compatibility commitments are defined; alpha schemas may change between releases.
 
 ## Unreleased
 
+## 0.1.0a1 - 2026-10-05
+
+First public alpha for Python 3.12. Scanner model `python-fastapi-dishka/31`; inventory schema 0,
+semantic report schema 1. Findings require human review; no deletion-safety guarantee is made.
+
+- Static scanning, saved explanations, baselines, report comparison and diagnostic bundles.
+- Documented analysis contract, supported scope and exact-commit release acceptance.
+- Python receiver control-flow joins, finite local dispatch names, external nominal reflection,
+  stored literal callable/re-export protection, and public object-field/declared-return API closure
+  accumulated through ADR-0033 to ADR-0046.
+- A single CI-built wheel and source distribution are sealed with SHA-256 checksums, exercised
+  on Linux and Windows, and published through GitHub OIDC without rebuilding (ADR-0049).
+- The independently pinned `object.__setattr__` recall gap remains guarded on model 31;
+  the selected model-32 refinement is deferred. General dynamic dispatch and unmodeled behavior
+  retain conservative protection. Field measurements are not market-wide precision claims.
+
+The entries below describe the development history included in this first public distribution.
+
 ### Added
 
+- A portable installed-wheel smoke check exercises inventory, analysis, determinism, explanations,
+  baselines, comparisons, and no target execution on both CI operating systems (ADR-0030).
+- Hypothesis `@given` arguments, plugins loaded with `-p` in `addopts`, `unittest.main()`, aliases of
+  `unittest.TestCase`, conditional bases and imports, scripts run by file name, and lazy export
+  tables are understood (ADR-0028).
+- Dead methods are found in more classes: a class a Dishka binding builds, an instance kept in a
+  list or a dictionary, and a class read for an attribute no longer keep all their methods; an
+  implementation of an abstract method is retained with its class (ADR-0027).
 - `[tool.deadtrace].exclude` leaves data directories out of the source universe; reports list
   the excluded files (ADR-0018).
 - `cli.commands` capability: Typer commands and callbacks, and Click subcommands and groups.
@@ -193,6 +219,13 @@ compatibility commitments are defined; pre-alpha schemas may change between rele
 
 ### Fixed
 
+- Source traversal errors and non-text encoding cookies produce `DT1001` instead of silently
+  dropping source or crashing. Configuration reads enforce the 16-MiB input limit; invalid UTF-8
+  uses existing input diagnostics. Invalid modeled dependency versions produce the `DT4001`
+  compatibility guard (ADR-0030).
+- Package API worlds follow re-exports from all conditional imports, including alternatives to
+  absent compiled modules. Class-body and chained annotations retain the classes they name
+  (ADR-0029, model revision 22).
 - A report with input issues is comparable with a baseline created from it; the issues were
   stored as tuples and read back as lists.
 - The `pytest.fixtures` capability is listed whether or not the project has tests, so a first

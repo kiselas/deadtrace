@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from deadtrace.core import ReachabilityKind, WorldId, WorldPlan, WorldResult, solve
+from deadtrace.nominal_types import may_supply_nominal_value
 from deadtrace.pytest_semantics import PytestCollection, read_pytest_collection
 from deadtrace.python_frontend import (
     PythonProgram,
@@ -19,6 +20,7 @@ from deadtrace.python_frontend import (
     conftest_directories,
     is_test_path,
 )
+from deadtrace.receiver_flow import EXTERNAL_RECEIVER, UNKNOWN_RECEIVER, ReceiverValue
 from deadtrace.scanner import SourceCollection, SourceUnit
 
 
@@ -377,3 +379,544 @@ def test_an_inherited_member_used_through_a_subclass_uses_the_subclass() -> None
     assert _state(program, world, "factories:ItemFactory") is not None
     assert _state(program, world, "factories:ItemFactory._create") is not None
     assert _state(program, world, "factories:OtherFactory") is None
+
+
+@pytest.mark.parametrize("annotation", ["Path", '"Path"'])
+@pytest.mark.parametrize("conditional_import", [False, True])
+@pytest.mark.parametrize(
+    "body",
+    [
+        "getattr(value, name)()",
+        "alias = value\n    getattr(alias, name)()",
+        "callback = getattr(value, name)\n    callback()",
+        'callback = getattr(value, "check")\n    callback()',
+    ],
+)
+def test_external_annotation_reflection_protects_members_without_module_wide_guard(
+    annotation: str, conditional_import: bool, body: str
+) -> None:
+    imports = (
+        "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from pathlib import Path\n"
+        if conditional_import
+        else "from pathlib import Path\n"
+    )
+    program = _program(
+        **{
+            "main.py": imports
+            + "from external import Bridge\n"
+            + "class Derived(Path):\n    def check(self): pass\n"
+            + "class Indirect(Bridge):\n    def run(self): pass\n"
+            + "class Plain:\n    def check(self): pass\n"
+            + "def _unused(): pass\n"
+            + f"def main(value: {annotation}, name):\n    {body}\n",
+            "tests/test_double.py": "class Double:\n    def check(self): pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+    for target in ("main:Derived.check", "main:Indirect.run"):
+        assert _state(program, world, target) is not None
+    assert _state(program, world, "main:Plain.check") is None
+    assert _state(program, world, "tests.test_double:Double.check") is not None
+    assert _state(program, world, "main:_unused") is None
+
+
+@pytest.mark.parametrize(
+    "imports,annotation,body",
+    [
+        ("from pathlib import Path", "Path", "value = unknown\n    getattr(value, name)()"),
+        (
+            "from pathlib import Path",
+            "Path",
+            "if name:\n        value = unknown\n    getattr(value, name)()",
+        ),
+        ("from pathlib import Path", "Path", "value = factory()\n    getattr(value, name)()"),
+        (
+            "from pathlib import Path",
+            "Path",
+            "alias = value\n    del alias\n    getattr(alias, name)()",
+        ),
+        (
+            "from pathlib import Path",
+            "Path",
+            "for value in unknown:\n        getattr(value, name)()",
+        ),
+        (
+            "from pathlib import Path",
+            "Path",
+            "with unknown as value:\n        getattr(value, name)()",
+        ),
+        ("from pathlib import Path", "Path", "value, other = unknown\n    getattr(value, name)()"),
+        (
+            "from pathlib import Path",
+            "Path",
+            "try:\n        value = unknown\n    finally:\n        getattr(value, name)()",
+        ),
+        ("from pathlib import Path", "Path", "(value := unknown)\n    getattr(value, name)()"),
+        ("from typing import Any", "Any", "getattr(value, name)()"),
+        ("from typing import Protocol", "Protocol", "getattr(value, name)()"),
+        ("from types import ModuleType", "ModuleType", "getattr(value, name)()"),
+        ("from pathlib import Path", "list[Path]", "getattr(value, name)()"),
+        ("from pathlib import Path", "Path | None", "getattr(value, name)()"),
+        ("from pathlib import Path", "unknown", "getattr(value, name)()"),
+        (
+            "if flag:\n    from pathlib import Path\nelse:\n    from external import Path",
+            "Path",
+            "getattr(value, name)()",
+        ),
+    ],
+)
+def test_external_reflection_unknown_origins_keep_the_whole_graph_guard(
+    imports: str, annotation: str, body: str
+) -> None:
+    program = _program(
+        **{
+            "main.py": imports
+            + "\nfrom external import factory\n"
+            + "def _possibly_attached(): pass\n"
+            + f"def main(value: {annotation}, name, unknown):\n    {body}\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:_possibly_attached") is not None
+
+
+def test_external_reflection_keeps_escaped_function_attributes_protected() -> None:
+    program = _program(
+        **{
+            "main.py": "from pathlib import Path\n"
+            "def _attached(): pass\n"
+            "def _unused(): pass\n"
+            "def main(value: Path, name):\n"
+            "    value.callback = _attached\n"
+            "    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:_attached") is not None
+    assert _state(program, world, "main:_unused") is None
+
+
+def test_external_annotation_provenance_joins_and_forgets_untyped_external_origins() -> None:
+    annotated = ReceiverValue(external=True, external_annotation=True)
+    assert annotated.join(annotated).external_annotation
+    assert annotated.join(ReceiverValue()).external_annotation
+    assert not annotated.join(EXTERNAL_RECEIVER).external_annotation
+    assert annotated.join(UNKNOWN_RECEIVER).unknown
+
+
+def test_external_annotation_provenance_survives_destructured_loop_and_return() -> None:
+    program = _program(
+        **{
+            "main.py": "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n    from pathlib import Path\n"
+            "names = {'check': 'result'}\n"
+            "class Derived(Path):\n    def check(self): pass\n"
+            "def _unused(): pass\n"
+            "def main(p: 'Path') -> str:\n"
+            "    assert p.exists(), 'path does not exist'\n"
+            "    for method, name in names.items():\n"
+            "        if getattr(p, method)():\n"
+            "            return name\n"
+            "    return 'unknown'\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Derived.check") is not None
+    assert _state(program, world, "main:_unused") is None
+
+
+@pytest.mark.parametrize(
+    "imports,base",
+    [
+        ("from logging import LogRecord\nfrom pathlib import Path", "LogRecord"),
+        ("from pathlib import Path", "object"),
+        ("from pathlib import Path\nimport builtins", "builtins.object"),
+        (
+            "from pathlib import Path\nfrom typing import Generic, TypeVar\nT = TypeVar('T')",
+            "Generic[T]",
+        ),
+    ],
+)
+def test_standard_nominal_summary_excludes_unrelated_roots(imports: str, base: str) -> None:
+    program = _program(
+        **{
+            "main.py": imports + f"\nclass Other({base}):\n    def idle(self): pass\n"
+            "def main(value: Path, name):\n    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Other.idle") is None
+
+
+@pytest.mark.parametrize(
+    "imports,base",
+    [
+        ("from pathlib import Path\nfrom external import Bridge", "Bridge"),
+        ("from pathlib import Path\nobject = factory()", "object"),
+        (
+            "from pathlib import Path\nfrom logging import LogRecord\nLogRecord = factory()",
+            "LogRecord",
+        ),
+        (
+            "from pathlib import Path\nimport logging\nlogging.LogRecord = factory()",
+            "logging.LogRecord",
+        ),
+        (
+            "from pathlib import Path\nif flag:\n    from external import Base\n"
+            "else:\n    from logging import LogRecord as Base",
+            "Base",
+        ),
+        ("from pathlib import Path\ndef factory(): pass", "factory()"),
+    ],
+)
+def test_opaque_and_rebound_external_bases_keep_project_members(imports: str, base: str) -> None:
+    program = _program(
+        **{
+            "main.py": imports + f"\nclass Possible({base}):\n    def check(self): pass\n"
+            "def main(value: Path, name):\n    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Possible.check") is not None
+
+
+def test_path_summary_retains_methods_inherited_from_plain_project_mixin() -> None:
+    program = _program(
+        **{
+            "main.py": "from pathlib import Path\n"
+            "class Mixin:\n    def check(self): pass\n"
+            "class Derived(Mixin, Path): pass\n"
+            "def main(value: Path, name):\n    getattr(value, name)()\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Mixin.check") is not None
+
+
+def test_nominal_origins_join_conservatively() -> None:
+    path = ReceiverValue(external=True, external_annotation=True, external_nominal="pathlib.Path")
+    record = ReceiverValue(
+        external=True, external_annotation=True, external_nominal="logging.LogRecord"
+    )
+    assert path.join(path).external_nominal == "pathlib.Path"
+    assert path.join(ReceiverValue()).external_nominal == "pathlib.Path"
+    assert ReceiverValue().join(path).external_nominal == "pathlib.Path"
+    assert path.join(record).external_nominal is None
+    assert path.join(EXTERNAL_RECEIVER).external_nominal is None
+
+
+@pytest.mark.parametrize(
+    "base,possible",
+    [
+        ("pathlib.PurePosixPath", True),
+        ("logging.Handler", False),
+        ("unknown.Bridge", True),
+        ("builtins.object", False),
+    ],
+)
+def test_standard_nominal_metadata_keeps_unknown_ancestry(base: str, possible: bool) -> None:
+    assert may_supply_nominal_value(base, "pathlib.Path") is possible
+
+
+@pytest.mark.parametrize("expression", ["worker", "Worker()"])
+def test_stored_literal_getattr_protects_only_selected_project_method(expression: str) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Worker:\n"
+                "    def run(self): pass\n"
+                "    def idle(self): pass\n"
+                "def main():\n"
+                "    worker = Worker()\n"
+                f"    callback = getattr({expression}, 'run')\n"
+                "    callback()\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Worker.run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "main:Worker.idle") is None
+
+
+def test_stored_literal_getattr_includes_inherited_method_and_override() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Base:\n"
+                "    def run(self): pass\n"
+                "    def idle(self): pass\n"
+                "class Child(Base):\n"
+                "    def run(self): pass\n"
+                "def main(worker: Base):\n"
+                "    callback = getattr(worker, 'run')\n"
+                "    callback()\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Base.run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "main:Child.run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "main:Base.idle") is None
+
+
+def test_stored_literal_getattr_of_project_module() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import worker\ndef main():\n"
+                "    callback = getattr(worker, 'run')\n    callback()\n"
+            ),
+            "worker.py": "def run(): pass\ndef idle(): pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+def test_missing_literal_getattr_with_default_does_not_open_graph() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Worker:\n    def idle(self): pass\n"
+                "def main():\n    worker = Worker()\n"
+                "    callback = getattr(worker, 'missing', None)\n"
+                "def unused(): pass\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Worker.idle") is None
+    assert _state(program, world, "main:unused") is None
+
+
+def test_partial_keyword_override_retains_broad_dispatch_protection() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "from functools import partial\n"
+                "class Worker:\n"
+                "    def setter(self): pass\n"
+                "    def other(self): pass\n"
+                "def dispatch(worker, *, name):\n    getattr(worker, name)()\n"
+                "def main():\n"
+                "    callback = partial(dispatch, Worker(), name='setter')\n"
+                "    callback(name='other')\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Worker.other") is not None
+
+
+@pytest.mark.parametrize("name", ["'run'", "name"])
+@pytest.mark.parametrize(
+    "exports",
+    [
+        {"api.py": "from worker import work as run\n"},
+        {
+            "api.py": "from bridge import relay as run\n",
+            "bridge.py": "from worker import work as relay\n",
+        },
+        {"api.py": "from bridge import *\n", "bridge.py": "from worker import work as run\n"},
+        {
+            "api.py": "from bridge import *\n",
+            "bridge.py": "from api import *\nfrom worker import work as run\n",
+        },
+    ],
+)
+def test_stored_getattr_follows_exported_names_through_imports(
+    name: str, exports: dict[str, str]
+) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import api\ndef main(name):\n"
+                f"    callback = getattr(api, {name})\n    callback()\n"
+            ),
+            "worker.py": "def work(): pass\ndef idle(): pass\n",
+            **exports,
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:work") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+def test_reflected_conditional_reexports_retain_both_callables() -> None:
+    program = _program(
+        **{
+            "main.py": """import api
+def main():
+    callback = getattr(api, 'run')
+    callback()
+""",
+            "api.py": (
+                "import os\nif os.environ.get('CHOICE'):\n    from worker import first as run\n"
+                "else:\n    from worker import second as run\nfrom worker import idle\n"
+            ),
+            "worker.py": "def first(): pass\ndef second(): pass\ndef idle(): pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:first") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:second") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+def test_reexport_star_chain_longer_than_resolver_name_hint() -> None:
+    exports = {f"layer{i}.py": f"from layer{i + 1} import *\n" for i in range(5)}
+    exports["layer5.py"] = "from worker import work as run\n"
+    program = _program(
+        **{
+            "main.py": (
+                "import layer0\ndef main():\n"
+                "    callback = getattr(layer0, 'run')\n    callback()\n"
+            ),
+            "worker.py": "def work(): pass\ndef idle(): pass\n",
+            **exports,
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:work") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+@pytest.mark.parametrize("consumer", ["isinstance", "issubclass"])
+@pytest.mark.parametrize("classinfo", ["(First, Second)", "(First, (Second, int))"])
+def test_literal_classinfo_tuples_do_not_expose_ordinary_methods(
+    consumer: str, classinfo: str
+) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class First:\n    def idle(self): pass\n"
+                "class Second:\n    def idle(self): pass\n"
+                f"def main(value):\n    return {consumer}(value, {classinfo})\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    for owner in ("First", "Second"):
+        assert _state(program, world, f"main:{owner}") is not None
+        assert _state(program, world, f"main:{owner}.idle") is None
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "consume(value, (Checked,))",
+        "isinstance(value, [Checked])",
+        "isinstance(value, (*[Checked],))",
+        "isinstance(value, (make(Checked),))",
+    ],
+)
+def test_unmodeled_classinfo_consumers_retain_escape_protection(call: str) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "from external import consume, make\n"
+                "class Checked:\n    def idle(self): pass\n"
+                f"def main(value):\n    return {call}\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        "from external import isinstance\n",
+        "from external import factory\nisinstance = factory()\n",
+    ],
+)
+def test_shadowed_inspector_retains_tuple_escape_protection(binding: str) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                binding + "class Checked:\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_local_inspector_parameter_is_not_builtin_summary() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Checked:\n    def idle(self): pass\n"
+                "def main(value, isinstance):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_literal_inspection_retains_metaclass_check_and_its_calls() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "def hook(): pass\n"
+                "class Meta(type):\n    def __instancecheck__(cls, value):\n"
+                "        hook()\n        return True\n"
+                "class Checked(metaclass=Meta):\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Meta.__instancecheck__") is not None
+    assert _state(program, world, "main:hook") is not None
+    assert _state(program, world, "main:Checked.idle") is None
+
+
+def test_external_star_import_cannot_prove_builtin_inspector() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "from external import *\n"
+                "class Checked:\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_enclosing_parameter_cannot_prove_builtin_inspector() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Checked:\n    def idle(self): pass\n"
+                "def main(isinstance, value):\n"
+                "    def inner():\n        return isinstance(value, (Checked,))\n"
+                "    return inner()\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_qualified_inspector_write_in_another_module_blocks_summary() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import patcher\nclass Checked:\n    def idle(self): pass\n"
+                "def main(value):\n    return isinstance(value, (Checked,))\n"
+            ),
+            "patcher.py": """import builtins as b
+from external import consumer
+b.isinstance = consumer
+""",
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Checked.idle") is not None

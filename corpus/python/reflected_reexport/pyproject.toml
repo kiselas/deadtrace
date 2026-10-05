@@ -1,0 +1,4 @@
+[tool.deadtrace]
+worlds = [
+  { profile = "production", scenario = "script", roots = ["main:main"], frameworks = ["python"] },
+]

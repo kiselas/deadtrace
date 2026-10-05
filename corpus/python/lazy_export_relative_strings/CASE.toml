@@ -1,0 +1,29 @@
+schema_version = 1
+case_id = "lazy-export-relative-strings"
+description = "A relative module:attribute string in a package names a definition it uses."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_lazy/_impl/tools.py"
+kind = "function"
+qualified_name = "cmdexec"
+occurrence = 0
+expectation = "not_candidate"
+
+[[targets]]
+path = "_lazy/_impl/tools.py"
+kind = "function"
+qualified_name = "cmdexec"
+occurrence = 1
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

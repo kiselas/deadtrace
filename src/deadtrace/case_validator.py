@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from deadtrace.analysis import AnalysisResult, analyze
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 from deadtrace.config import Config, discover_config, load_config
 from deadtrace.core import ReachabilityKind
 from deadtrace.scanner import scan
@@ -250,9 +251,14 @@ def _validate_semantic_target(
 
 def _read_manifest(path: Path) -> dict[str, Any]:
     try:
-        with path.open("rb") as stream:
-            document = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError) as error:
+        document = tomllib.loads(read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"))
+    except (
+        OSError,
+        UnicodeError,
+        InputTooLargeError,
+        RecursionError,
+        tomllib.TOMLDecodeError,
+    ) as error:
         raise CaseValidationError(f"cannot read {path}: {error}") from error
     if document.get("schema_version") != 1:
         raise CaseValidationError(f"{path}: schema_version must be 1")

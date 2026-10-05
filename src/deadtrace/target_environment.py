@@ -9,9 +9,9 @@ from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
-from deadtrace.artifacts import MAX_ARTIFACT_BYTES
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 
 _SUPPORTED_EXACT = {
     "fastapi": frozenset({Version("0.141.1")}),
@@ -81,19 +81,31 @@ def read_target_environment(root: Path, imported_packages: set[str]) -> TargetEn
         if name in imported_packages
     )
     issues = tuple(
-        _compatibility_issue(package)
+        issue
         for package in packages
         if package.name in _SUPPORTED_EXACT
-        and Version(package.version) not in _SUPPORTED_EXACT[package.name]
+        if (issue := _compatibility_issue(package)) is not None
     )
     canonical = "\n".join(f"{item.name}=={item.version}@{item.source}" for item in packages)
     return TargetEnvironment(packages, issues, sha256(canonical.encode()).hexdigest())
 
 
-def _compatibility_issue(package: TargetPackage) -> CompatibilityIssue:
+def _compatibility_issue(package: TargetPackage) -> CompatibilityIssue | None:
+    try:
+        version = Version(package.version)
+    except InvalidVersion:
+        return CompatibilityIssue(
+            code="DT4001",
+            package=package.name,
+            version=package.version,
+            message=f"cannot interpret {package.name} version {package.version!r}; "
+            "dependency compatibility is unknown",
+        )
+    if version in _SUPPORTED_EXACT[package.name]:
+        return None
     tested = ", ".join(str(item) for item in sorted(_SUPPORTED_EXACT[package.name]))
     supported = _SUPPORTED_RANGES[package.name]
-    if Version(package.version) in supported:
+    if version in supported:
         return CompatibilityIssue(
             code=UNTESTED_VERSION,
             package=package.name,
@@ -114,25 +126,25 @@ def _compatibility_issue(package: TargetPackage) -> CompatibilityIssue:
     )
 
 
-def _versions_from_uv_lock(path: Path) -> dict[str, tuple[Version, str]]:
+def _versions_from_uv_lock(path: Path) -> dict[str, tuple[str, str]]:
     document = _read_toml(path)
     if document is None:
         return {}
     packages = document.get("package", [])
     if not isinstance(packages, list):
         return {}
-    result: dict[str, tuple[Version, str]] = {}
+    result: dict[str, tuple[str, str]] = {}
     for package in packages:
         if not isinstance(package, dict):
             continue
         name = package.get("name")
         version = package.get("version")
         if isinstance(name, str) and isinstance(version, str):
-            result[_canonical_name(name)] = (Version(version), "uv.lock")
+            result[_canonical_name(name)] = (_normalized_version(version), "uv.lock")
     return result
 
 
-def _versions_from_pyproject(path: Path) -> dict[str, tuple[Version, str]]:
+def _versions_from_pyproject(path: Path) -> dict[str, tuple[str, str]]:
     document = _read_toml(path)
     if document is None:
         return {}
@@ -142,7 +154,7 @@ def _versions_from_pyproject(path: Path) -> dict[str, tuple[Version, str]]:
     dependencies = project.get("dependencies", [])
     if not isinstance(dependencies, list):
         return {}
-    result: dict[str, tuple[Version, str]] = {}
+    result: dict[str, tuple[str, str]] = {}
     for dependency in dependencies:
         if not isinstance(dependency, str):
             continue
@@ -152,17 +164,26 @@ def _versions_from_pyproject(path: Path) -> dict[str, tuple[Version, str]]:
             continue
         exact = [item.version for item in requirement.specifier if item.operator in {"==", "==="}]
         if len(exact) == 1 and "*" not in exact[0]:
-            result[_canonical_name(requirement.name)] = (Version(exact[0]), "pyproject.toml")
+            result[_canonical_name(requirement.name)] = (
+                _normalized_version(exact[0]),
+                "pyproject.toml",
+            )
     return result
+
+
+def _normalized_version(value: str) -> str:
+    try:
+        return str(Version(value))
+    except InvalidVersion:
+        return value
 
 
 def _read_toml(path: Path) -> dict[str, object] | None:
     try:
-        if not path.is_file() or path.stat().st_size > MAX_ARTIFACT_BYTES:
+        if not path.is_file():
             return None
-        with path.open("rb") as stream:
-            document = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError):
+        document = tomllib.loads(read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"))
+    except (OSError, UnicodeError, InputTooLargeError, RecursionError, tomllib.TOMLDecodeError):
         return None
     return document
 

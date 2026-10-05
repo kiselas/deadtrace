@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
+
 
 class ConfigurationError(ValueError):
     """Raised when Deadtrace configuration is invalid or ambiguous."""
@@ -86,9 +88,15 @@ def load_config(path: Path | None) -> Config:
     if path is None:
         return Config()
     try:
-        with path.open("rb") as stream:
-            document = tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError) as error:
+        data = read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES)
+        document = tomllib.loads(data.decode("utf-8"))
+    except (
+        OSError,
+        UnicodeError,
+        InputTooLargeError,
+        RecursionError,
+        tomllib.TOMLDecodeError,
+    ) as error:
         raise ConfigurationError(f"cannot read configuration {path}: {error}") from error
 
     section = _deadtrace_section(document, path)

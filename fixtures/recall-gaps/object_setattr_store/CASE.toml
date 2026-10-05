@@ -1,0 +1,15 @@
+schema_version = 1
+case_id = "object-setattr-store"
+description = "A literal object.__setattr__ store on self does not call unrelated methods."
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Stored.idle"
+expectation = "candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Stored.read"
+expectation = "not_candidate"

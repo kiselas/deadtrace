@@ -77,3 +77,46 @@ each other. Typo and link fixes are fine.
   installed libraries (model revision 18). Accepted.
 - [ADR-0026](0026-more-conventions-from-installed-packages.md) — More conventions found in installed
   packages (model revision 19). Accepted.
+- [ADR-0027](0027-recall-of-dead-methods.md) — Recall of dead methods (model revision 20). Accepted.
+- [ADR-0028](0028-conventions-from-more-installed-packages.md) — Conventions found in more installed packages (model revision 21). Accepted.
+- [ADR-0029](0029-reexports-from-absent-modules-and-classes-in-annotations.md) — Re-exports from absent
+  modules and classes in annotations (model revision 22). Accepted.
+- [ADR-0030](0030-input-error-integrity.md) — Input errors remain visible across inventory and
+  metadata readers. Accepted.
+- [ADR-0031](0031-bounded-artifact-parsing.md) — Bound opened inputs and reject ambiguous saved
+  JSON. Accepted.
+- [ADR-0032](0032-receiver-flow-violations.md) — Pin independently demonstrated receiver flow
+  violations. Accepted; resolved by ADR-0033.
+- [ADR-0033](0033-receiver-control-flow.md) — Join receiver types across branches and loop back
+  edges (model revision 23). Accepted; resolves ADR-0032.
+- [ADR-0034](0034-finite-local-dispatch-names.md) — Propagate finite immutable local names for
+  dynamic dispatch on known receivers (model revision 24). Accepted.
+- [ADR-0035](0035-external-reflection-provenance.md) — Pin a reflected method of an externally
+  annotated subclass. Accepted; resolved by ADR-0036.
+- [ADR-0036](0036-localize-external-value-reflection.md) — Preserve subclass and stand-in members
+  while localizing reflection on externally annotated values (model revision 25). Accepted.
+- [ADR-0037](0037-standard-nominal-reflection-families.md) — Refine standard nominal-family
+  reflection while preserving opaque bases and test stand-ins (model revision 26). Accepted.
+- [ADR-0038](0038-stored-literal-reflection.md) — Pin an executable stored literal getattr
+  target before its bounded fix. Accepted.
+- [ADR-0039](0039-preserve-stored-literal-callables.md) — Preserve selected callables retrieved
+  by stored literal getattr (model revision 27). Accepted; resolves ADR-0038.
+- [ADR-0040](0040-reflected-reexport-violation.md) — Pin unsafe stored reflection through an
+  imported callable alias before fixing it. Accepted.
+- [ADR-0041](0041-reflected-module-export-graph.md) — Follow reflected exported names through
+  project import and star-re-export chains (model revision 28). Accepted; resolves ADR-0040.
+- [ADR-0042](0042-literal-classinfo-consumer-summary.md) — Distinguish nested literal class-info
+  tuples consumed by inspecting builtins from arbitrary escaped class registries (revision 29).
+- [ADR-0043](0043-public-object-field-violation.md) — Pin externally callable methods exposed
+  through an exported object's public field chain before fixing API closure.
+- [ADR-0044](0044-public-object-field-api-closure.md) — Follow source-known public object fields
+  and project bases in automatic library/export API discovery (revision 30); resolves ADR-0043.
+- [ADR-0045](0045-public-return-api-violation.md) — Pin a public factory return API violation.
+- [ADR-0046](0046-declared-public-return-api.md) — Follow declared public returned objects in
+  automatic API closure (revision 31); resolves ADR-0045.
+- [ADR-0047](0047-field-direct-guard-attribution.md) — Record direct guard coverage in new field
+  facts/injections and measure exact-consumer cuts; scanner revision 31 unchanged.
+- [ADR-0048](0048-object-setattr-store-summary.md) — Pin a recall gap before refining literal
+  builtin object.__setattr__ stores on self; cast receiver escapes remain deferred.
+
+- [ADR-0049](0049-public-alpha-release.md) — Public read-only alpha, frozen model 31 and exact CI artifact publication through OIDC. Accepted.
