@@ -194,8 +194,8 @@ not presented as version-verified.
 
 A pattern for which a complete world reports code that may run as unreached is a contract
 violation. It is recorded under [fixtures/known-violations](fixtures/known-violations/README.md)
-before it is fixed; the twenty-eight cases recorded so far are met from model revision 10 and
-live in `corpus/`. A method whose name is also used on a value of unknown type is protected
+before it is fixed. Earlier recorded cases now live in `corpus/`; two receiver-flow violations
+across branches and loop iterations remain pinned in `fixtures/known-violations/`. A method whose name is also used on a value of unknown type is protected
 rather than reported, and a function under an unmodeled framework's decorator is protected in
 any world that loads its module. The methods of a class with an external base, other than
 builtins, `abc`, `typing`, `pydantic.BaseModel`, and `dishka.Provider`, are protected once the

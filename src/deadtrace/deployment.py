@@ -16,6 +16,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Protocol
 
+from deadtrace.artifacts import InputTooLargeError, read_bounded_bytes
 from deadtrace.scanner import is_skipped_directory
 
 MAX_DEPLOYMENT_FILE_BYTES = 1024 * 1024
@@ -144,10 +145,13 @@ def read_deployment_references(
 
 def _read_text(path: Path) -> str | None:
     try:
-        if path.is_symlink() or path.stat().st_size > MAX_DEPLOYMENT_FILE_BYTES:
+        if path.is_symlink():
             return None
-        return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        text = read_bounded_bytes(path, limit=MAX_DEPLOYMENT_FILE_BYTES).decode(
+            "utf-8", errors="replace"
+        )
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+    except (OSError, InputTooLargeError):
         return None
 
 

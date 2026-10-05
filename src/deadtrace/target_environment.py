@@ -11,7 +11,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
-from deadtrace.artifacts import MAX_ARTIFACT_BYTES
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 
 _SUPPORTED_EXACT = {
     "fastapi": frozenset({Version("0.141.1")}),
@@ -180,11 +180,10 @@ def _normalized_version(value: str) -> str:
 
 def _read_toml(path: Path) -> dict[str, object] | None:
     try:
-        if not path.is_file() or path.stat().st_size > MAX_ARTIFACT_BYTES:
+        if not path.is_file():
             return None
-        with path.open("rb") as stream:
-            document = tomllib.load(stream)
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        document = tomllib.loads(read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"))
+    except (OSError, UnicodeError, InputTooLargeError, RecursionError, tomllib.TOMLDecodeError):
         return None
     return document
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from deadtrace.artifacts import MAX_ARTIFACT_BYTES
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 
 _OBJECT_REFERENCE = re.compile(
     r"^\s*(?P<module>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
@@ -43,13 +43,12 @@ def read_project_entry_points(
     if not path.is_file():
         return (), ()
     try:
-        if path.stat().st_size > MAX_ARTIFACT_BYTES:
-            return (), (
-                EntryPointIssue("DT4101", "pyproject.toml is too large for entry-point discovery"),
-            )
-        with path.open("rb") as stream:
-            document = tomllib.load(stream)
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+        document = tomllib.loads(read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"))
+    except InputTooLargeError:
+        return (), (
+            EntryPointIssue("DT4101", "pyproject.toml is too large for entry-point discovery"),
+        )
+    except (OSError, UnicodeError, RecursionError, tomllib.TOMLDecodeError) as error:
         return (), (EntryPointIssue("DT4101", f"cannot read project entry points: {error}"),)
     project = document.get("project")
     if not isinstance(project, dict):

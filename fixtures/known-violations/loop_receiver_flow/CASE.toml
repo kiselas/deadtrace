@@ -1,0 +1,19 @@
+schema_version = 1
+case_id = "loop-receiver-flow"
+description = "Reachable methods must be protected across control flow."
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "First.run"
+expectation = "not_candidate"
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "Second.run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "_unused_control"
+expectation = "candidate"

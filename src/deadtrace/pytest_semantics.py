@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
+from deadtrace.artifacts import MAX_ARTIFACT_BYTES, InputTooLargeError, read_bounded_bytes
 from deadtrace.config import Config
 from deadtrace.core import (
     AssemblyState,
@@ -223,10 +224,13 @@ def _pytest_options(path: Path, section: str) -> dict[str, tuple[str, ...]] | No
     options: dict[str, tuple[str, ...]] = {}
     names = ("python_files", "python_classes", "python_functions")
     try:
+        source = read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8")
         if not section:
-            with path.open("rb") as stream:
-                document = tomllib.load(stream)
-            table = document.get("tool", {}).get("pytest", {})
+            document = tomllib.loads(source)
+            tool = document.get("tool", {})
+            if not isinstance(tool, dict):
+                return None
+            table = tool.get("pytest", {})
             table = table.get("ini_options", table) if isinstance(table, dict) else None
             if not isinstance(table, dict):
                 return None
@@ -239,8 +243,15 @@ def _pytest_options(path: Path, section: str) -> dict[str, tuple[str, ...]] | No
             _add_plugins(options, table.get("addopts"))
             return options
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read(path, encoding="utf-8")
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError, configparser.Error):
+        parser.read_string(source, source=str(path))
+    except (
+        OSError,
+        UnicodeError,
+        InputTooLargeError,
+        RecursionError,
+        tomllib.TOMLDecodeError,
+        configparser.Error,
+    ):
         return None
     if not parser.has_section(section):
         return None

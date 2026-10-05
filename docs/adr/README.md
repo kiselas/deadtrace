@@ -83,3 +83,7 @@ each other. Typo and link fixes are fine.
   modules and classes in annotations (model revision 22). Accepted.
 - [ADR-0030](0030-input-error-integrity.md) — Input errors remain visible across inventory and
   metadata readers. Accepted.
+- [ADR-0031](0031-bounded-artifact-parsing.md) — Bound opened inputs and reject ambiguous saved
+  JSON. Accepted.
+- [ADR-0032](0032-receiver-flow-violations.md) — Pin independently demonstrated receiver flow
+  violations. Accepted; algorithmic fixes remain pending.
