@@ -2751,7 +2751,7 @@ class _ExecutionVisitor:
         return tuple(sorted(symbol.id for symbol in module.symbols if symbol.owner is None))
 
     def _record_getattr_value(self, call: ast.Call) -> None:
-        """``getattr(core, name)`` with a computed name may return any method of ``core``.
+        """``getattr(core, name)`` may return a callable that is invoked later.
 
         The value may be called anywhere later, as a ``message_generator`` argument, so its
         methods may run. Only receivers of a known project type are localized here; a call of
@@ -2768,8 +2768,6 @@ class _ExecutionVisitor:
         if external_targets is not None:
             targets = external_targets
         else:
-            if isinstance(arguments[1].value, ast.Constant):
-                return
             targets = self._receiver_methods(receiver) or self._module_members(receiver)
             targets = self._named_like(targets, arguments[1].value)
         if targets:

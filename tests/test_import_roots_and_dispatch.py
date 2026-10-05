@@ -616,3 +616,94 @@ def test_nominal_origins_join_conservatively() -> None:
 )
 def test_standard_nominal_metadata_keeps_unknown_ancestry(base: str, possible: bool) -> None:
     assert may_supply_nominal_value(base, "pathlib.Path") is possible
+
+
+@pytest.mark.parametrize("expression", ["worker", "Worker()"])
+def test_stored_literal_getattr_protects_only_selected_project_method(expression: str) -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Worker:\n"
+                "    def run(self): pass\n"
+                "    def idle(self): pass\n"
+                "def main():\n"
+                "    worker = Worker()\n"
+                f"    callback = getattr({expression}, 'run')\n"
+                "    callback()\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Worker.run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "main:Worker.idle") is None
+
+
+def test_stored_literal_getattr_includes_inherited_method_and_override() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Base:\n"
+                "    def run(self): pass\n"
+                "    def idle(self): pass\n"
+                "class Child(Base):\n"
+                "    def run(self): pass\n"
+                "def main(worker: Base):\n"
+                "    callback = getattr(worker, 'run')\n"
+                "    callback()\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Base.run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "main:Child.run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "main:Base.idle") is None
+
+
+def test_stored_literal_getattr_of_project_module() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "import worker\ndef main():\n"
+                "    callback = getattr(worker, 'run')\n    callback()\n"
+            ),
+            "worker.py": "def run(): pass\ndef idle(): pass\n",
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "worker:run") is ReachabilityKind.CONSERVATIVE
+    assert _state(program, world, "worker:idle") is None
+
+
+def test_missing_literal_getattr_with_default_does_not_open_graph() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "class Worker:\n    def idle(self): pass\n"
+                "def main():\n    worker = Worker()\n"
+                "    callback = getattr(worker, 'missing', None)\n"
+                "def unused(): pass\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Worker.idle") is None
+    assert _state(program, world, "main:unused") is None
+
+
+def test_partial_keyword_override_retains_broad_dispatch_protection() -> None:
+    program = _program(
+        **{
+            "main.py": (
+                "from functools import partial\n"
+                "class Worker:\n"
+                "    def setter(self): pass\n"
+                "    def other(self): pass\n"
+                "def dispatch(worker, *, name):\n    getattr(worker, name)()\n"
+                "def main():\n"
+                "    callback = partial(dispatch, Worker(), name='setter')\n"
+                "    callback(name='other')\n"
+            )
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:Worker.other") is not None

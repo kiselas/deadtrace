@@ -99,3 +99,5 @@ each other. Typo and link fixes are fine.
   reflection while preserving opaque bases and test stand-ins (model revision 26). Accepted.
 - [ADR-0038](0038-stored-literal-reflection.md) — Pin an executable stored literal getattr
   target before its bounded fix. Accepted.
+- [ADR-0039](0039-preserve-stored-literal-callables.md) — Preserve selected callables retrieved
+  by stored literal getattr (model revision 27). Accepted; resolves ADR-0038.

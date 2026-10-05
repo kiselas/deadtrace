@@ -8,5 +8,5 @@ class Worker:
 
 def main():
     worker = Worker()
-    callback = getattr(worker, "run")
+    callback = getattr(worker, "run")  # noqa: B009 - intentional reflected-value case
     callback()
