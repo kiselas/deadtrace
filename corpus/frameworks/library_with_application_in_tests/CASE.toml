@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "library-with-application-in-tests"
+description = "An application built by a test fixture does not replace the library world."
+
+[analysis]
+complete = true
+worlds = ["production:library", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "src/lib/__init__.py"
+kind = "class"
+qualified_name = "Api"
+expectation = "not_candidate"
+
+[[targets]]
+path = "src/lib/__init__.py"
+kind = "function"
+qualified_name = "Api.register"
+expectation = "not_candidate"
+
+[[targets]]
+path = "src/lib/_private.py"
+kind = "function"
+qualified_name = "_unused"
+expectation = "candidate"

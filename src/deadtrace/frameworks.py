@@ -1932,9 +1932,18 @@ def _migrations_plan(state: _BuildState) -> WorldPlan | None:
     )
 
 
+def _in_test_module(state: _BuildState, key: str) -> bool:
+    """Whether the application named ``module:attribute`` lives in a test module (a fixture)."""
+
+    module = state.program.modules.get(key.partition(":")[0])
+    return module is not None and _is_test_module(module)
+
+
 def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
     apps = sorted(
-        obj.key for obj in state.objects.values() if obj.kind is FrameworkObjectKind.FASTAPI_APP
+        obj.key
+        for obj in state.objects.values()
+        if obj.kind is FrameworkObjectKind.FASTAPI_APP and not _in_test_module(state, obj.key)
     )
     entry_worlds = tuple(
         WorldConfig(
@@ -2058,6 +2067,7 @@ def _application_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
         by_framework[framework].append((key, root))
     worlds: list[WorldConfig] = []
     for framework, items in sorted(by_framework.items()):
+        items = [(key, root) for key, root in items if not _in_test_module(state, root)]
         for key, root in items:
             scenario = framework if len(items) == 1 else f"{framework}:{key.replace(':', '.')}"
             state.auto_provenance[(scenario, root)] = ("framework_application", key)
