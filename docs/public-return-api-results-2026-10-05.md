@@ -49,6 +49,11 @@ type[T] remain outside this rule; pytest fixture return discovery is unchanged.
 
 ## Next measured priority
 
+**Follow-up:** full boundary replay supersedes the selected-path hypothesis below. The returned
+registry is not the cause of zero recall; _call_wrapped_attr has legitimate independent callers.
+See [the reviewed diagnosis](pydantic-recall-review-2026-10-05.md) for reproduced removal/substitution
+experiments and why their hypothetical +12 is not yet a justified scanner refinement.
+
 Pydantic's 0/76 is the largest observed package-wide failure. Archived derivation tracing of a
 miss shows the immediate guard is dynamic_attribute_dispatch in
 PydanticDescriptorProxy._call_wrapped_attr, rather than metaclass_execution recorded upstream
