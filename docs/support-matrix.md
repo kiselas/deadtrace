@@ -1,9 +1,9 @@
-# 0.1.0a1 support matrix
+# 0.1.0a2 support matrix
 
 | Area | Alpha scope | Evidence / limit |
 | --- | --- | --- |
 | Runtime | CPython 3.12, 3.13 and 3.14 | Package requires >=3.12,<3.15; CI runs tests and the wheel smoke on each, on Linux and Windows. Corpus reports are byte-identical between versions. 0.1.0a1 supported 3.12 only |
-| Python | Static references, imports, inheritance, receiver joins, bounded dispatch and API closure | Model 31; corpus and unit tests; general dynamic Python is conservative |
+| Python | Static references, imports, inheritance, receiver joins, bounded dispatch and API closure | Model 35; corpus and unit tests; general dynamic Python is conservative |
 | FastAPI | Modeled apps/routers, Depends, lifespan, background tasks, bounded factories | Supported >=0.100,<1; oracle pins 0.141.1 |
 | Dishka | Modeled providers, aliases, context, injections, route/container/lifecycle patterns | Supported >=1.0,<2; oracle pins 1.10.1; components/conditional activation guarded |
 | pytest | Separate test worlds, fixture/hook/plugin/configuration discovery | Repository tests and corpus; arbitrary dynamic plugins guarded |
@@ -17,8 +17,10 @@ block strong negative findings. An unpinned version is not presented as verified
 
 Unknown values, dynamic reflection/imports, descriptors/metaclasses and arbitrary external
 consumers can protect large regions, reducing recall. The independent object_setattr_store recall
-gap is retained under fixtures/recall-gaps on this release. Model-31 development-sample injection
-recall was 474/721, including Pydantic 0/76: [measurement](public-return-api-results-2026-10-05.md)
+gap is retained under fixtures/recall-gaps on this release. On a blind sample of 77 public GitHub projects at model 33, 97 of 195 reviewed findings were
+true (49.7%; `RCH004` 80%, `RCH001` 43%), see [the cohort document](field/2026-10-cohort.md);
+revisions 34 and 35 remove two of its largest false classes and are measured in that document as
+they land. Model-31 development-sample injection recall was 474/721, including Pydantic 0/76: [measurement](public-return-api-results-2026-10-05.md)
 and [reviewed diagnosis](pydantic-recall-review-2026-10-05.md). These are sample-specific research
 results, not a general precision/recall guarantee. macOS and Python 3.15+ are not
 release-verified. See [analysis contract](analysis-contract.md).
