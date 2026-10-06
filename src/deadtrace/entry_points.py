@@ -28,6 +28,59 @@ class ProjectEntryPoint:
         return f"entrypoint:{self.group}:{self.name}"
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectDistribution:
+    """The distribution ``pyproject.toml`` declares and the import packages it may ship."""
+
+    name: str
+    packages: frozenset[str]
+
+
+def read_project_distribution(root: Path) -> ProjectDistribution | None:
+    """Return the declared ``[project].name`` and candidate import packages, without a build.
+
+    Candidates are the normalized distribution name (``Flask-SocketIO`` gives ``flask_socketio``)
+    plus packages that ``[tool.setuptools.packages]`` or ``[tool.hatch.build.targets.wheel]``
+    list literally. A missing name or an unreadable file gives ``None``; the caller checks which
+    candidates exist in the source (ADR-0052).
+    """
+
+    path = root / "pyproject.toml"
+    if not path.is_file():
+        return None
+    try:
+        document = tomllib.loads(read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"))
+    except (OSError, UnicodeError, RecursionError, tomllib.TOMLDecodeError, InputTooLargeError):
+        return None
+    project = document.get("project")
+    if not isinstance(project, dict) or not isinstance(project.get("name"), str):
+        return None
+    name = project["name"]
+    packages = {re.sub(r"[-.]+", "_", name).lower()}
+    tool = document.get("tool")
+    if isinstance(tool, dict):
+        setuptools = tool.get("setuptools")
+        if isinstance(setuptools, dict):
+            listed = setuptools.get("packages")
+            if isinstance(listed, list):
+                packages.update(_top_level(item) for item in listed if isinstance(item, str))
+        hatch = tool.get("hatch")
+        if isinstance(hatch, dict):
+            build = hatch.get("build")
+            targets = build.get("targets") if isinstance(build, dict) else None
+            wheel = targets.get("wheel") if isinstance(targets, dict) else None
+            listed = wheel.get("packages") if isinstance(wheel, dict) else None
+            if isinstance(listed, list):
+                packages.update(
+                    _top_level(item.rpartition("/")[2]) for item in listed if isinstance(item, str)
+                )
+    return ProjectDistribution(name, frozenset(packages))
+
+
+def _top_level(dotted: str) -> str:
+    return dotted.split(".")[0]
+
+
 @dataclass(frozen=True, order=True, slots=True)
 class EntryPointIssue:
     code: str

@@ -308,6 +308,7 @@ def apply_pytest_model(
 
     del config
     collection = collection if collection is not None else PytestCollection()
+    collection = _with_unittest_modules(program, collection)
     plugin_modules = (*plugin_modules, *collection.plugins)
     imported_functions, imported_classes = _imported_tests(program, collection)
     classes = _collected_classes(program, collection, set(imported_classes))
@@ -919,6 +920,34 @@ def _matches(name: str, patterns: tuple[str, ...]) -> bool:
         else name.startswith(pattern)
         for pattern in patterns
     )
+
+
+def _with_unittest_modules(
+    program: PythonProgram, collection: PytestCollection
+) -> PytestCollection:
+    """Also collect ``test*.py`` modules that define unittest cases (ADR-0053).
+
+    ``python -m unittest discover`` matches ``test*.py`` by default, so ``tests_auth.py`` runs
+    there although pytest's ``test_*.py`` would skip it. Whether a project runs such a module
+    cannot be known statically; treating it as collected only keeps code, never reports it.
+    """
+
+    extra = tuple(
+        module.path
+        for module in sorted(program.modules.values(), key=lambda item: item.path)
+        if PurePosixPath(module.path).name.startswith("test")
+        and module.path.endswith(".py")
+        and not _is_test_path(module.path, collection)
+        and any(
+            symbol.owner is None
+            and symbol.kind is NodeKind.CLASS
+            and _is_unittest_case(program, symbol)
+            for symbol in module.symbols
+        )
+    )
+    if not extra:
+        return collection
+    return replace(collection, files=(*collection.files, *extra))
 
 
 def _is_test_path(path: str, collection: PytestCollection) -> bool:

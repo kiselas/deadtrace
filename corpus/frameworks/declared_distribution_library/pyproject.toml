@@ -1,0 +1,6 @@
+[project]
+name = "demo-kit"
+version = "0"
+
+[project.scripts]
+demo-kit = "demo_kit.cli:main"
