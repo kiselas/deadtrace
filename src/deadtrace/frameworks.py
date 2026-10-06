@@ -1994,6 +1994,10 @@ def _shipped_packages(state: _BuildState) -> set[str]:
 
     if state.distribution is None:
         return set()
+    # A distribution with its own command is an application or a tool: its names are not API
+    # for others, and protecting them would hide dead code (ADR-0052).
+    if any(entry.group in ("console_scripts", "gui_scripts") for entry in state.entry_points):
+        return set()
     present = {
         name
         for name, module in state.program.modules.items()

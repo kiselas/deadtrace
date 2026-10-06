@@ -20,8 +20,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 - Model revision `python-fastapi-dishka/35` (ADR-0053): a `test*.py` module that defines a
   `unittest.TestCase` is collected, as `python -m unittest discover` does by default.
 - Model revision `python-fastapi-dishka/34` (ADR-0052): a project whose `pyproject.toml` declares a
-  distribution roots that package's public API as a library next to its applications, scripts, and
-  examples; four libraries of the public cohort had no production root for their API.
+  distribution without a console script roots that package's public API as a library next to its
+  scripts and examples (a distribution with its own command keeps its worlds); four libraries of the public cohort had no production root for their API.
 - Model revision `python-fastapi-dishka/33` (ADR-0051): an application built in a test module is a
   fixture, not a production world, and no longer hides a library's public API (a Flask fixture in
   `conftest.py` made every public class of a library "test-only").

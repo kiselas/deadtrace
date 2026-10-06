@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "application-with-distribution-name"
+description = "A distribution with its own console script does not protect its package as library API."
+
+[analysis]
+complete = true
+worlds = ["production:entrypoint:console_scripts:shop-app", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "shop_app/cli.py"
+kind = "function"
+qualified_name = "main"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop_app/cli.py"
+kind = "function"
+qualified_name = "unused_helper"
+expectation = "candidate"

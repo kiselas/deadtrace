@@ -1,0 +1,6 @@
+[project]
+name = "shop-app"
+version = "0"
+
+[project.scripts]
+shop-app = "shop_app.cli:main"

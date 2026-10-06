@@ -4,7 +4,7 @@ description = "A project that declares a distribution roots that package's publi
 
 [analysis]
 complete = true
-worlds = ["production:entrypoint:console_scripts:demo-kit", "production:library", "tests:pytest"]
+worlds = ["production:library", "production:scripts", "tests:pytest"]
 finding_codes = ["RCH001"]
 limitation_codes = []
 

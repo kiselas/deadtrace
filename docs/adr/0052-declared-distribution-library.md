@@ -17,8 +17,14 @@ top-level package of that name exists in the source. `packages.find`, dynamic na
 `setup.py`-only projects are not read; a project that ships a package under another name
 configures a world. Root provenance records `declared_distribution`.
 
-This is the policy answer to "is an exported but uncalled name of a library dead": for a declared
-distribution it is API, not a finding; for an application it still is. The case
+The rule applies only to a distribution without its own `console_scripts` or `gui_scripts`. A first
+version applied to every declared distribution and, on the second cohort, protected the dead code of
+applications and command-line tools that also declare a name: 32 reviewed true findings disappeared
+and precision did not improve (48.2% against 49.7%). A project with its own command keeps the
+worlds it had.
+
+This is the policy answer to "is an exported but uncalled name of a library dead": for a
+command-less distribution it is API, not a finding; for an application it still is. The case
 `corpus/frameworks/declared_distribution_library` fails on revision 33.
 
 MODEL_REVISION becomes `python-fastapi-dishka/34`.
