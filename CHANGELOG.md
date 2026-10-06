@@ -3,7 +3,7 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
-## Unreleased
+## 0.1.0a2 - unreleased
 
 ### Added
 
