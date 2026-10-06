@@ -17,10 +17,9 @@ block strong negative findings. An unpinned version is not presented as verified
 
 Unknown values, dynamic reflection/imports, descriptors/metaclasses and arbitrary external
 consumers can protect large regions, reducing recall. The independent object_setattr_store recall
-gap is retained under fixtures/recall-gaps on this release. On a blind sample of 77 public GitHub projects at model 33, 97 of 195 reviewed findings were
-true (49.7%; `RCH004` 80%, `RCH001` 43%), see [the cohort document](field/2026-10-cohort.md);
-revisions 34 and 35 remove two of its largest false classes and are measured in that document as
-they land. Model-31 development-sample injection recall was 474/721, including Pydantic 0/76: [measurement](public-return-api-results-2026-10-05.md)
+gap is retained under fixtures/recall-gaps on this release. On two blind samples of public GitHub projects, 97 of 195 reviewed findings were true at model
+33 (49.7%) and 76 of 194 at model 35 (39.2%); see [the cohort document](field/2026-10-cohort.md)
+for the verdicts and the false-finding classes. Model-31 development-sample injection recall was 474/721, including Pydantic 0/76: [measurement](public-return-api-results-2026-10-05.md)
 and [reviewed diagnosis](pydantic-recall-review-2026-10-05.md). These are sample-specific research
 results, not a general precision/recall guarantee. macOS and Python 3.15+ are not
 release-verified. See [analysis contract](analysis-contract.md).

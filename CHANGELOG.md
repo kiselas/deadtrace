@@ -3,7 +3,13 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
-## 0.1.0a2 - unreleased
+## 0.1.0a2 - 2026-10-06
+
+### Measured
+
+- On two blind cohorts of public GitHub projects (77 and 76 repositories, 195 and 194 reviewed
+  findings), 49.7% and 39.2% of the findings were true. Findings remain review units. The
+  per-finding verdicts and the false-finding classes are in `docs/field/2026-10-cohort.md`.
 
 ### Added
 
