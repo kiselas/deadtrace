@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "declared-distribution-library"
+description = "A project that declares a distribution roots that package's public API next to its scripts."
+
+[analysis]
+complete = true
+worlds = ["production:entrypoint:console_scripts:demo-kit", "production:library", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "demo_kit/__init__.py"
+kind = "class"
+qualified_name = "Client"
+expectation = "not_candidate"
+
+[[targets]]
+path = "demo_kit/__init__.py"
+kind = "function"
+qualified_name = "Client.fetch"
+expectation = "not_candidate"
+
+[[targets]]
+path = "demo_kit/_internal.py"
+kind = "function"
+qualified_name = "_unused"
+expectation = "candidate"

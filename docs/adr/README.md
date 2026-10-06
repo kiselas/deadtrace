@@ -122,3 +122,5 @@ each other. Typo and link fixes are fine.
 - [ADR-0049](0049-public-alpha-release.md) — Public read-only alpha, frozen model 31 and exact CI artifact publication through OIDC. Accepted.
 - [ADR-0050](0050-django-test-case-bases.md) — Django and DRF test case classes are unittest cases that pytest collects (revision 32). Accepted.
 - [ADR-0051](0051-test-applications-are-not-worlds.md) — Applications built in test modules are fixtures, not production worlds (revision 33). Accepted.
+- [ADR-0052](0052-declared-distribution-library.md) — A declared distribution roots its package's public API next to applications and scripts (revision 34). Accepted.
+- [ADR-0053](0053-unittest-discover-pattern.md) — `test*.py` modules with unittest cases are collected (revision 35). Accepted.

@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "unittest-discover-pattern"
+description = "A test*.py module with a unittest case is collected like pytest's test_*.py."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/tests_auth.py"
+kind = "class"
+qualified_name = "AuthTest"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/tests_auth.py"
+kind = "function"
+qualified_name = "AuthTest.test_check"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/auth.py"
+kind = "function"
+qualified_name = "check"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

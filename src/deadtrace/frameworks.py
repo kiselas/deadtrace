@@ -31,7 +31,7 @@ from deadtrace.core import (
     WorldPlan,
 )
 from deadtrace.deployment import DeploymentReference
-from deadtrace.entry_points import EntryPointIssue, ProjectEntryPoint
+from deadtrace.entry_points import EntryPointIssue, ProjectDistribution, ProjectEntryPoint
 from deadtrace.python_frontend import (
     PythonModule,
     PythonProgram,
@@ -206,6 +206,7 @@ class _BuildState:
     entry_points: tuple[ProjectEntryPoint, ...] = ()
     entry_point_issues: tuple[EntryPointIssue, ...] = ()
     deployment: tuple[DeploymentReference, ...] = ()
+    distribution: ProjectDistribution | None = None
     objects: dict[str, FrameworkObject] = field(default_factory=dict)
     routes: list[RouteRegistration] = field(default_factory=list)
     hooks: list[FrameworkHook] = field(default_factory=list)
@@ -279,6 +280,7 @@ def build_framework_model(
     entry_points: tuple[ProjectEntryPoint, ...] = (),
     entry_point_issues: tuple[EntryPointIssue, ...] = (),
     deployment: tuple[DeploymentReference, ...] = (),
+    distribution: ProjectDistribution | None = None,
     timings: StageTimings | None = None,
 ) -> FrameworkModel:
     """Apply built-in framework capabilities and construct isolated world plans."""
@@ -290,6 +292,7 @@ def build_framework_model(
         entry_points=entry_points,
         entry_point_issues=entry_point_issues,
         deployment=deployment,
+        distribution=distribution,
     )
     with timings.stage("frontend.frameworks_discover"):
         _discover_provider_bindings(state)
@@ -1970,16 +1973,39 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
         for entry in state.entry_points
         if entry.group == "pytest11"
     }
+    # A project that declares a distribution ships the packages of that name as a library
+    # whose public API its users call, whatever applications, scripts, or examples sit next
+    # to them (ADR-0052).
+    shipped = _shipped_packages(state)
     if not worlds:
         worlds.extend(_library_world(state))
     else:
-        if plugin_packages:
-            worlds.extend(_library_world(state, plugin_packages))
+        if plugin_packages or shipped:
+            worlds.extend(_library_world(state, plugin_packages | shipped))
         worlds.extend(_export_world(state))
     worlds.extend(_script_world(state))
     if not worlds:
         return (WorldConfig("production", "application", (AUTO_ROOT,)),)
     return tuple(worlds)
+
+
+def _shipped_packages(state: _BuildState) -> set[str]:
+    """Top-level packages the declared distribution names that exist in the source."""
+
+    if state.distribution is None:
+        return set()
+    present = {
+        name
+        for name, module in state.program.modules.items()
+        if module.path.endswith("__init__.py") and "." not in name
+    }
+    found = {name for name in state.distribution.packages if name in present}
+    for name in sorted(found):
+        state.auto_provenance[("library", name)] = (
+            "declared_distribution",
+            state.distribution.name,
+        )
+    return found
 
 
 def _plugin_hooks(state: _BuildState, entry_point: ProjectEntryPoint) -> tuple[str, ...]:
