@@ -1,0 +1,6 @@
+[tool.poetry]
+name = "shop"
+version = "0.1.0"
+
+[tool.poetry.scripts]
+shop = "_cli:run"
