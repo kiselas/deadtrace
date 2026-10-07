@@ -1,2 +1,2 @@
 test:
-	pytest checks.py -q
+	pytest _checks.py -q

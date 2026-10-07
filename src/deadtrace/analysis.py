@@ -20,6 +20,7 @@ from deadtrace.frameworks import FrameworkModel, build_framework_model
 from deadtrace.model import InventoryReport
 from deadtrace.pytest_semantics import (
     apply_pytest_model,
+    collected_test_paths,
     read_pytest_collection,
     with_explicit_test_paths,
 )
@@ -37,7 +38,7 @@ from deadtrace.target_environment import (
 )
 from deadtrace.timing import StageTimings
 
-MODEL_REVISION = "python-fastapi-dishka/43"
+MODEL_REVISION = "python-fastapi-dishka/44"
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +137,10 @@ def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
         timings=timings,
     )
     with timings.stage("frontend.pytest"):
+        pytest_collection = with_explicit_test_paths(
+            read_pytest_collection(collection.root),
+            tuple(item.target for item in deployment if item.kind == "test_path"),
+        )
         model = apply_pytest_model(
             program,
             model,
@@ -145,10 +150,7 @@ def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
                 for entry_point in entry_points
                 if entry_point.group == "pytest11"
             ),
-            collection=with_explicit_test_paths(
-                read_pytest_collection(collection.root),
-                tuple(item.target for item in deployment if item.kind == "test_path"),
-            ),
+            collection=pytest_collection,
         )
     with timings.stage("frontend.target_environment"):
         target_environment = read_target_environment(
@@ -214,7 +216,12 @@ def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
     with timings.stage("solve.reachability"):
         snapshot = solve(model.graph, model.plans, max_steps=config.max_steps)
     with timings.stage("solve.findings"):
-        findings = build_findings(program, model, snapshot)
+        findings = build_findings(
+            program,
+            model,
+            snapshot,
+            collected_tests=collected_test_paths(program, pytest_collection),
+        )
     solved_at = perf_counter()
     timings.count("findings", len(findings))
     metrics = AnalysisMetrics(

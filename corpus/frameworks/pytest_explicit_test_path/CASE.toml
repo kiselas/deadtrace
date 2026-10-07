@@ -9,9 +9,15 @@ finding_codes = ["RCH001"]
 limitation_codes = []
 
 [[targets]]
-path = "checks.py"
+path = "_checks.py"
 kind = "function"
 qualified_name = "test_price"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_checks.py"
+kind = "class"
+qualified_name = "TestPrice"
 expectation = "not_candidate"
 
 [[targets]]
