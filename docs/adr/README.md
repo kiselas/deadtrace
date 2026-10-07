@@ -136,3 +136,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0063](0063-poetry-flit-setup-cfg-entry-points.md) — Poetry, flit, and `setup.cfg` entry points (revision 45). Accepted.
 - [ADR-0064](0064-class-statement-keywords.md) — keywords of a class statement are evaluated (revision 46). Accepted.
 - [ADR-0065](0065-nested-package-import-root.md) — a nested package imported by its own name (revision 47). Accepted.
+- [ADR-0066](0066-tool-modules-are-roots.md) — modules that development tools run are roots (revision 48). Accepted.

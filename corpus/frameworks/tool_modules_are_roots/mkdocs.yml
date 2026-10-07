@@ -1,0 +1,3 @@
+site_name: shop
+hooks:
+  - docs/hooks.py
