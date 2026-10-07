@@ -70,6 +70,13 @@ _COMMAND_BREAKS = frozenset({"&&", "||", ";", "|", "&", "then", "do", "exec"})
 _STATEMENT_KEY = re.compile(r"^\s+(?:-\s+)?[A-Za-z_][\w.-]*\s*[:=](?:\s|$)")
 """An indented line that starts a new key of a Compose, INI, or YAML file."""
 _TARGET = re.compile(r"^[A-Za-z_][\w.]*(:[A-Za-z_][\w.]*)?$")
+_LAUNCH_TARGET = re.compile(r"[A-Za-z_][\w]*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
+"""``module:attribute`` as a command argument; ports (``host:8000``) and tags (``python:3.12``)
+start with a digit and do not match."""
+_NOT_LAUNCH_SCHEMES = frozenset(
+    {"program", "group", "eventlistener", "fcgi-program", "rpcinterface", "http", "https", "file"}
+)
+"""Section headers of supervisor files and URL schemes that look like ``module:attribute``."""
 _ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
 _CONFIGURED_CLASS = re.compile(
     r"""(?:^|[\s,{])["']?(?:class|\(\)|factory|format_class|handler_class)["']?\s*[:=]\s*"""
@@ -225,6 +232,14 @@ def _command_references(
                 add("module", application)
         elif program in {"pytest", "py.test"}:
             _pytest_reference(arguments, add)
+        elif (
+            _LAUNCH_TARGET.fullmatch(token)
+            and not source.endswith("pyproject.toml")
+            and token.partition(":")[0] not in _NOT_LAUNCH_SCHEMES
+            and not (index and tokens[index - 1].endswith(":"))
+        ):
+            # Any launcher takes ``module:function``: ``opyrator launch-ui app:hello`` (ADR-0058).
+            add("module", token)
         elif program == "locust":
             path = _option_value(arguments, ("-f", "--locustfile"))
             if path is not None and path.endswith(".py"):
