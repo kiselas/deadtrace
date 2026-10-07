@@ -9,6 +9,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   resolution follow a name that grew without end (an hour on `pybase64`, now under a second).
 - A composite GitHub Action (`action.yml`) and pre-commit hooks (`.pre-commit-hooks.yaml`), described
   in the README. Both run `deadtrace scan` from an exact PyPI version.
+- Model revision `python-fastapi-dishka/45` (ADR-0063): entry points declared by Poetry, flit, and
+  `setup.cfg` are read like PEP 621 ones.
 - Model revision `python-fastapi-dishka/44` (ADR-0062): modules the tests world collects, such as
   a `tests.py` run by an explicit path, are test code and never RCH004 candidates.
 - Model revision `python-fastapi-dishka/43` (ADR-0061): `.github/workflows/*.yml` steps are read as

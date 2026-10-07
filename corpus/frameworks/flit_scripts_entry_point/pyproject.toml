@@ -1,0 +1,6 @@
+[build-system]
+requires = ["flit_core"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.scripts]
+shop = "_cli:run"

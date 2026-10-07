@@ -32,7 +32,7 @@ instead of treating “no textual references” as proof that code can be delete
   tags, management commands, and `AppConfig`, the ASGI and WSGI modules, relocated
   migrations, and the modules settings name by string; nested `Meta` and Pydantic `Config`
   classes; Alembic environments and revisions;
-- PEP 621 console, GUI, and plugin entry points as statically read, provenanced production roots,
+- PEP 621, Poetry, flit, and `setup.cfg` console, GUI, and plugin entry points as statically read, provenanced production roots,
   including values such as a Typer application, and the hooks and fixtures of `pytest11`
   plugins; Typer and Click commands;
 - automatic worlds when none are configured: scripts with a main guard and `__main__`

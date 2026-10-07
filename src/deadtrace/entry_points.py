@@ -1,7 +1,8 @@
-"""Read PEP 621 project entry points as bounded data without loading them."""
+"""Read project entry points as bounded data without loading them (PEP 621, Poetry, flit)."""
 
 from __future__ import annotations
 
+import configparser
 import re
 import tomllib
 from dataclasses import dataclass
@@ -94,7 +95,7 @@ def read_project_entry_points(
 
     path = root / "pyproject.toml"
     if not path.is_file():
-        return (), ()
+        return tuple(sorted(set(_read_setup_cfg(root / "setup.cfg")))), ()
     try:
         document = tomllib.loads(read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"))
     except InputTooLargeError:
@@ -103,12 +104,13 @@ def read_project_entry_points(
         )
     except (OSError, UnicodeError, RecursionError, tomllib.TOMLDecodeError) as error:
         return (), (EntryPointIssue("DT4101", f"cannot read project entry points: {error}"),)
-    project = document.get("project")
-    if not isinstance(project, dict):
-        return (), ()
-
     entries: list[ProjectEntryPoint] = []
     issues: list[EntryPointIssue] = []
+    _read_tool_entry_points(document, entries, issues)
+    entries.extend(_read_setup_cfg(root / "setup.cfg"))
+    project = document.get("project")
+    if not isinstance(project, dict):
+        return tuple(sorted(set(entries))), tuple(sorted(set(issues)))
     dynamic = project.get("dynamic", [])
     if isinstance(dynamic, list):
         dynamic_names = {item for item in dynamic if isinstance(item, str)}
@@ -143,32 +145,94 @@ def read_project_entry_points(
     return tuple(sorted(set(entries))), tuple(sorted(set(issues)))
 
 
+def _read_tool_entry_points(
+    document: dict[str, Any], entries: list[ProjectEntryPoint], issues: list[EntryPointIssue]
+) -> None:
+    """Poetry and flit declare entry points under ``[tool]`` instead of ``[project]`` (ADR-0063)."""
+
+    tool = document.get("tool")
+    if not isinstance(tool, dict):
+        return
+    poetry = tool.get("poetry")
+    if isinstance(poetry, dict):
+        _read_group(poetry.get("scripts"), "console_scripts", entries, issues, strict=False)
+        plugins = poetry.get("plugins")
+        if isinstance(plugins, dict):
+            for group, values in sorted(plugins.items()):
+                if isinstance(group, str):
+                    _read_group(values, group, entries, issues, strict=False)
+    flit = tool.get("flit")
+    if isinstance(flit, dict):
+        _read_group(flit.get("scripts"), "console_scripts", entries, issues, strict=False)
+        groups = flit.get("entrypoints")
+        if isinstance(groups, dict):
+            for group, values in sorted(groups.items()):
+                if isinstance(group, str):
+                    _read_group(values, group, entries, issues, strict=False)
+
+
+def _read_setup_cfg(path: Path) -> list[ProjectEntryPoint]:
+    """``[options.entry_points]`` of ``setup.cfg``: one ``name = module:object`` per line."""
+
+    if not path.is_file():
+        return []
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(
+            read_bounded_bytes(path, limit=MAX_ARTIFACT_BYTES).decode("utf-8"), source=str(path)
+        )
+    except (OSError, UnicodeError, InputTooLargeError, configparser.Error):
+        return []
+    section = "options.entry_points"
+    if not parser.has_section(section):
+        return []
+    entries: list[ProjectEntryPoint] = []
+    for group, text in parser.items(section):
+        for line in text.splitlines():
+            name, separator, reference = line.partition("=")
+            match = _OBJECT_REFERENCE.fullmatch(reference) if separator else None
+            if match is None or not name.strip():
+                continue
+            module = match.group("module")
+            object_name = match.group("object")
+            target = f"{module}:{object_name}" if object_name else module
+            entries.append(ProjectEntryPoint(group.strip(), name.strip(), target))
+    return entries
+
+
 def _read_group(
     values: Any,
     group: str,
     entries: list[ProjectEntryPoint],
     issues: list[EntryPointIssue],
+    *,
+    strict: bool = True,
 ) -> None:
     if values is None:
         return
     if not isinstance(values, dict):
+        if not strict:
+            return
         issues.append(
             EntryPointIssue("DT4101", f"project entry-point group {group} must be a table")
         )
         return
     for name, value in sorted(values.items()):
         if not isinstance(name, str) or not isinstance(value, str):
+            if not strict:
+                continue
             issues.append(
                 EntryPointIssue("DT4101", f"entry point in group {group} must map names to strings")
             )
             continue
         match = _OBJECT_REFERENCE.fullmatch(value)
         if match is None:
-            issues.append(
-                EntryPointIssue(
-                    "DT4101", f"entry point {group}:{name} has an invalid object reference"
+            if strict:
+                issues.append(
+                    EntryPointIssue(
+                        "DT4101", f"entry point {group}:{name} has an invalid object reference"
+                    )
                 )
-            )
             continue
         module = match.group("module")
         object_name = match.group("object")
