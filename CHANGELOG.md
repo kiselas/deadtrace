@@ -9,6 +9,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   resolution follow a name that grew without end (an hour on `pybase64`, now under a second).
 - A composite GitHub Action (`action.yml`) and pre-commit hooks (`.pre-commit-hooks.yaml`), described
   in the README. Both run `deadtrace scan` from an exact PyPI version.
+- Model revision `python-fastapi-dishka/48` (ADR-0066): `noxfile.py`, `setup.py`, `docs/conf.py`,
+  `fabfile.py`, `dodo.py`, `pavement.py` and mkdocs hook files are roots with exposed functions.
 - Model revision `python-fastapi-dishka/47` (ADR-0064, ADR-0065): keyword values of a class
   statement are references; an import such as `core.init_app` resolves to the unique project package
   `src/core` (a `sys.path` or `PYTHONPATH` root).

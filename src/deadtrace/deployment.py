@@ -47,6 +47,8 @@ COMMAND_FILE_PATTERNS = (
     "app.yaml",
     "fly.toml",
     "pyproject.toml",
+    "mkdocs.yml",
+    "mkdocs.yaml",
 )
 """Files whose commands start programs: containers, process managers, and build scripts."""
 CONFIGURATION_SUFFIXES = (".conf", ".ini", ".cfg", ".yaml", ".yml", ".json", ".toml")
@@ -116,6 +118,7 @@ def read_deployment_references(
         return ()
     commands: list[tuple[Path, str]] = []
     configurations: list[tuple[Path, str]] = []
+    tools: set[DeploymentReference] = set()
     for current, directory_names, file_names in os.walk(root, followlinks=False):
         current_path = Path(current)
         directory_names[:] = sorted(
@@ -135,7 +138,9 @@ def read_deployment_references(
                 commands.append((path, relative))
             if name.lower().endswith(CONFIGURATION_SUFFIXES):
                 configurations.append((path, relative))
-    found: set[DeploymentReference] = set()
+            if _is_tool_module(relative):
+                tools.add(DeploymentReference("script", name, relative, exposed=True))
+    found: set[DeploymentReference] = set(tools)
     log_configurations: set[str] = set()
     for path, relative in commands:
         text = _read_text(path)
@@ -191,6 +196,26 @@ def _statements(text: str) -> str:
         lines.append(stripped.removeprefix("CMD") if continued else stripped)
         previous = stripped
     return _ATTACHED_BREAKS.sub(r" \1 ", "\n".join(lines))
+
+
+TOOL_MODULES = frozenset({"noxfile.py", "setup.py", "fabfile.py", "dodo.py", "pavement.py"})
+"""Python files that a development tool runs by their file name (ADR-0066)."""
+_DOCUMENTATION_DIRECTORIES = frozenset({"docs", "doc", "documentation"})
+
+
+def _is_tool_module(relative: str) -> bool:
+    """A file a tool executes: nox, setuptools, fabric, doit, paver, or Sphinx's ``conf.py``.
+
+    The tool runs the module and calls its top-level functions by convention (``@nox.session``,
+    Sphinx's ``setup(app)``), so they are exposed like a gunicorn configuration's hooks.
+    """
+
+    directory, _, name = relative.rpartition("/")
+    if name in TOOL_MODULES:
+        return True
+    return name == "conf.py" and bool(
+        _DOCUMENTATION_DIRECTORIES & set(directory.split("/")) if directory else False
+    )
 
 
 def _is_workflow_directory(parent: Path, name: str) -> bool:
@@ -253,6 +278,9 @@ def _command_references(
         ):
             # Any launcher takes ``module:function``: ``opyrator launch-ui app:hello`` (ADR-0058).
             add("module", token)
+        elif source.rpartition("/")[2].startswith("mkdocs") and token.endswith(".py"):
+            # ``hooks: [docs/hooks.py]``: mkdocs imports the file and calls its ``on_*`` functions.
+            add("script", token, exposed=True)
         elif program == "locust":
             path = _option_value(arguments, ("-f", "--locustfile"))
             if path is not None and path.endswith(".py"):

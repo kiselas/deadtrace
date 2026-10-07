@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "tool-modules-are-roots"
+description = "Modules that nox, Sphinx and mkdocs run are roots, with their convention functions."
+
+[analysis]
+complete = true
+worlds = ["production:commands", "production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "noxfile.py"
+kind = "function"
+qualified_name = "uv_sync"
+expectation = "not_candidate"
+
+[[targets]]
+path = "docs/conf.py"
+kind = "function"
+qualified_name = "skip_private"
+expectation = "not_candidate"
+
+[[targets]]
+path = "docs/hooks.py"
+kind = "function"
+qualified_name = "on_page_markdown"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"
