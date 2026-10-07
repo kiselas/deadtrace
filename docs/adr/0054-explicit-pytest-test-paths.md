@@ -12,8 +12,7 @@ and tox. A `pytest` or `py.test` command now records each `*.py` argument, with 
 removed, as a `test_path` reference. These paths are added to the collected-file patterns, as ADR-0053
 does for `test*.py` unittest modules. Which command a project really runs is not known statically;
 treating a named file as collected only keeps code, never reports it. `test_path` references do not
-create a deployment world. Commands in dot-directories such as `.github/workflows` are not read
-(ADR-0015), so projects whose only runner is CI configuration are unchanged.
+create a deployment world. Commands in `.github/workflows` were not read at first (ADR-0015); ADR-0061 reads them.
 
 The case `corpus/frameworks/pytest_explicit_test_path` fails on revision 35.
 

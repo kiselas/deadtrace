@@ -119,14 +119,19 @@ def read_deployment_references(
     for current, directory_names, file_names in os.walk(root, followlinks=False):
         current_path = Path(current)
         directory_names[:] = sorted(
-            name for name in directory_names if not is_skipped_directory(current_path, name)
+            name
+            for name in directory_names
+            if not is_skipped_directory(current_path, name)
+            or _is_workflow_directory(current_path.relative_to(root), name)
         )
         for name in sorted(file_names):
             path = current_path / name
             relative = path.relative_to(root).as_posix()
             if any(fnmatchcase(relative, pattern) for pattern in exclude):
                 continue
-            if any(fnmatchcase(name, pattern) for pattern in COMMAND_FILE_PATTERNS):
+            if (
+                relative.startswith(".github/workflows/") and name.endswith((".yml", ".yaml"))
+            ) or any(fnmatchcase(name, pattern) for pattern in COMMAND_FILE_PATTERNS):
                 commands.append((path, relative))
             if name.lower().endswith(CONFIGURATION_SUFFIXES):
                 configurations.append((path, relative))
@@ -186,6 +191,14 @@ def _statements(text: str) -> str:
         lines.append(stripped.removeprefix("CMD") if continued else stripped)
         previous = stripped
     return _ATTACHED_BREAKS.sub(r" \1 ", "\n".join(lines))
+
+
+def _is_workflow_directory(parent: Path, name: str) -> bool:
+    """``.github`` at the root and its ``workflows``: CI steps that run tests and programs."""
+
+    return (parent.parts == () and name == ".github") or (
+        parent.parts == (".github",) and name == "workflows"
+    )
 
 
 def _command_references(
@@ -296,6 +309,8 @@ def _python_reference(arguments: list[str], add: _Add) -> None:
         if argument == "-m":
             if position + 1 < len(arguments) and _TARGET.match(arguments[position + 1]):
                 add("module", arguments[position + 1])
+                if arguments[position + 1] == "pytest":
+                    _pytest_reference(arguments[position + 2 :], add)
             return
         if argument == "-c" or not argument.startswith("-"):
             break
