@@ -19,6 +19,10 @@ deployment roots, external contracts, input completeness and dynamic behavior be
 The scanner has no automatic deletion or execution mode. Tests/oracles may execute only the
 trusted reference programs explicitly maintained for verification, outside scanner paths.
 
+Findings of forms that hand review showed to be mostly false are blocked (ADR-0071): the report
+keeps them under `blocked_findings` with a reason, and finding policies, baselines, and
+comparisons ignore them. Blocking changes what is shown, never what the analysis concludes.
+
 Saved explanations use the saved report. Baselines acknowledge reviewed findings without altering
 the graph. Comparisons expose model/config/support/world incompatibilities. Exit 0 means completed,
 1 means an explicitly requested finding policy failed, and 2 means an operational or required

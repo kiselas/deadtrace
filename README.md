@@ -155,6 +155,23 @@ Exit code `0` means the command completed; limitations may still be present. `1`
 an explicitly selected finding policy (`--fail-on-findings`, `--fail-on-new`). `2` means an
 operational error or a failed completeness/comparability requirement, and takes priority over `1`.
 
+### Blocked findings
+
+Some forms of finding were mostly false when public projects were reviewed by hand, so they are
+held back by default rather than shown as dead code. A blocked finding keeps its code and
+fingerprint; the JSON report lists it under `blocked_findings` with its reasons, and
+`--show-blocked` prints it in text output. Exit codes, baselines, and comparisons use only the
+findings that are shown.
+
+| Reason | What it covers |
+| --- | --- |
+| `external_base_hooks` | A method of a class whose base the project does not define, which frameworks call by name |
+| `non_production_area` | Code under `examples`, `docs`, `scripts`, `tools`, `benchmarks`, `demo`, `samples` |
+| `public_api` | A public name of a public package module, when the project documents its API or lists the name in `__all__` |
+| `mentioned_in_config` | A name that a YAML, TOML, INI, template, Makefile, or Dockerfile of the project mentions |
+
+RCH002 and RCH003 come from a framework model and are never blocked.
+
 ## Baseline and report comparison
 
 A baseline records reviewed debt without removing findings from the report or changing the graph:

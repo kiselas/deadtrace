@@ -150,6 +150,13 @@ def scan_command(
         bool,
         typer.Option("--fail-on-new", help="Exit 1 when findings are not accepted by baseline."),
     ] = False,
+    show_blocked: Annotated[
+        bool,
+        typer.Option(
+            "--show-blocked",
+            help="Also print held-back findings in text output; JSON always lists them.",
+        ),
+    ] = False,
 ) -> None:
     """Analyze a project without importing or executing it."""
 
@@ -188,7 +195,7 @@ def scan_command(
             else render_semantic_json(result)
         )
     else:
-        rendered = render_semantic_text(result)
+        rendered = render_semantic_text(result, show_blocked=show_blocked)
         if baseline_result is not None:
             rendered += (
                 f"Baseline: {'comparable' if baseline_result.comparable else 'incomparable'} | "
