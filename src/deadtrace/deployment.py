@@ -88,7 +88,8 @@ class DeploymentReference:
 
     ``kind`` is ``module`` for ``module`` or ``module:attribute`` targets, ``script`` for a path
     run by ``python``, ``object`` for a dotted class or callable a configuration names, and
-    ``discovery`` for the leaf name of modules a worker imports by searching its directory.
+    ``discovery`` for the leaf name of modules a worker imports by searching its directory, and
+    ``test_path`` for a test file that a ``pytest`` command names (ADR-0054).
     ``exposed`` marks a module whose top-level definitions the program reads by name, as
     gunicorn reads hooks from its configuration and locust reads user classes from a locustfile.
     """
@@ -222,6 +223,8 @@ def _command_references(
             application = _option_value(arguments, ("-A", "--app"))
             if application is not None and _TARGET.match(application):
                 add("module", application)
+        elif program in {"pytest", "py.test"}:
+            _pytest_reference(arguments, add)
         elif program == "locust":
             path = _option_value(arguments, ("-f", "--locustfile"))
             if path is not None and path.endswith(".py"):
@@ -260,6 +263,15 @@ def _server_references(
     log_configuration = _option_value(arguments, ("--log-config", "--log-config-json"))
     if log_configuration is not None:
         log_configurations.add(log_configuration.rpartition(":")[2].lstrip("./"))
+
+
+def _pytest_reference(arguments: list[str], add: _Add) -> None:
+    """Test files that ``pytest`` names as arguments run whatever ``python_files`` says."""
+
+    for argument in arguments:
+        path = argument.partition("::")[0]
+        if path.endswith(".py") and not path.startswith("-"):
+            add("test_path", path.removeprefix("./"))
 
 
 def _python_reference(arguments: list[str], add: _Add) -> None:

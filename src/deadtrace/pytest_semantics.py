@@ -950,6 +950,19 @@ def _with_unittest_modules(
     return replace(collection, files=(*collection.files, *extra))
 
 
+def with_explicit_test_paths(
+    collection: PytestCollection, paths: tuple[str, ...]
+) -> PytestCollection:
+    """Also collect files that a ``pytest`` command in a Makefile, tox, or script names (ADR-0054).
+
+    ``pytest tests.py`` runs ``tests.py`` although ``python_files`` would skip it. Treating a
+    named file as collected only keeps code, never reports it.
+    """
+
+    extra = tuple(path for path in dict.fromkeys(paths) if path not in collection.files)
+    return replace(collection, files=(*collection.files, *extra)) if extra else collection
+
+
 def _is_test_path(path: str, collection: PytestCollection) -> bool:
     posix = PurePosixPath(path)
     return any(
