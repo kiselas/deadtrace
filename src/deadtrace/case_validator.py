@@ -176,11 +176,16 @@ def _validate_semantic_target(
     path = _required_string(target, "path", manifest)
     qualified_name = _required_string(target, "qualified_name", manifest)
     expectation = _required_string(target, "expectation", manifest)
+    occurrence = target.get("occurrence")
+    if occurrence is not None and (not isinstance(occurrence, int) or isinstance(occurrence, bool)):
+        raise CaseValidationError(f"{manifest}: target occurrence must be an integer")
     symbol = next(
         (
             item
             for item in result.program.symbols.values()
-            if item.path == path and item.qualified_name == qualified_name
+            if item.path == path
+            and item.qualified_name == qualified_name
+            and (occurrence is None or item.occurrence == occurrence)
         ),
         None,
     )
@@ -194,7 +199,9 @@ def _validate_semantic_target(
         finding.code
         for finding in result.findings
         if any(
-            member.path == path and member.qualified_name == qualified_name
+            member.path == path
+            and member.qualified_name == qualified_name
+            and (occurrence is None or member.occurrence == occurrence)
             for member in finding.members
         )
     }
