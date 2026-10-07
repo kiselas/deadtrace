@@ -40,5 +40,8 @@ uv run --isolated --no-project --python 3.12 --with "deadtrace==0.1.0a2" deadtra
 uv run --isolated --no-project --python 3.12 --with "deadtrace==0.1.0a2" python scripts/wheel_smoke.py
 ```
 
+Before tagging, set the default `version` input in `action.yml` to the release version; the
+action and the pre-commit hooks are consumed from the tag itself.
+
 Do not move a published tag or replace a PyPI file. Correct a failed alpha with a new version;
 retain receipts and CI logs for the published bytes.

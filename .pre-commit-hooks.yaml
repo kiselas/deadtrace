@@ -1,0 +1,16 @@
+- id: deadtrace
+  name: deadtrace (new dead code)
+  description: Fail on dead code that a reviewed baseline does not accept.
+  entry: deadtrace scan . --baseline deadtrace-baseline.json --fail-on-new
+  language: python
+  pass_filenames: false
+  always_run: true
+  types: [python]
+- id: deadtrace-report
+  name: deadtrace (report findings)
+  description: Fail on any review finding. Use before a baseline exists.
+  entry: deadtrace scan . --fail-on-findings
+  language: python
+  pass_filenames: false
+  always_run: true
+  types: [python]
