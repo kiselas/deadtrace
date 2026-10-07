@@ -3618,20 +3618,29 @@ def _collect_imports(
     )
 
 
+MAX_IMPORT_CHAIN = 24
+"""Re-export hops that a name may follow; real chains are a few links long."""
+
+
 def resolve_through_imports(
     modules: Mapping[str, PythonModule],
     index: SymbolIndex,
     full_name: str,
     memo: dict[str, PythonSymbol | None],
+    depth: int = 0,
 ) -> PythonSymbol | None:
     """The symbol a full name reaches through the imports of the module it starts in.
 
     ``pkg.helper`` names ``pkg._impl.helper`` when ``pkg`` runs ``from pkg._impl import helper``
-    or ``from pkg._impl import *``. Chains are followed; an import cycle reaches nothing.
+    or ``from pkg._impl import *``. Chains are followed; an import cycle reaches nothing, and so
+    does a chain that only grows: ``from pkg._license import _license`` with no ``_license``
+    module (a ``.pyi`` stub) names ``pkg._license._license``, then one link more, without end.
     """
 
     if full_name in memo:
         return memo[full_name]
+    if depth >= MAX_IMPORT_CHAIN:
+        return None
     memo[full_name] = None
     parts = full_name.split(".")
     result: PythonSymbol | None = None
@@ -3650,7 +3659,9 @@ def resolve_through_imports(
             else [".".join((base, first, *rest)) for base in reversed(module.star_imports)]
         )
         for target in targets:
-            result = index.resolve(target) or resolve_through_imports(modules, index, target, memo)
+            result = index.resolve(target) or resolve_through_imports(
+                modules, index, target, memo, depth + 1
+            )
             if result is not None:
                 break
         break
