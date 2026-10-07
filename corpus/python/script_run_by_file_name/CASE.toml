@@ -6,7 +6,7 @@ description = "A string that is the file name of a project module runs that modu
 complete = true
 worlds = ["production:scripts"]
 finding_codes = ["RCH001"]
-limitation_codes = ["DT2002"]
+limitation_codes = []
 
 [[targets]]
 path = "_worker.py"

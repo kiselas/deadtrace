@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "unguarded-example-script"
+description = "A module nobody imports that calls at top level is a script."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "examples/plugin_example.py"
+kind = "function"
+qualified_name = "setup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "examples/plugin_example.py"
+kind = "function"
+qualified_name = "parse_items"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_shop/cart.py"
+kind = "function"
+qualified_name = "total"
+expectation = "not_candidate"
+
+[[targets]]
+path = "examples/plugin_example.py"
+kind = "function"
+qualified_name = "never_called"
+expectation = "candidate"
