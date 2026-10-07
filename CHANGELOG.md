@@ -5,6 +5,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/38` (ADR-0056): fixtures that a base class in another
+  module defines are inherited by its subclasses.
 - Model revision `python-fastapi-dishka/37` (ADR-0055): arguments of ddt and `parameterized`
   decorators are values, not unresolved pytest fixtures.
 - Model revision `python-fastapi-dishka/36` (ADR-0054): a test file named as an argument of a

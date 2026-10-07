@@ -126,3 +126,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0053](0053-unittest-discover-pattern.md) — `test*.py` modules with unittest cases are collected (revision 35). Accepted.
 - [ADR-0054](0054-explicit-pytest-test-paths.md) — test files named in `pytest` commands are collected (revision 36). Accepted.
 - [ADR-0055](0055-data-provider-decorators.md) — arguments of data-provider decorators are values, not fixtures (revision 37). Accepted.
+- [ADR-0056](0056-inherited-class-fixtures.md) — fixtures of a base class in another module are inherited (revision 38). Accepted.
