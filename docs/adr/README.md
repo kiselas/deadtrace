@@ -134,3 +134,5 @@ each other. Typo and link fixes are fine.
 - [ADR-0061](0061-github-workflow-commands.md) — GitHub workflow steps are command files (revision 43). Accepted.
 - [ADR-0062](0062-collected-modules-are-test-code.md) — modules that the tests world collects are test code (revision 44). Accepted.
 - [ADR-0063](0063-poetry-flit-setup-cfg-entry-points.md) — Poetry, flit, and `setup.cfg` entry points (revision 45). Accepted.
+- [ADR-0064](0064-class-statement-keywords.md) — keywords of a class statement are evaluated (revision 46). Accepted.
+- [ADR-0065](0065-nested-package-import-root.md) — a nested package imported by its own name (revision 47). Accepted.
