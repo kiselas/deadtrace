@@ -3,6 +3,11 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
+## Unreleased
+
+- Model revision `python-fastapi-dishka/36` (ADR-0054): a test file named as an argument of a
+  `pytest` command in a Makefile, tox, or script is collected whatever `python_files` says.
+
 ## 0.1.0a2 - 2026-10-06
 
 ### Measured

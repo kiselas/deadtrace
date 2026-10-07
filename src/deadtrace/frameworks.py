@@ -1733,6 +1733,8 @@ def _commands_plan(state: _BuildState) -> WorldPlan | None:
         )
 
     for reference in state.deployment:
+        if reference.kind == "test_path":
+            continue
         if reference.kind == "script":
             modules = [(module, "") for module in _modules_at_path(state, reference)]
         elif reference.kind == "discovery":
