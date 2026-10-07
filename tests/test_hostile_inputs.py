@@ -122,3 +122,19 @@ def test_source_file_over_the_input_limit_is_skipped_with_dt1001(tmp_path: Path)
     assert "huge.py" in result.stderr
     assert "DT1001" in result.stderr
     assert "too large" in result.stderr
+
+
+def test_import_of_a_name_from_a_stub_only_module_terminates(tmp_path: Path) -> None:
+    # ``_license`` exists only as a ``.pyi`` stub, so ``pkg._license._license`` could grow without
+    # end; resolution once ran for more than an hour on such a project (pybase64).
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from pkg._license import _license\n\n\ndef show():\n    return _license.text\n",
+        encoding="utf-8",
+    )
+    (package / "_license.pyi").write_text("class _license: ...\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["scan", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0

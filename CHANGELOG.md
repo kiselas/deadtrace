@@ -5,6 +5,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Fixed a hang: `from pkg._x import _x` where `_x` exists only as a `.pyi` stub made import
+  resolution follow a name that grew without end (an hour on `pybase64`, now under a second).
 - A composite GitHub Action (`action.yml`) and pre-commit hooks (`.pre-commit-hooks.yaml`), described
   in the README. Both run `deadtrace scan` from an exact PyPI version.
 - Model revision `python-fastapi-dishka/43` (ADR-0061): `.github/workflows/*.yml` steps are read as
