@@ -586,6 +586,28 @@ class _FixtureScopes:
             if path.name == "conftest.py":
                 self.conftests.append((path.parent, name))
         self.conftests.sort(key=lambda item: len(item[0].parts))
+        # A fixture a base class defines is inherited by its subclasses, in whatever module the
+        # base lives (ADR-0056); the model keeps namespaces per module, so it joins theirs.
+        inherited = {
+            fixture.symbol: fixture
+            for fixture in fixtures
+            if (owner := program.symbols[fixture.symbol].owner) is not None
+            and program.symbols[owner].kind is NodeKind.CLASS
+        }
+        if inherited:
+            for name, module in program.modules.items():
+                for symbol in module.symbols:
+                    if symbol.owner is not None or symbol.kind is not NodeKind.CLASS:
+                        continue
+                    for ancestor in _project_ancestry(program, symbol)[1:]:
+                        if ancestor.module == name:
+                            continue
+                        for member in program.index.members(ancestor.id):
+                            base_fixture = inherited.get(member.id)
+                            if base_fixture is not None:
+                                self.namespaces.setdefault(name, {}).setdefault(
+                                    base_fixture.name, base_fixture
+                                )
         self._directory_cache: dict[str, dict[str, Fixture]] = {}
         self.generators = {
             name
