@@ -1008,6 +1008,15 @@ def _with_unittest_modules(
     return replace(collection, files=(*collection.files, *extra))
 
 
+def collected_test_paths(program: PythonProgram, collection: PytestCollection) -> frozenset[str]:
+    """Paths of the modules that the tests world collects: test code, not production (ADR-0062)."""
+
+    collection = _with_unittest_modules(program, collection)
+    return frozenset(
+        module.path for module in program.modules.values() if _is_test_path(module.path, collection)
+    )
+
+
 def with_explicit_test_paths(
     collection: PytestCollection, paths: tuple[str, ...]
 ) -> PytestCollection:

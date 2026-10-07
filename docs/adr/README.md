@@ -132,3 +132,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0059](0059-class-fixtures-shadow-module-fixtures.md) — fixtures of the consumer's class take precedence (revision 41). Accepted.
 - [ADR-0060](0060-tests-package-init-unittest-cases.md) — unittest cases in a test package `__init__.py` are collected (revision 42). Accepted.
 - [ADR-0061](0061-github-workflow-commands.md) — GitHub workflow steps are command files (revision 43). Accepted.
+- [ADR-0062](0062-collected-modules-are-test-code.md) — modules that the tests world collects are test code (revision 44). Accepted.

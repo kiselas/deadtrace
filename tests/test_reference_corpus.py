@@ -13,7 +13,7 @@ def test_reference_corpus_manifest_and_static_result(project_root: Path) -> None
     analysis = analyze(case_root, load_config(case_root / "pyproject.toml"))
 
     assert result.cases == 135
-    assert result.targets == 463
+    assert result.targets == 464
     assert result.semantic_cases == 135
     assert analysis.complete
     assert [finding.code for finding in analysis.findings] == ["RCH003"]

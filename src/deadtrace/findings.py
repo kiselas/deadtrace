@@ -67,8 +67,13 @@ def build_findings(
     program: PythonProgram,
     model: FrameworkModel,
     snapshot: AnalysisSnapshot,
+    collected_tests: frozenset[str] = frozenset(),
 ) -> tuple[Finding, ...]:
-    """Emit findings only when every relevant application world passes its gate."""
+    """Emit findings only when every relevant application world passes its gate.
+
+    ``collected_tests`` are modules that the tests world collects whatever their name, such as
+    ``tests.py`` run by ``pytest tests.py``; their code is test code, never production (ADR-0062).
+    """
 
     production_worlds = tuple(world for world in snapshot.worlds if world.id.profile != "tests")
     findings: list[Finding] = []
@@ -105,6 +110,7 @@ def build_findings(
             node_id
             for node_id in resolved_in_tests - reached - retained - framework_nodes
             if not is_test_path(node_map[node_id].path, test_trees)
+            and node_map[node_id].path not in collected_tests
             and node_map[node_id].kind is not NodeKind.MODULE
             and not node_map[node_id].report_excluded
         }
