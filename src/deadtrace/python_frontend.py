@@ -3523,6 +3523,23 @@ class ImportRoots:
             if parent.rpartition(".")[2] == last and parent not in modules:
                 found[last].append(name)
         self.distributions = {last: names[0] for last, names in found.items() if len(names) == 1}
+        # Nested packages by their last name part: the shallowest one, when it is unique.
+        parents = {
+            ".".join(parts[:end])
+            for parts in (name.split(".") for name in modules)
+            for end in range(1, len(parts))
+        }
+        nested: defaultdict[str, list[str]] = defaultdict(list)
+        for name in parents:
+            parent, _, last = name.rpartition(".")
+            if parent:
+                nested[last].append(name)
+        self.packages = {}
+        for last, names in nested.items():
+            shallowest = min(name.count(".") for name in names)
+            top = [name for name in names if name.count(".") == shallowest]
+            if len(top) == 1:
+                self.packages[last] = top[0]
 
     def absolute(self, importer: PythonModule, name: str, members: Sequence[str] = ()) -> str:
         """The project name ``name`` imports; ``members`` are what ``from name import`` takes."""
@@ -3554,6 +3571,19 @@ class ImportRoots:
         if distribution is not None and first not in self.roots:
             candidate = distribution + name[len(first) :]
             if candidate in self.namespaces and candidate != importer.name:
+                return candidate
+        # ``sys.path.insert(0, SRC_DIR)``, ``PYTHONPATH=src`` or a ``tests/`` import root make a
+        # nested package importable by its own name, as ``core`` for ``src/core``. The shallowest
+        # project package of that name, when unique and holding the imported module, is it
+        # (ADR-0065). A plain module is not enough: ``utils/requests.py`` must not shadow
+        # ``import requests``, nor ``app/alembic/`` the installed ``alembic``.
+        package = self.packages.get(first)
+        if package is not None and first not in self.roots:
+            candidate = package + name[len(first) :]
+            if candidate != importer.name and (
+                candidate in self.modules
+                or any(f"{candidate}.{member}" in self.modules for member in members)
+            ):
                 return candidate
         return name
 
@@ -4498,6 +4528,10 @@ def _visit_class_execution_effects(node: ast.ClassDef, visitor: _ExecutionVisito
     for base in node.bases:
         visitor.mark_references(_unstarred(base))
         visitor.visit_expression(base)
+    # ``class Admin(ModelView, model=User)`` hands ``User`` to the base class's
+    # ``__init_subclass__`` or metaclass when the statement runs (ADR-0064).
+    for keyword in node.keywords:
+        visitor.visit_expression(keyword.value)
     for decorator in node.decorator_list:
         visitor.mark_references(decorator.func if isinstance(decorator, ast.Call) else decorator)
         visitor.visit_expression(decorator)

@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "class-keyword-argument-reference"
+description = "A value passed as a keyword of a class statement is used."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_admin.py"
+kind = "class"
+qualified_name = "User"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_admin.py"
+kind = "class"
+qualified_name = "Unused"
+expectation = "candidate"
