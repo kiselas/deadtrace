@@ -9,6 +9,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   resolution follow a name that grew without end (an hour on `pybase64`, now under a second).
 - A composite GitHub Action (`action.yml`) and pre-commit hooks (`.pre-commit-hooks.yaml`), described
   in the README. Both run `deadtrace scan` from an exact PyPI version.
+- Model revision `python-fastapi-dishka/51` (ADR-0069): a dotted string such as
+  `ROOT_URLCONF = "library_app.urls"` resolves through the unique nested package, like an import.
 - Model revision `python-fastapi-dishka/50` (ADR-0068): a module nobody imports that makes a call at
   top level, such as an example ending with `asyncio.run(main())`, is a script root.
 - Model revision `python-fastapi-dishka/49` (ADR-0067): a use between two definitions of a name in
