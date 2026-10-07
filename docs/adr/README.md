@@ -129,3 +129,5 @@ each other. Typo and link fixes are fine.
 - [ADR-0056](0056-inherited-class-fixtures.md) — fixtures of a base class in another module are inherited (revision 38). Accepted.
 - [ADR-0057](0057-template-directories-are-not-source.md) — template directories are not source (revision 39). Accepted.
 - [ADR-0058](0058-launcher-module-function-argument.md) — a `module:function` argument in a command file roots that function (revision 40). Accepted.
+- [ADR-0059](0059-class-fixtures-shadow-module-fixtures.md) — fixtures of the consumer's class take precedence (revision 41). Accepted.
+- [ADR-0060](0060-tests-package-init-unittest-cases.md) — unittest cases in a test package `__init__.py` are collected (revision 42). Accepted.

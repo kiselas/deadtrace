@@ -339,6 +339,11 @@ def apply_pytest_model(
         return model
 
     fixtures = _discover_fixtures(program)
+    class_fixtures: dict[NodeId, dict[str, Fixture]] = {}
+    for class_fixture in fixtures:
+        fixture_owner = program.symbols[class_fixture.symbol].owner
+        if fixture_owner is not None and program.symbols[fixture_owner].kind is NodeKind.CLASS:
+            class_fixtures.setdefault(fixture_owner, {})[class_fixture.name] = class_fixture
     requirements = list(model.graph.requirements)
     edges: list[ExecutionEdge] = []
     boundaries: list[UnknownBoundary] = []
@@ -389,7 +394,12 @@ def apply_pytest_model(
             roots.add(importer.node_id)
             contexts.append((importer.path, importer.name))
         for context_path, context_module in contexts:
-            visible = _visible_fixtures(context_path, context_module, scopes, global_fixtures)
+            visible = _with_class_fixtures(
+                _visible_fixtures(context_path, context_module, scopes, global_fixtures),
+                program,
+                test,
+                class_fixtures,
+            )
             parameterized = _parameterized_names(program, module, test)
             generated = scopes.generates_tests(context_path, context_module)
             requested = {
@@ -415,7 +425,12 @@ def apply_pytest_model(
 
     fixture_limitations: dict[NodeId, list[Limitation]] = {}
     for fixture in fixtures:
-        visible = _visible_fixtures(fixture.path, fixture.module, scopes, global_fixtures)
+        visible = _with_class_fixtures(
+            _visible_fixtures(fixture.path, fixture.module, scopes, global_fixtures),
+            program,
+            program.symbols[fixture.symbol],
+            class_fixtures,
+        )
         generated = scopes.generates_tests(fixture.path, fixture.module)
         _connect_fixture_requests(
             source=fixture.symbol,
@@ -663,6 +678,27 @@ def _visible_fixtures(
     visible = dict(scopes.directory_fixtures(consumer_path.rpartition("/")[0], global_fixtures))
     visible.update(scopes.namespaces.get(consumer_module, {}))
     return visible
+
+
+def _with_class_fixtures(
+    visible: dict[str, Fixture],
+    program: PythonProgram,
+    symbol: PythonSymbol,
+    class_fixtures: dict[NodeId, dict[str, Fixture]],
+) -> dict[str, Fixture]:
+    """Fixtures the consumer's own class and its project bases define take precedence (ADR-0059).
+
+    pytest resolves a request to the nearest definition, so a fixture of the test's class
+    shadows a same-named fixture of another class in the module or a conftest.
+    """
+
+    if symbol.owner is None or not class_fixtures:
+        return visible
+    owner = program.symbols[symbol.owner]
+    merged = dict(visible)
+    for ancestor in reversed(_project_ancestry(program, owner)):
+        merged.update(class_fixtures.get(ancestor.id, {}))
+    return merged
 
 
 def _connect_fixture_requests(
@@ -957,7 +993,7 @@ def _with_unittest_modules(
     extra = tuple(
         module.path
         for module in sorted(program.modules.values(), key=lambda item: item.path)
-        if PurePosixPath(module.path).name.startswith("test")
+        if _unittest_module_name(module.path)
         and module.path.endswith(".py")
         and not _is_test_path(module.path, collection)
         and any(
@@ -983,6 +1019,15 @@ def with_explicit_test_paths(
 
     extra = tuple(path for path in dict.fromkeys(paths) if path not in collection.files)
     return replace(collection, files=(*collection.files, *extra)) if extra else collection
+
+
+def _unittest_module_name(path: str) -> bool:
+    """``test*.py``, or the ``__init__.py`` of a ``test*`` package, where classic runners look."""
+
+    posix = PurePosixPath(path)
+    return posix.name.startswith("test") or (
+        posix.name == "__init__.py" and posix.parent.name.startswith("test")
+    )
 
 
 def _is_test_path(path: str, collection: PytestCollection) -> bool:

@@ -7,6 +7,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 - A composite GitHub Action (`action.yml`) and pre-commit hooks (`.pre-commit-hooks.yaml`), described
   in the README. Both run `deadtrace scan` from an exact PyPI version.
+- Model revision `python-fastapi-dishka/42` (ADR-0059, ADR-0060): fixtures of a test's own class
+  shadow same-named fixtures of other classes; unittest cases in a `tests/__init__.py` are collected.
 - Model revision `python-fastapi-dishka/40` (ADR-0058): a `module:function` argument in a command
   file (supervisor, Makefile, scripts) roots that function.
 - Model revision `python-fastapi-dishka/39` (ADR-0057): directories named `{{...}}` or `{%...`
