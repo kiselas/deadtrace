@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "launcher-module-function-argument"
+description = "A module:function argument in a command file roots that function."
+
+[analysis]
+complete = true
+worlds = ["production:commands", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_hello.py"
+kind = "function"
+qualified_name = "run"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_hello.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"
