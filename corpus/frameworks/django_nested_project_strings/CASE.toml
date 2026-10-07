@@ -15,6 +15,12 @@ qualified_name = "home"
 expectation = "not_candidate"
 
 [[targets]]
+path = "site/blog/admin.py"
+kind = "class"
+qualified_name = "PostAdmin"
+expectation = "not_candidate"
+
+[[targets]]
 path = "site/shop_app/views.py"
 kind = "function"
 qualified_name = "unused_view"

@@ -33,6 +33,7 @@ from deadtrace.core import (
 from deadtrace.deployment import DeploymentReference
 from deadtrace.entry_points import EntryPointIssue, ProjectDistribution, ProjectEntryPoint
 from deadtrace.python_frontend import (
+    ImportRoots,
     PythonModule,
     PythonProgram,
     PythonSymbol,
@@ -207,6 +208,7 @@ class _BuildState:
     entry_point_issues: tuple[EntryPointIssue, ...] = ()
     deployment: tuple[DeploymentReference, ...] = ()
     distribution: ProjectDistribution | None = None
+    import_roots: ImportRoots | None = None
     objects: dict[str, FrameworkObject] = field(default_factory=dict)
     routes: list[RouteRegistration] = field(default_factory=list)
     hooks: list[FrameworkHook] = field(default_factory=list)
@@ -2693,6 +2695,17 @@ def _django_app_package(state: _BuildState, app: str) -> str | None:
     program = state.program
     if app in program.modules:
         return app
+    # ``"date_views"`` from ``example/project/settings.py`` names ``example.date_views`` when that
+    # nested package is unique (ADR-0069).
+    if state.import_roots is None:
+        state.import_roots = ImportRoots(program.modules)
+    first, dot, rest = app.partition(".")
+    nested = state.import_roots.packages.get(first)
+    if nested is not None and first not in state.import_roots.roots:
+        candidate = f"{nested}{dot}{rest}"
+        if candidate in program.modules:
+            return candidate
+        app = candidate
     config = program.resolve_symbol(app)
     if config is None or config.kind is not NodeKind.CLASS:
         return None
