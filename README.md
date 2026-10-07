@@ -200,6 +200,38 @@ uv run deadtrace support-bundle . --output deadtrace-support.json
 
 When `--output` is used, Deadtrace prints a privacy/content preview before writing the bundle.
 
+## GitHub Action and pre-commit
+
+A composite action in this repository runs a scan in a workflow. It installs an exact PyPI
+version with uv, so the analyzed project is not imported:
+
+```yaml
+jobs:
+  dead-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: kiselas/deadtrace@v0.1.0a2
+        with:
+          baseline: deadtrace-baseline.json
+```
+
+Inputs: `path` (default `.`), `baseline` (fail only on findings it does not accept),
+`fail-on-findings`, `version` (an exact release, default the tag's own), and `python-version`
+(default 3.12). Pin the action to a release tag.
+
+For pre-commit, the repository publishes two hooks, `deadtrace` (needs `deadtrace-baseline.json`)
+and `deadtrace-report` (fails on any finding):
+
+```yaml
+repos:
+  - repo: https://github.com/kiselas/deadtrace
+    rev: v0.1.0a2
+    hooks:
+      - id: deadtrace
+        language_version: python3.12
+```
+
 ## Supported and guarded behavior
 
 The oracle environment currently pins FastAPI 0.141.1, Dishka 1.10.1, and HTTPX 0.28.1. The

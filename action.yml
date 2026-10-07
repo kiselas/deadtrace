@@ -1,0 +1,43 @@
+name: deadtrace
+description: Find dead code in a Python project without importing or running it.
+author: kiselas
+branding:
+  icon: search
+  color: gray-dark
+
+inputs:
+  path:
+    description: Python file or project directory to analyze.
+    default: "."
+  baseline:
+    description: Reviewed baseline JSON file. When set, the step fails only on findings it does not accept.
+    default: ""
+  fail-on-findings:
+    description: Fail on any finding. Ignored when a baseline is set.
+    default: "false"
+  version:
+    description: Exact deadtrace version to install from PyPI.
+    default: "0.1.0a2"
+  python-version:
+    description: Python used to run deadtrace (3.12 or newer). The analyzed project is not imported.
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v7
+    - shell: bash
+      env:
+        DEADTRACE_PATH: ${{ inputs.path }}
+        DEADTRACE_BASELINE: ${{ inputs.baseline }}
+        DEADTRACE_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        DEADTRACE_VERSION: ${{ inputs.version }}
+        DEADTRACE_PYTHON: ${{ inputs.python-version }}
+      run: |
+        args=(scan "${DEADTRACE_PATH}")
+        if [ -n "${DEADTRACE_BASELINE}" ]; then
+          args+=(--baseline "${DEADTRACE_BASELINE}" --fail-on-new)
+        elif [ "${DEADTRACE_FAIL_ON_FINDINGS}" = "true" ]; then
+          args+=(--fail-on-findings)
+        fi
+        uvx --python "${DEADTRACE_PYTHON}" --from "deadtrace==${DEADTRACE_VERSION}"           deadtrace "${args[@]}"
