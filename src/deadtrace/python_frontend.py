@@ -587,6 +587,7 @@ class _Resolver:
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
+        self._roots: ImportRoots | None = None
         self._modules_with_star_imports = frozenset(
             module.name
             for module in modules.values()
@@ -866,7 +867,19 @@ class _Resolver:
         owner = self.modules.get(owner_name)
         if owner is not None and attribute in self.top_level_bindings(owner):
             return owner.node_id
+        # ``ROOT_URLCONF = "library_app.urls"`` with ``tests/`` as the working directory names
+        # the unique nested package ``tests.library_app``, as an import does (ADR-0069).
+        roots = self._import_roots()
+        first, dot, rest = value.partition(".")
+        package = roots.packages.get(first)
+        if package is not None and first not in roots.roots and dot:
+            return self.named_by_string(f"{package}.{rest}")
         return None
+
+    def _import_roots(self) -> ImportRoots:
+        if self._roots is None:
+            self._roots = ImportRoots(self.modules)
+        return self._roots
 
     def top_level_bindings(self, module: PythonModule) -> frozenset[str]:
         """Names a module binds at its top level: definitions, imports, and assignments."""

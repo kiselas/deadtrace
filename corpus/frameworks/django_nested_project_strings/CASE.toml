@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "django-nested-project-strings"
+description = "A dotted string resolves to the unique nested package that holds the module."
+
+[analysis]
+complete = true
+worlds = ["production:django", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "site/shop_app/views.py"
+kind = "function"
+qualified_name = "home"
+expectation = "not_candidate"
+
+[[targets]]
+path = "site/shop_app/views.py"
+kind = "function"
+qualified_name = "unused_view"
+expectation = "candidate"

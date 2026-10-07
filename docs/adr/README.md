@@ -139,3 +139,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0066](0066-tool-modules-are-roots.md) — modules that development tools run are roots (revision 48). Accepted.
 - [ADR-0067](0067-use-before-redefinition.md) — a use between two definitions reaches the earlier one (revision 49). Accepted.
 - [ADR-0068](0068-unguarded-scripts.md) — a module nobody imports that calls at top level is a script (revision 50). Accepted.
+- [ADR-0069](0069-nested-package-strings.md) — dotted strings resolve through a nested package like imports (revision 51). Accepted.
