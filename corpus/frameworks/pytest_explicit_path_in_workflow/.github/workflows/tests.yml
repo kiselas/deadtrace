@@ -1,0 +1,8 @@
+name: tests
+on: [push]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python -m pytest checks.py -q
