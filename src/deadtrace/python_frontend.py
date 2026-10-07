@@ -304,6 +304,21 @@ class SymbolIndex:
             return matches[0]
         return max(matches, key=lambda item: item.occurrence)
 
+    def resolve_before(self, full_name: str, line: int) -> PythonSymbol | None:
+        """The occurrence a use at ``line`` of the defining scope's own body sees (ADR-0067).
+
+        Statements of one body run in order, so a use between two definitions of a name reaches
+        the earlier one. Without a definition before the use, the last occurrence is taken.
+        """
+
+        matches = self._by_full_name.get(full_name)
+        if not matches or len(matches) == 1:
+            return matches[0] if matches else None
+        earlier = [item for item in matches if item.line < line]
+        if not earlier:
+            return max(matches, key=lambda item: item.occurrence)
+        return max(earlier, key=lambda item: item.occurrence)
+
     def members(self, owner: NodeId) -> tuple[PythonSymbol, ...]:
         """Symbols defined directly inside ``owner``."""
 
@@ -1100,6 +1115,7 @@ class _Resolver:
             current=current,
             local_types=local_types,
             class_field_types=class_field_types,
+            line=getattr(expression, "lineno", None),
         )
 
     def resolve_dotted(
@@ -1110,6 +1126,7 @@ class _Resolver:
         current: PythonSymbol | None,
         local_types: dict[str, str],
         class_field_types: dict[tuple[str, str], str],
+        line: int | None = None,
     ) -> PythonSymbol | None:
         if dotted.startswith("self.") and current is not None:
             parts = dotted.split(".")
@@ -1133,10 +1150,19 @@ class _Resolver:
         if local_type is not None and rest:
             return self.typed_member(local_type, rest)
         for scope in self._scopes(current):
-            scoped = self.index.resolve(f"{module.name}.{scope.qualified_name}.{dotted}")
+            scoped_name = f"{module.name}.{scope.qualified_name}.{dotted}"
+            scoped = (
+                self.index.resolve_before(scoped_name, line)
+                if line is not None and scope is current and not rest
+                else self.index.resolve(scoped_name)
+            )
             if scoped is not None:
                 return scoped
-        local_symbol = self.index.resolve(f"{module.name}.{dotted}")
+        local_symbol = (
+            self.index.resolve_before(f"{module.name}.{dotted}", line)
+            if line is not None and current is None and not rest
+            else self.index.resolve(f"{module.name}.{dotted}")
+        )
         binding = module.imports.get(first)
         if binding is not None:
             suffix = ".".join(rest)
