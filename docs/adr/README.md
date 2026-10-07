@@ -138,3 +138,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0065](0065-nested-package-import-root.md) — a nested package imported by its own name (revision 47). Accepted.
 - [ADR-0066](0066-tool-modules-are-roots.md) — modules that development tools run are roots (revision 48). Accepted.
 - [ADR-0067](0067-use-before-redefinition.md) — a use between two definitions reaches the earlier one (revision 49). Accepted.
+- [ADR-0068](0068-unguarded-scripts.md) — a module nobody imports that calls at top level is a script (revision 50). Accepted.

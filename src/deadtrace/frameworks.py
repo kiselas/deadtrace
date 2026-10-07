@@ -11,7 +11,7 @@ import ast
 import posixpath
 import sys
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -1985,7 +1985,7 @@ def _auto_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
         if plugin_packages or shipped:
             worlds.extend(_library_world(state, plugin_packages | shipped))
         worlds.extend(_export_world(state))
-    worlds.extend(_script_world(state))
+    worlds.extend(_script_world(state, worlds))
     if not worlds:
         return (WorldConfig("production", "application", (AUTO_ROOT,)),)
     return tuple(worlds)
@@ -2107,18 +2107,91 @@ def _application_worlds(state: _BuildState) -> tuple[WorldConfig, ...]:
     return tuple(worlds)
 
 
-def _script_world(state: _BuildState) -> tuple[WorldConfig, ...]:
-    """Modules run as programs: ``__main__`` modules and modules with a main guard."""
+def _script_world(
+    state: _BuildState, worlds: Sequence[WorldConfig] = ()
+) -> tuple[WorldConfig, ...]:
+    """Modules run as programs: ``__main__`` modules, modules with a main guard, and modules
+    nobody imports that make calls at top level (ADR-0068)."""
 
+    # A module another world already starts, such as a Celery application module, is not a
+    # script as well.
+    imported = (
+        _imported_modules(state.program)
+        | {root.partition(":")[0] for world in worlds for root in world.roots}
+        | _deployed_modules(state)
+    )
     scripts = sorted(
         name
         for name, module in state.program.modules.items()
         if not _is_test_file(module)
-        and (name.rpartition(".")[2] == "__main__" or has_main_guard(module))
+        and (
+            name.rpartition(".")[2] == "__main__"
+            or has_main_guard(module)
+            or _is_unguarded_script(module, imported)
+        )
     )
     for name in scripts:
-        state.auto_provenance[("scripts", name)] = ("main_module", name)
+        module = state.program.modules[name]
+        kind = (
+            "main_module"
+            if has_main_guard(module) or name.endswith("__main__")
+            else "top_level_script"
+        )
+        state.auto_provenance[("scripts", name)] = (kind, name)
     return (WorldConfig("production", "scripts", tuple(scripts), ("python",)),) if scripts else ()
+
+
+def _imported_modules(program: PythonProgram) -> frozenset[str]:
+    """Project modules some project module imports, with the packages that contain them."""
+
+    found: set[str] = set()
+    for module in program.modules.values():
+        targets = [binding.target for binding in module.imports.values()]
+        targets.extend(module.star_imports)
+        for target in targets:
+            parts = target.split(".")
+            for end in range(1, len(parts) + 1):
+                name = ".".join(parts[:end])
+                if name in program.modules:
+                    found.add(name)
+    return frozenset(found)
+
+
+def _deployed_modules(state: _BuildState) -> set[str]:
+    """Modules a deployment command or tool runs; the commands world starts them."""
+
+    found: set[str] = set()
+    for reference in state.deployment:
+        if reference.kind == "script":
+            found.update(module.name for module in _modules_at_path(state, reference))
+        elif reference.kind in ("module", "object"):
+            found.update(
+                module.name
+                for module, _ in _deployment_modules(
+                    state, reference.target.partition(":")[0], reference.source
+                )
+            )
+    return found
+
+
+def _is_unguarded_script(module: PythonModule, imported: frozenset[str]) -> bool:
+    """A module run as a program without a main guard (ADR-0068).
+
+    ``examples/plugin.py`` ends with ``setup(env)``, a sample ends with ``asyncio.run(main())``:
+    nothing in the project imports them, so they exist to be run, and their top-level calls are
+    what runs. Packages, test files, and imported modules are never such scripts.
+    """
+
+    name = module.path.rpartition("/")[2]
+    if module.name in imported or name in {"__init__.py", "conftest.py"}:
+        return False
+    # Alembic runs its environment and revisions itself; they belong to the migrations world.
+    if any(binding.target.split(".")[0] == "alembic" for binding in module.imports.values()):
+        return False
+    return any(
+        isinstance(statement, ast.Expr) and isinstance(statement.value, (ast.Call, ast.Await))
+        for statement in module.tree.body
+    )
 
 
 def _library_world(state: _BuildState, packages: set[str] | None = None) -> tuple[WorldConfig, ...]:
