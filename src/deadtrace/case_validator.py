@@ -141,7 +141,7 @@ def _validate_analysis(
         manifest,
         "analysis.finding_codes",
         expectation.get("finding_codes"),
-        {finding.code for finding in result.findings},
+        {finding.code for finding in (*result.findings, *result.blocked_findings)},
     )
     _expect_string_set(
         manifest,
@@ -195,9 +195,11 @@ def _validate_semantic_target(
     tests = tuple(world for world in result.snapshot.worlds if world.id.profile == "tests")
     production_states = {world.state_of(symbol.id) for world in production}
     test_states = {world.state_of(symbol.id) for world in tests}
+    # A blocked finding is still a finding of the analysis; blocking only decides what a report
+    # shows by default (ADR-0071).
     finding_codes = {
         finding.code
-        for finding in result.findings
+        for finding in (*result.findings, *result.blocked_findings)
         if any(
             member.path == path
             and member.qualified_name == qualified_name

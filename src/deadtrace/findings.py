@@ -48,9 +48,11 @@ class Finding:
     fingerprint: str
     action: str = "review"
     validation: str = "not_performed"
+    blocked: tuple[str, ...] = ()
+    """Reasons the finding is held back (ADR-0071); empty for a finding that is shown."""
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "code": self.code,
             "category": self.category,
             "title": self.title,
@@ -61,6 +63,9 @@ class Finding:
             "action": self.action,
             "validation": self.validation,
         }
+        if self.blocked:
+            payload["blocked"] = list(self.blocked)
+        return payload
 
 
 def build_findings(

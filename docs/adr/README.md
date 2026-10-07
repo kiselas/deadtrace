@@ -141,3 +141,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0068](0068-unguarded-scripts.md) — a module nobody imports that calls at top level is a script (revision 50). Accepted.
 - [ADR-0069](0069-nested-package-strings.md) — dotted strings resolve through a nested package like imports (revision 51). Accepted.
 - [ADR-0070](0070-nested-installed-apps.md) — installed applications resolve through a nested package (revision 52). Accepted.
+- [ADR-0071](0071-blocked-findings.md) — blocked findings: forms that reviews showed to be mostly false are held back with a reason (revision 53). Accepted.

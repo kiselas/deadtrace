@@ -5,6 +5,11 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Blocked findings (ADR-0071, model revision 53): RCH001 and RCH004 findings of four forms that
+  hand review showed to be mostly false (external base hooks, code under examples/docs/scripts/
+  tools, documented or `__all__` public API, names mentioned in configuration files) are held back
+  with a reason. The JSON report lists them under `blocked_findings`; `--show-blocked` prints them;
+  exit codes and baselines ignore them.
 - Fixed a hang: `from pkg._x import _x` where `_x` exists only as a `.pyi` stub made import
   resolution follow a name that grew without end (an hour on `pybase64`, now under a second).
 - A composite GitHub Action (`action.yml`) and pre-commit hooks (`.pre-commit-hooks.yaml`), described

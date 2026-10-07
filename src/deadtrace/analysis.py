@@ -11,6 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
 
+from deadtrace.blocking import ProjectText, apply_blocking
 from deadtrace.config import Config
 from deadtrace.core import AnalysisSnapshot, AssemblyState, Limitation, solve
 from deadtrace.deployment import read_deployment_references
@@ -38,7 +39,7 @@ from deadtrace.target_environment import (
 )
 from deadtrace.timing import StageTimings
 
-MODEL_REVISION = "python-fastapi-dishka/52"
+MODEL_REVISION = "python-fastapi-dishka/53"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,8 @@ class AnalysisResult:
     model_revision: str
     target_environment: TargetEnvironment
     metrics: AnalysisMetrics
+    blocked_findings: tuple[Finding, ...] = ()
+    """Findings held back by ADR-0071; the JSON report lists them, exit codes ignore them."""
 
     @property
     def complete(self) -> bool:
@@ -222,6 +225,9 @@ def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
             snapshot,
             collected_tests=collected_test_paths(program, pytest_collection),
         )
+        findings, blocked_findings = apply_blocking(
+            program, findings, ProjectText(collection.root, config.exclude)
+        )
     solved_at = perf_counter()
     timings.count("findings", len(findings))
     metrics = AnalysisMetrics(
@@ -249,6 +255,7 @@ def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
         model_revision=MODEL_REVISION,
         target_environment=target_environment,
         metrics=metrics,
+        blocked_findings=blocked_findings,
     )
 
 

@@ -64,6 +64,7 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
         "worlds": [_world_dict(world, node_map) for world in result.snapshot.worlds],
         "issues": [issue.to_dict() for issue in result.inventory.issues],
         "findings": [finding.to_dict() for finding in result.findings],
+        "blocked_findings": [finding.to_dict() for finding in result.blocked_findings],
         "explanations": {
             "derivations": shown_derivations,
             "total": len(derivations),
@@ -79,6 +80,7 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
         },
         "summary": {
             "finding_count": len(result.findings),
+            "blocked_finding_count": len(result.blocked_findings),
             "candidate_count": sum(item.code == "RCH001" for item in result.findings),
             "binding_review_count": sum(item.code == "RCH003" for item in result.findings),
             "blocker_count": sum(
@@ -95,7 +97,7 @@ def render_semantic_json(result: AnalysisResult) -> str:
     )
 
 
-def render_semantic_text(result: AnalysisResult) -> str:
+def render_semantic_text(result: AnalysisResult, *, show_blocked: bool = False) -> str:
     state = "complete" if result.complete else "incomplete"
     lines = [
         f"Deadtrace analysis ({state}, validation=not_performed)",
@@ -139,6 +141,7 @@ def render_semantic_text(result: AnalysisResult) -> str:
                 lines.append(f"  {member.path}:{member.line}  {member.qualified_name}")
     else:
         lines.extend(["", "No review findings were emitted."])
+    lines.extend(_blocked_lines(result, show_blocked))
     lines.extend(
         [
             "",
@@ -146,6 +149,30 @@ def render_semantic_text(result: AnalysisResult) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def _blocked_lines(result: AnalysisResult, show: bool) -> list[str]:
+    """A count of held-back findings by reason, or the findings themselves (ADR-0071)."""
+
+    if not result.blocked_findings:
+        return []
+    counts: dict[str, int] = {}
+    for finding in result.blocked_findings:
+        for reason in finding.blocked:
+            counts[reason] = counts.get(reason, 0) + 1
+    summary = ", ".join(f"{reason} {count}" for reason, count in sorted(counts.items()))
+    lines = ["", f"Blocked: {len(result.blocked_findings)} findings held back ({summary})."]
+    if not show:
+        lines.append("  They are listed in the JSON report; --show-blocked prints them here.")
+        return lines
+    for finding in result.blocked_findings:
+        lines.append(
+            f"{finding.code} {finding.fingerprint}  {finding.title}  "
+            f"[blocked: {', '.join(finding.blocked)}]"
+        )
+        for member in finding.members:
+            lines.append(f"  {member.path}:{member.line}  {member.qualified_name}")
+    return lines
 
 
 def _limitation_key(limitation: Limitation) -> tuple[str, str, str]:
