@@ -116,6 +116,18 @@ def test_environments_and_tool_directories_are_not_source(tmp_path: Path) -> Non
     assert explicit.files == ("fastapi/__init__.py",)
 
 
+def test_template_directories_are_not_source(tmp_path: Path) -> None:
+    for path in ("app/main.py", "{{cookiecutter.slug}}/{{cookiecutter.slug}}/main.py"):
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("def f():" + chr(10) + "    pass", encoding="utf-8")
+
+    collection = collect_sources(tmp_path)
+
+    assert collection.files == ("app/main.py",)
+    assert collection.skipped_directories == ("{{cookiecutter.slug}}",)
+
+
 def test_report_exclude_marks_but_does_not_remove_inventory(tmp_path: Path) -> None:
     (tmp_path / "visible.py").write_text("def visible():\n    pass\n", encoding="utf-8")
     (tmp_path / "hidden.py").write_text("def hidden():\n    pass\n", encoding="utf-8")

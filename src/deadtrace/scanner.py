@@ -325,6 +325,9 @@ def is_skipped_directory(parent: Path, name: str) -> bool:
 
     if name.startswith(".") or name in _UNIMPORTABLE_DIRECTORIES or name == "site-packages":
         return True
+    if "{{" in name or "{%" in name:
+        # A project template (cookiecutter, copier): its files are Jinja text until rendered.
+        return True
     directory = parent / name
     if name == "build" and _is_setuptools_build(directory):
         return True
