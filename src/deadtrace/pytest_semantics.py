@@ -1162,6 +1162,11 @@ def _parameterized_names(
         if _expanded_name(module, expression.func) in HYPOTHESIS_GIVEN:
             names.update(_given_names(expression, symbol))
             continue
+        if _expanded_name(module, expression.func) in DATA_PROVIDERS:
+            names.update(
+                item.name for item in symbol.parameters if item.name not in {"self", "cls"}
+            )
+            continue
         if not _expanded_name(module, expression.func).endswith("pytest.mark.parametrize"):
             continue
         argnames = keyword_argument(expression, "argnames")
@@ -1174,6 +1179,22 @@ def _parameterized_names(
         names.update(parsed - _argument_names(indirect))
     return names
 
+
+DATA_PROVIDERS = frozenset(
+    {
+        "ddt.data",
+        "ddt.idata",
+        "ddt.file_data",
+        "parameterized.expand",
+        "parameterized.parameterized",
+        "parameterized.parameterized.expand",
+        "parameterized.parameterized_class",
+        "nose_parameterized.expand",
+        "nose_parameterized.parameterized.expand",
+        "unittest_data_provider.data_provider",
+    }
+)
+"""Decorators that generate the arguments of a test method, as ddt's ``@data`` does (ADR-0055)."""
 
 HYPOTHESIS_GIVEN = frozenset({"hypothesis.given", "hypothesis.core.given"})
 
