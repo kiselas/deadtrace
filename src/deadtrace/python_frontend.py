@@ -679,8 +679,9 @@ class _Resolver:
             bases: list[PythonSymbol] = []
             external: list[str] = []
             for base in item.bases:
+                # ``class UserRepo(BaseRepo[User])`` derives from ``BaseRepo`` (ADR-0082).
                 target = self.resolve_expression(
-                    base,
+                    base.value if isinstance(base, ast.Subscript) else base,
                     module=module,
                     current=self.enclosing_scope(item),
                     local_types={},
@@ -4738,7 +4739,11 @@ def _visit_module_declaration_effects(module: ast.Module, visitor: _ExecutionVis
 
 def _visit_class_execution_effects(node: ast.ClassDef, visitor: _ExecutionVisitor) -> None:
     for base in node.bases:
-        visitor.mark_references(_unstarred(base))
+        expression = _unstarred(base)
+        # The class of a generic base ``BaseRepo[User]`` is a base, not a value (ADR-0082).
+        visitor.mark_references(
+            expression.value if isinstance(expression, ast.Subscript) else expression
+        )
         visitor.visit_expression(base)
     # ``class Admin(ModelView, model=User)`` hands ``User`` to the base class's
     # ``__init_subclass__`` or metaclass when the statement runs (ADR-0064).

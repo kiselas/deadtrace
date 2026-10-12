@@ -12,6 +12,10 @@ compatibility commitments are defined; alpha schemas may change between releases
   collected.
 - Model revision `python-fastapi-dishka/64` (ADR-0081): project modules held in a literal container,
   such as a table of adapter modules, may run the names called on a value read back from it.
+- Model revision `python-fastapi-dishka/65` (ADR-0082): a subscripted base such as
+  `BaseRepo[User]` resolves to the project class, so its subclasses are no longer treated as
+  deriving from an external class whose hooks might call any method. Unused methods of generic
+  subclasses can now be reported.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.
