@@ -15,6 +15,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   values, so a loader that returns the module keeps the functions called on it.
 - Model revision `python-fastapi-dishka/80` (ADR-0097): `hatch_build.py`, which hatchling loads by name
   for build and metadata hooks, is a tool module like `setup.py`.
+- Model revision `python-fastapi-dishka/81` (ADR-0098): `INSTALLED_APPS` given as a keyword argument or a
+  dict key, as test helpers and `override_settings` do, installs Django applications.
 
 ## 0.1.0a5 - 2026-10-12
 

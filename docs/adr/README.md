@@ -168,3 +168,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0095](0095-django-settings-configure.md) — settings.configure installs Django applications. Accepted.
 - [ADR-0096](0096-computed-imports-hold-modules.md) — modules imported by computed names are values. Accepted.
 - [ADR-0097](0097-hatch-build-hook-module.md) — hatch_build.py is a tool module. Accepted.
+- [ADR-0098](0098-installed-apps-in-settings-dicts.md) — INSTALLED_APPS in a settings dict installs applications. Accepted.

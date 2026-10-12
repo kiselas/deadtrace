@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "django-helper-settings-dict"
+description = "INSTALLED_APPS given as a keyword or dict key of a test helper's settings installs applications."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/media_app/models.py"
+kind = "class"
+qualified_name = "Vimeo"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/media_app/models.py"
+kind = "function"
+qualified_name = "_helper"
+expectation = "candidate"

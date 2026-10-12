@@ -2735,27 +2735,36 @@ def _django_installed_apps(module: PythonModule) -> list[str] | None:
 
 
 def _django_configured_apps(module: PythonModule) -> list[str] | None:
-    """Strings of ``INSTALLED_APPS`` that ``settings.configure(...)`` receives (ADR-0095)."""
+    """Strings of ``INSTALLED_APPS`` that settings given outside a settings module list.
 
-    if "configure" not in module.unit.source or "INSTALLED_APPS" not in module.unit.source:
+    ``settings.configure(...)`` (ADR-0095), and the settings a test helper or an override passes
+    as a keyword argument or a dict key (ADR-0098).
+    """
+
+    if "INSTALLED_APPS" not in module.unit.source:
         return None
     apps: list[str] | None = None
+    values: list[ast.expr] = []
     for node in ast.walk(module.tree):
-        if not (
-            isinstance(node, ast.Call)
-            and _expanded_name(module, node.func).endswith("settings.configure")
-        ):
-            continue
-        for keyword in node.keywords:
-            if keyword.arg == "INSTALLED_APPS" or (
-                keyword.arg is not None and keyword.arg.endswith("_APPS")
-            ):
-                apps = apps or []
-                apps.extend(
-                    item.value
-                    for item in ast.walk(keyword.value)
-                    if isinstance(item, ast.Constant) and isinstance(item.value, str)
-                )
+        # ``settings.configure(INSTALLED_APPS=[...])``, ``dict(INSTALLED_APPS=[...])`` of a test
+        # helper's settings, ``override_settings(INSTALLED_APPS=[...])`` (ADR-0098).
+        if isinstance(node, ast.Call):
+            values.extend(
+                keyword.value for keyword in node.keywords if keyword.arg == "INSTALLED_APPS"
+            )
+        elif isinstance(node, ast.Dict):
+            values.extend(
+                value
+                for key, value in zip(node.keys, node.values, strict=True)
+                if isinstance(key, ast.Constant) and key.value == "INSTALLED_APPS"
+            )
+    for value in values:
+        apps = apps or []
+        apps.extend(
+            item.value
+            for item in ast.walk(value)
+            if isinstance(item, ast.Constant) and isinstance(item.value, str)
+        )
     return apps
 
 
