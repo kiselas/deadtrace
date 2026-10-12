@@ -139,3 +139,17 @@ def test_method_of_mixin_mixed_into_class_with_external_base_is_blocked(tmp_path
     )
 
     assert "external_base_hooks" in _blocked(tmp_path)["DataMixin.setUpTestData"]
+
+
+def test_private_helper_of_a_mixin_is_not_blocked_as_a_hook(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "_tool.py": TOOL
+            + "\n\nfrom django.test import TestCase\n\n\n"
+            + "class AdminMixin:\n    def _check_operator(self):\n        pass\n\n\n"
+            + "class AdminTest(AdminMixin, TestCase):\n    pass\n",
+        },
+    )
+
+    assert "AdminMixin._check_operator" not in _blocked(tmp_path)

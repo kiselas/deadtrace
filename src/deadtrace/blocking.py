@@ -188,11 +188,17 @@ def _reasons(
     symbol = symbols.get((member.path, member.qualified_name, member.occurrence))
     if symbol is not None and symbol.owner is not None:
         owner = program.symbols.get(symbol.owner)
+        name = member.qualified_name.rpartition(".")[2]
+        private = name.startswith("_") and not name.startswith("__")
         if (
             owner is not None
             and isinstance(owner.node, ast.ClassDef)
-            and hierarchy.meets_external_base(owner)
+            and (
+                str(owner.id) in hierarchy.external
+                or (not private and hierarchy.meets_external_base(owner))
+            )
         ):
+            # Frameworks call public or dunder hooks; a private helper of a mixin is no hook.
             reasons.add("external_base_hooks")
     if _is_public_package_member(member, directories) and (
         text.documents_api or _exported(program, member, modules)
