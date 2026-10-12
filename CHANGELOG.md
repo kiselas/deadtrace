@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/54` (ADR-0072): RCH002 no longer reports routers included by
+  a possibly published router, routers read as `module.router`, or routers imported inside the
+  function that assembles the routes.
 - Blocked findings (ADR-0071, model revision 53): RCH001 and RCH004 findings of four forms that
   hand review showed to be mostly false (external base hooks, code under examples/docs/scripts/
   tools, documented or `__all__` public API, names mentioned in configuration files) are held back

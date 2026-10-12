@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "router-registry-through-factory"
+description = "Routers reached from an unresolved include, transitively, are not reported."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH002"]
+limitation_codes = []
+
+[[targets]]
+path = "shop/routes/orders.py"
+kind = "function"
+qualified_name = "list_orders"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/routes/admin/users.py"
+kind = "function"
+qualified_name = "list_users"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/routes/reports.py"
+kind = "function"
+qualified_name = "list_reports"
+expectation = "not_candidate"
+
+[[targets]]
+path = "shop/routes/legacy.py"
+kind = "function"
+qualified_name = "legacy"
+expectation = "candidate"

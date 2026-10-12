@@ -39,6 +39,7 @@ from deadtrace.python_frontend import (
     PythonSymbol,
     _annotation_names,
     _dotted_name,
+    _import_from_base,
     _unstarred,
     call_arguments,
     declared_exports,
@@ -1308,9 +1309,32 @@ def _escaping_routers(state: _BuildState) -> frozenset[str]:
         for module in state.program.modules.values()
         for binding in module.imports.values()
     }
+    names = {obj.name for obj in routers.values()}
+    # ``from pkg.routers.auth import auth_router`` inside the function that assembles the routes
+    # (ADR-0072); top-level imports are already in ``imported``.
+    for module in state.program.modules.values():
+        if not any(name in module.unit.source for name in names):
+            continue
+        for node in ast.walk(module.tree):
+            if isinstance(node, ast.ImportFrom) and node not in module.tree.body:
+                base = _import_from_base(module, node)
+                if base:
+                    imported.update(f"{base}.{alias.name}" for alias in node.names)
+    # ``archive.router`` in another module, after ``from pkg import archive`` (ADR-0072).
+    attribute_reads = {
+        f"{binding.target}.{node.attr}"
+        for module in state.program.modules.values()
+        if any(f".{name}" in module.unit.source for name in names)
+        for node in ast.walk(module.tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr in names
+        and isinstance(node.value, ast.Name)
+        and isinstance(node.ctx, ast.Load)
+        and (binding := module.imports.get(node.value.id)) is not None
+    }
     escaping: set[str] = set()
     for key, obj in routers.items():
-        if f"{obj.module}.{obj.name}" in imported:
+        if f"{obj.module}.{obj.name}" in imported or f"{obj.module}.{obj.name}" in attribute_reads:
             escaping.add(key)
             continue
         module = state.program.modules[obj.module]
