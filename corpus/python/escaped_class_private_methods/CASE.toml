@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "escaped-class-private-methods"
+description = "A consumer that receives a class may call its public methods and hooks, not its private methods."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/_handlers.py"
+kind = "function"
+qualified_name = "Handler.handle"
+expectation = "protected"
+
+[[targets]]
+path = "app/_handlers.py"
+kind = "function"
+qualified_name = "Handler._parse"
+expectation = "protected"
+
+[[targets]]
+path = "app/_handlers.py"
+kind = "function"
+qualified_name = "Handler._repr_html_"
+expectation = "protected"
+
+[[targets]]
+path = "app/_handlers.py"
+kind = "function"
+qualified_name = "Handler._stale"
+expectation = "candidate"
