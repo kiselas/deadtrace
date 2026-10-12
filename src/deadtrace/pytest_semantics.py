@@ -997,6 +997,8 @@ def _with_unittest_modules(
     ``python -m unittest discover`` matches ``test*.py`` by default, so ``tests_auth.py`` runs
     there although pytest's ``test_*.py`` would skip it. Whether a project runs such a module
     cannot be known statically; treating it as collected only keeps code, never reports it.
+    A case may derive from ``TestCase`` through a project base imported from elsewhere
+    (ADR-0080).
     """
 
     extra = tuple(
@@ -1008,7 +1010,7 @@ def _with_unittest_modules(
         and any(
             symbol.owner is None
             and symbol.kind is NodeKind.CLASS
-            and _is_unittest_case(program, symbol)
+            and any(_is_unittest_case(program, item) for item in _project_ancestry(program, symbol))
             for symbol in module.symbols
         )
     )

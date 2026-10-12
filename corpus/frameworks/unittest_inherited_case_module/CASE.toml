@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "unittest-inherited-case-module"
+description = "A test*.py module whose cases derive from TestCase through a project base is collected."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001", "RCH004"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/accounts/tests.py"
+kind = "function"
+qualified_name = "AuthTests.token"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/_auth.py"
+kind = "function"
+qualified_name = "check"
+expectation = "test_only"
+
+[[targets]]
+path = "_tool.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"
