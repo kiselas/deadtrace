@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "getattr-known-name-unknown-receiver"
+description = "getattr with a constant or prefixed name on a value of unknown type dispatches by name."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/_llm.py"
+kind = "function"
+qualified_name = "Llm.saveState"
+expectation = "protected"
+
+[[targets]]
+path = "app/_llm.py"
+kind = "function"
+qualified_name = "Llm.load_cache"
+expectation = "protected"
+
+[[targets]]
+path = "app/_llm.py"
+kind = "function"
+qualified_name = "Llm._unused"
+expectation = "candidate"
+
+[[targets]]
+path = "app/_llm.py"
+kind = "function"
+qualified_name = "helper"
+expectation = "candidate"

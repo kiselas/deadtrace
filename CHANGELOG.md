@@ -27,6 +27,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 - Model revision `python-fastapi-dishka/69` (ADR-0086): an instance in an option dictionary reaches
   the consumer through another container local or a loop over one (`attempts = [base]`,
   `for opts in attempts: YoutubeDL(opts)`).
+- Model revision `python-fastapi-dishka/70` (ADR-0087): `getattr(value, "name")(...)` and names with a
+  constant start or end on a value of unknown type dispatch by name like an attribute call, instead of
+  protecting the whole graph; modules passed to calls, stored, or returned count as held values.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.

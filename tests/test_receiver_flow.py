@@ -83,10 +83,23 @@ def test_empty_finite_selection_does_not_open_a_whole_graph_guard() -> None:
     assert states["Second.run"] is None
 
 
-def test_finite_name_on_opaque_receiver_keeps_aliasable_functions_protected() -> None:
+def test_finite_name_on_opaque_receiver_dispatches_by_name() -> None:
+    """``getattr(unknown, "run")()`` is ``unknown.run()`` (ADR-0087, superseding ADR-0034's
+    whole-graph guard for opaque receivers)."""
+
     states = _states('name = "run"\ngetattr(unknown, name)()\n', extra="def different(): pass\n")
+    assert states["First.run"] is not None
+    assert states["Third.run"] is not None
+    assert states["different"] is None
+    assert states["First.other"] is None
+
+
+def test_callable_stored_on_opaque_receiver_stays_protected() -> None:
+    """A function stored under the attribute escaped where it was stored."""
+
+    body = 'unknown.run = different\nname = "run"\ngetattr(unknown, name)()\n'
+    states = _states(body, extra="def different(): pass\n")
     assert states["different"] is not None
-    assert states["First.other"] is not None
 
 
 def test_finite_string_domain_widens_on_unknown_or_excessive_alternatives() -> None:
