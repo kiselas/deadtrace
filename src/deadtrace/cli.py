@@ -150,6 +150,13 @@ def scan_command(
         bool,
         typer.Option("--fail-on-new", help="Exit 1 when findings are not accepted by baseline."),
     ] = False,
+    world_members: Annotated[
+        bool,
+        typer.Option(
+            "--world-members",
+            help="List every definition each world reaches in the JSON report (large).",
+        ),
+    ] = False,
     show_blocked: Annotated[
         bool,
         typer.Option(
@@ -183,7 +190,8 @@ def scan_command(
     if baseline_path is not None:
         try:
             baseline_result = apply_baseline(
-                semantic_report_dict(result), read_json_artifact(baseline_path)
+                semantic_report_dict(result, world_members=world_members),
+                read_json_artifact(baseline_path),
             )
         except ArtifactError as error:
             typer.echo(f"baseline error: {error}", err=True)
@@ -192,7 +200,7 @@ def scan_command(
         rendered = (
             render_json_artifact(baseline_result.payload)
             if baseline_result is not None
-            else render_semantic_json(result)
+            else render_semantic_json(result, world_members=world_members)
         )
     else:
         rendered = render_semantic_text(result, show_blocked=show_blocked)

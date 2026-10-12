@@ -357,6 +357,10 @@ def _limitations(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     worlds = payload["worlds"]
     assert isinstance(worlds, list)
+    # Limitations every world has are listed once (ADR-0079); expand them so that reports written
+    # before and after that change compare alike.
+    shared = payload.get("shared_limitations", [])
+    shared = shared if isinstance(shared, list) else []
     for world in worlds:
         if not isinstance(world, dict):
             continue
@@ -364,16 +368,22 @@ def _limitations(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
         limitations = world.get("limitations", [])
         if not isinstance(limitations, list):
             continue
+        limitations = [*limitations, *shared]
         for limitation in limitations:
             if not isinstance(limitation, dict):
                 continue
+            # Guards are compared by message: reports group their origins by default (ADR-0079).
+            guard = limitation.get("code") == "DT2002"
             key = repr(
                 (
                     world_id,
                     limitation.get("code"),
                     limitation.get("message"),
-                    limitation.get("origin"),
+                    None if guard else limitation.get("origin"),
                 )
             )
-            result[key] = {"world": world_id, **limitation}
+            entry = {"world": world_id, **limitation}
+            if guard:
+                entry = {"world": world_id, "code": "DT2002", "message": limitation.get("message")}
+            result[key] = entry
     return result

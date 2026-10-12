@@ -155,6 +155,12 @@ Exit code `0` means the command completed; limitations may still be present. `1`
 an explicitly selected finding policy (`--fail-on-findings`, `--fail-on-new`). `2` means an
 operational error or a failed completeness/comparability requirement, and takes priority over `1`.
 
+### Report size
+
+The JSON report gives each world's reached definitions as counts; `--world-members` lists them.
+Limitations common to every world appear once under `shared_limitations`, and `DT2002` guards are
+grouped by message with an `origins` count unless `--world-members` is set.
+
 ### Blocked findings
 
 Some forms of finding were mostly false when public projects were reviewed by hand, so they are
