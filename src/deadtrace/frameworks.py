@@ -1312,6 +1312,7 @@ def _escaping_routers(state: _BuildState) -> frozenset[str]:
     names = {obj.name for obj in routers.values()}
     # ``from pkg.routers.auth import auth_router`` inside the function that assembles the routes
     # (ADR-0072); top-level imports are already in ``imported``.
+    nested_bindings: dict[str, dict[str, str]] = {}
     for module in state.program.modules.values():
         if not any(name in module.unit.source for name in names):
             continue
@@ -1320,9 +1321,14 @@ def _escaping_routers(state: _BuildState) -> frozenset[str]:
                 base = _import_from_base(module, node)
                 if base:
                     imported.update(f"{base}.{alias.name}" for alias in node.names)
+                    # ``from pkg.routers import payments as payments_router`` in a function, then
+                    # ``payments_router.router``: the local name of the imported module.
+                    nested_bindings.setdefault(module.name, {}).update(
+                        (alias.asname or alias.name, f"{base}.{alias.name}") for alias in node.names
+                    )
     # ``archive.router`` in another module, after ``from pkg import archive`` (ADR-0072).
     attribute_reads = {
-        f"{binding.target}.{node.attr}"
+        f"{target}.{node.attr}"
         for module in state.program.modules.values()
         if any(f".{name}" in module.unit.source for name in names)
         for node in ast.walk(module.tree)
@@ -1330,7 +1336,14 @@ def _escaping_routers(state: _BuildState) -> frozenset[str]:
         and node.attr in names
         and isinstance(node.value, ast.Name)
         and isinstance(node.ctx, ast.Load)
-        and (binding := module.imports.get(node.value.id)) is not None
+        and (
+            target := (
+                module.imports[node.value.id].target
+                if node.value.id in module.imports
+                else nested_bindings.get(module.name, {}).get(node.value.id)
+            )
+        )
+        is not None
     }
     escaping: set[str] = set()
     for key, obj in routers.items():

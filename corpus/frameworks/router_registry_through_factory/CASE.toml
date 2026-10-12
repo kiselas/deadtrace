@@ -27,6 +27,12 @@ qualified_name = "list_reports"
 expectation = "not_candidate"
 
 [[targets]]
+path = "shop/routes/billing.py"
+kind = "function"
+qualified_name = "list_invoices"
+expectation = "not_candidate"
+
+[[targets]]
 path = "shop/routes/legacy.py"
 kind = "function"
 qualified_name = "legacy"
