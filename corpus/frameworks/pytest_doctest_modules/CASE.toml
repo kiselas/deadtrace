@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "pytest-doctest-modules"
+description = "With --doctest-modules, names called in docstring examples are reached by tests."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001", "RCH004"]
+limitation_codes = []
+
+[[targets]]
+path = "shop/pricing.py"
+kind = "function"
+qualified_name = "_round"
+expectation = "test_only"
+
+[[targets]]
+path = "shop/pricing.py"
+kind = "function"
+qualified_name = "_never_documented"
+expectation = "candidate"

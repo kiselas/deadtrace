@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import configparser
+import doctest
 import shlex
 import tomllib
 from collections.abc import Collection
@@ -185,6 +186,8 @@ class PytestCollection:
     functions: tuple[str, ...] = ("test",)
     plugins: tuple[str, ...] = ()
     """Modules that ``addopts`` loads with ``-p``."""
+    doctest_modules: bool = False
+    """``addopts`` has ``--doctest-modules``: pytest runs the examples in docstrings."""
 
 
 def read_pytest_collection(root: Path) -> PytestCollection:
@@ -214,6 +217,7 @@ def read_pytest_collection(root: Path) -> PytestCollection:
             classes=values.get("python_classes", default.classes),
             functions=values.get("python_functions", default.functions),
             plugins=values.get("plugins", default.plugins),
+            doctest_modules=bool(values.get("doctest_modules")),
         )
     return PytestCollection()
 
@@ -287,6 +291,8 @@ def _add_plugins(options: dict[str, tuple[str, ...]], addopts: object) -> None:
             found.append(name)
     if found:
         options["plugins"] = tuple(found)
+    if "--doctest-modules" in words:
+        options["doctest_modules"] = ("1",)
 
 
 def apply_pytest_model(
@@ -373,6 +379,9 @@ def apply_pytest_model(
         if name in plugins or PurePosixPath(module.path).name == "conftest.py"
     )
     roots.update(module.node_id for module in test_modules)
+    if collection.doctest_modules:
+        doctests = _doctest_targets(program)
+        roots.update(doctests)
     roots.update(_xunit_fixtures(program, collection, classes))
     # Plugins request the fixtures they define themselves, and a project fixture of such a name
     # overrides theirs: pytest-asyncio's ``event_loop``, pytest-django's ``django_db_setup``.
@@ -1044,6 +1053,58 @@ def _is_test_path(path: str, collection: PytestCollection) -> bool:
     return any(
         fnmatchcase(path if "/" in pattern else posix.name, pattern) for pattern in collection.files
     )
+
+
+def _doctest_targets(program: PythonProgram) -> set[NodeId]:
+    """Project functions and classes that docstring examples name (ADR-0076).
+
+    With ``--doctest-modules`` pytest imports every module and runs the ``>>>`` examples of its
+    docstrings. The examples are parsed as text with ``doctest``'s parser, never run; a plain name
+    or ``module.name`` through the module's imports that resolves to a project definition is
+    reached from the tests world.
+    """
+
+    parser = doctest.DocTestParser()
+    found: set[NodeId] = set()
+    for module in program.modules.values():
+        if ">>>" not in module.unit.source:
+            continue
+        documented: list[ast.AST] = [module.tree]
+        documented.extend(
+            symbol.node
+            for symbol in module.symbols
+            if isinstance(symbol.node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        )
+        for node in documented:
+            text = ast.get_docstring(node, clean=True)  # type: ignore[arg-type]
+            if not text or ">>>" not in text:
+                continue
+            try:
+                examples = parser.get_examples(text)
+            except ValueError:
+                continue
+            for example in examples:
+                try:
+                    tree = ast.parse(example.source)
+                except (SyntaxError, ValueError):
+                    continue
+                for part in ast.walk(tree):
+                    if not isinstance(part, (ast.Name, ast.Attribute)):
+                        continue
+                    dotted = _dotted_name(part)
+                    if dotted is None:
+                        continue
+                    first, _, rest = dotted.partition(".")
+                    binding = module.imports.get(first)
+                    full = (
+                        (f"{binding.target}.{rest}" if rest else binding.target)
+                        if binding is not None
+                        else f"{module.name}.{dotted}"
+                    )
+                    target = program.resolve_symbol(full)
+                    if target is not None:
+                        found.add(target.id)
+    return found
 
 
 def _hook_implementations(program: PythonProgram, plugins: set[str]) -> set[NodeId]:
