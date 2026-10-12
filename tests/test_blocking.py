@@ -174,3 +174,22 @@ def test_overridden_stub_method_is_an_interface_declaration(tmp_path: Path) -> N
 
     assert _blocked(tmp_path) == {"_Base._validate": ("interface_declaration",)}
     assert "_Base._never" in _shown(tmp_path)
+
+
+def test_type_checker_inputs_under_tests_are_blocked(tmp_path: Path) -> None:
+    """Files that mypy reads as type tests are not run (ADR-0105)."""
+
+    _write(
+        tmp_path,
+        {
+            "_tool.py": TOOL,
+            "tests/typing/api_pass.py": "def _check() -> None:\n    pass\n",
+            "tests/type_checking.py": "def _assert_types() -> None:\n    pass\n",
+            "tests/test_other.py": "def _helper() -> None:\n    pass\n",
+        },
+    )
+
+    blocked = _blocked(tmp_path)
+    assert blocked["_check"] == ("type_check_input",)
+    assert blocked["_assert_types"] == ("type_check_input",)
+    assert "_helper" in _shown(tmp_path)

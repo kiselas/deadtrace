@@ -176,6 +176,7 @@ findings that are shown.
 | `public_api` | A public name of a public package module, when the project documents its API or lists the name in `__all__` |
 | `mentioned_in_config` | A name that a YAML, TOML, INI, template, Makefile, or Dockerfile of the project mentions |
 | `interface_declaration` | A stub or abstract method (`pass`, `...`, `raise NotImplementedError`) that a subclass in the project overrides |
+| `type_check_input` | Code under a test directory in a `typing`, `type_checking`, `typecheck`, or `typesafety` directory or module, which a type checker reads instead of running |
 
 RCH002 and RCH003 come from a framework model and are never blocked.
 
