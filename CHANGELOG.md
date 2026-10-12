@@ -24,6 +24,9 @@ compatibility commitments are defined; alpha schemas may change between releases
   class itself, such as `getattr(Datasets, f"_process_{name}")`, selects that class's members.
 - Model revision `python-fastapi-dishka/68` (ADR-0085): `typing.cast(T, value)` is a value of the
   project class `T`, so a method called on it resolves.
+- Model revision `python-fastapi-dishka/69` (ADR-0086): an instance in an option dictionary reaches
+  the consumer through another container local or a loop over one (`attempts = [base]`,
+  `for opts in attempts: YoutubeDL(opts)`).
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.

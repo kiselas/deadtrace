@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "instances-in-nested-container-locals"
+description = "An instance reaches a consumer through a container local held by another or iterated."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/_download.py"
+kind = "function"
+qualified_name = "download._CollectingLogger.error"
+expectation = "protected"
+
+[[targets]]
+path = "app/_download.py"
+kind = "function"
+qualified_name = "download._CollectingLogger.warning"
+expectation = "protected"
+
+[[targets]]
+path = "app/_download.py"
+kind = "function"
+qualified_name = "download._Unused.error"
+expectation = "candidate"

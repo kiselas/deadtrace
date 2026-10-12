@@ -1398,6 +1398,7 @@ class _ExecutionVisitor:
                         external=True, external_annotation=True, external_nominal=origin
                     )
         self._container_locals: set[str] = set()
+        self._loop_sources: dict[int, dict[str, list[str]]] = {}
         self._string_values: dict[str, StringValue] = {}
         # These constructs need expression/closure scope modeling before strong string updates.
         self._track_strings = (
@@ -3157,22 +3158,40 @@ class _ExecutionVisitor:
         literal container.
         """
 
-        literals: list[tuple[ast.expr, int]] = []
-        if (
-            isinstance(expression, ast.Name)
-            and self.current is not None
-            and expression.id in self._container_locals
-        ):
-            body = getattr(self.current.node, "body", [])
-            literals.extend(
-                (node.value, 0)
+        body = getattr(self.current.node, "body", []) if self.current is not None else []
+
+        def assigned(name: str) -> list[ast.expr]:
+            """Literal containers this scope assigns to a container local ``name``."""
+
+            if name not in self._container_locals:
+                return []
+            return [
+                node.value
                 for node in flow_nodes(body)
                 if isinstance(node, ast.Assign)
                 and isinstance(node.value, (ast.Dict, ast.List, ast.Tuple, ast.Set))
                 and any(
-                    isinstance(target, ast.Name) and target.id == expression.id
-                    for target in node.targets
+                    isinstance(target, ast.Name) and target.id == name for target in node.targets
                 )
+            ]
+
+        literals: list[tuple[ast.expr, int]] = []
+        if isinstance(expression, ast.Name) and self.current is not None:
+            literals.extend((value, 0) for value in assigned(expression.id))
+            # ``for opts in attempts: YoutubeDL(opts)`` passes an element of a container local
+            # (ADR-0086).
+            loops = self._loop_sources.get(id(body))
+            if loops is None:
+                loops = self._loop_sources[id(body)] = {}
+                for node in flow_nodes(body):
+                    if (
+                        isinstance(node, (ast.For, ast.AsyncFor))
+                        and isinstance(node.target, ast.Name)
+                        and isinstance(node.iter, ast.Name)
+                    ):
+                        loops.setdefault(node.target.id, []).append(node.iter.id)
+            literals.extend(
+                (value, 0) for source in loops.get(expression.id, ()) for value in assigned(source)
             )
         elif isinstance(expression, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
             literals.append((expression, 0))
@@ -3188,6 +3207,10 @@ class _ExecutionVisitor:
                 if isinstance(item, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
                     if depth < 2:
                         literals.append((item, depth + 1))
+                    continue
+                if isinstance(item, ast.Name) and depth < 2:
+                    # ``attempts = [base]`` or ``{**base, ...}`` holds another container local.
+                    literals.extend((value, depth + 1) for value in assigned(item.id))
                     continue
                 if not isinstance(item, ast.Call):
                     continue
