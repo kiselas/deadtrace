@@ -587,6 +587,9 @@ class _Resolver:
             tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]] | None
         ) = None
         self._computed_imports: bool | None = None
+        self._public_member_universe: (
+            tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]] | None
+        ) = None
         self._through_imports: dict[str, PythonSymbol | None] = {}
         self._scope_imports: dict[NodeId, dict[str, ImportBinding]] = {}
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
@@ -923,7 +926,9 @@ class _Resolver:
                 )
         return held
 
-    def member_universe(self) -> tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]]:
+    def member_universe(
+        self, *, public: bool = False
+    ) -> tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]]:
         """What an attribute of a value that is no unknown module may be, with gates (ADR-0088).
 
         Every member of a project class, gated on its class, and every top-level definition of a
@@ -943,7 +948,16 @@ class _Resolver:
                 )
             gated.sort()
             self._member_universe = (tuple(target for target, _ in gated), tuple(gated))
-        return self._member_universe
+        if not public:
+            return self._member_universe
+        if self._public_member_universe is None:
+            kept = tuple(
+                gate
+                for gate in self._member_universe[1]
+                if not _is_private_member(self.symbols[gate[0]].name)
+            )
+            self._public_member_universe = (tuple(target for target, _ in kept), kept)
+        return self._public_member_universe
 
     def imports_computed_modules(self) -> bool:
         """Whether the project imports a module by a name it computes (ADR-0088).
@@ -3232,13 +3246,15 @@ class _ExecutionVisitor:
             return
         if self.resolver.imports_computed_modules():
             return
-        universe, gates = self.resolver.member_universe()
+        # Code that lists the members of any value uses its public ones; a private name is the
+        # value's own business, as for a class handed to an unknown consumer (ADR-0083).
+        universe, gates = self.resolver.member_universe(public=True)
         if universe:
             self.boundaries.append(
                 UnknownBoundary(
                     source=self.source,
                     domain="dynamic_attribute_dispatch",
-                    reason="members listed by dir() or inspect.getmembers() may be used",
+                    reason="public members listed by dir() or inspect.getmembers() may be used",
                     targets=universe,
                     gates=gates,
                 )

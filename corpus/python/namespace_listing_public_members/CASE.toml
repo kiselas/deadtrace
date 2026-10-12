@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "namespace-listing-public-members"
+description = "Listing the members of a value of unknown type uses public members, not private ones."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/_rpc.py"
+kind = "function"
+qualified_name = "Service.ping"
+expectation = "protected"
+
+[[targets]]
+path = "app/_rpc.py"
+kind = "function"
+qualified_name = "Service._internal"
+expectation = "candidate"

@@ -162,3 +162,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0089](0089-class-namespace-reflection.md) — reflection over a namespace uses its members. Accepted.
 - [ADR-0090](0090-metaclass-instance-receiver.md) — the first parameter of a metaclass method is a built class. Accepted.
 - [ADR-0091](0091-modules-imported-in-functions-as-values.md) — modules imported inside functions can be values. Accepted.
+- [ADR-0092](0092-listing-unknown-values-public-members.md) — listing a value of unknown type uses its public members. Accepted.
