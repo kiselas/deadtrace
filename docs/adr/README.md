@@ -173,3 +173,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0100](0100-instance-stored-on-unknown-object.md) — an instance stored on an unknown object is handed on. Accepted.
 - [ADR-0101](0101-interface-declarations-blocked.md) — overridden stub methods are interface declarations. Accepted.
 - [ADR-0102](0102-class-statement-expected-to-raise.md) — a class statement expected to raise is used. Accepted.
+- [ADR-0103](0103-getattr-on-dynamic-module.md) — getattr on a dynamically imported module. Accepted.

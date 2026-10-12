@@ -25,6 +25,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   stub or abstract methods that a project subclass overrides.
 - Model revision `python-fastapi-dishka/85` (ADR-0102): a class declared inside `pytest.raises(...)` or
   `assertRaises(...)` is used by the test that expects its creation to fail.
+- Model revision `python-fastapi-dishka/86` (ADR-0103): `getattr(module, name)` on a module imported by a
+  computed name uses public top-level definitions of project modules.
 
 ## 0.1.0a5 - 2026-10-12
 

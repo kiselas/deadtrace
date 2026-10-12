@@ -997,6 +997,21 @@ class _Resolver:
         methods = self.methods_named(name)
         return tuple(sorted({*methods, *held})) if held else methods
 
+    def top_level_named_any(self, names: frozenset[str] | None) -> set[NodeId]:
+        """Top-level definitions named one of ``names``, or every public one for ``None``."""
+
+        if names is not None:
+            return {target for name in names for target in self.top_level_named(name)}
+        self.top_level_named("")
+        assert self._top_level is not None
+        # A name read from data is no private name of a module (ADR-0092, ADR-0103).
+        return {
+            target
+            for name, targets in self._top_level.items()
+            if not _is_private_member(name)
+            for target in targets
+        }
+
     def top_level_named(self, name: str) -> tuple[NodeId, ...]:
         """Functions and classes of every module defined at its top level under ``name``."""
 
@@ -3087,6 +3102,14 @@ class _ExecutionVisitor:
             return
         receiver = arguments[0].value
         if self._is_external_module(receiver):
+            return
+        if isinstance(receiver, ast.Name) and receiver.id in self._dynamic_modules:
+            # ``getattr(import_module(path), kind)``: an attribute of any module the import may
+            # reach, top-level definitions of that name or of any name (ADR-0103).
+            names = self._string_value(arguments[1].value)
+            self._escaped.update(
+                self.resolver.top_level_named_any(None if names.unknown else names.names)
+            )
             return
         external_targets = self._external_reflection_targets(receiver)
         if external_targets is not None:
