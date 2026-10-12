@@ -2265,7 +2265,13 @@ class _ExecutionVisitor:
                 if symbol.owner is None
                 and symbol.kind is NodeKind.CLASS
                 and any(
-                    name.endswith(("unittest.TestCase", "unittest.IsolatedAsyncioTestCase"))
+                    name.endswith(
+                        (
+                            "unittest.TestCase",
+                            "unittest.case.TestCase",
+                            "IsolatedAsyncioTestCase",
+                        )
+                    )
                     for name in self.resolver.external_bases(symbol)
                 )
             )

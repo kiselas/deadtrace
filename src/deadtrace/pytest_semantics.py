@@ -953,6 +953,8 @@ def _project_ancestry(program: PythonProgram, class_symbol: PythonSymbol) -> lis
 
 _UNITTEST_CASE_BASES = (
     "unittest.TestCase",
+    # ``from unittest.case import TestCase`` names the defining module (ADR-0104).
+    "unittest.case.TestCase",
     "IsolatedAsyncioTestCase",
     # Classes of widely used libraries that derive from unittest.TestCase; pytest collects their
     # subclasses like any unittest case (ADR-0050).

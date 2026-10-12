@@ -27,6 +27,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   `assertRaises(...)` is used by the test that expects its creation to fail.
 - Model revision `python-fastapi-dishka/86` (ADR-0103): `getattr(module, name)` on a module imported by a
   computed name uses public top-level definitions of project modules.
+- Model revision `python-fastapi-dishka/87` (ADR-0104): `from unittest.case import TestCase` is the unittest
+  base, so its subclasses are collected.
 
 ## 0.1.0a5 - 2026-10-12
 
