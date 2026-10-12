@@ -1153,7 +1153,12 @@ class _Resolver:
         return facts
 
     def exposed_methods(self, class_symbol: PythonSymbol) -> tuple[NodeId, ...]:
-        """Methods of a class and its project bases, which code holding the class may call."""
+        """Methods of a class and its project bases, which code holding the class may call.
+
+        Code outside the class calls its public methods, its special ``__name__`` methods, and
+        hooks named ``_name_`` such as ``_repr_html_``; private methods are called by the class's
+        own code, where the calls resolve (ADR-0083).
+        """
 
         cached = self._exposed_methods.get(class_symbol.id)
         if cached is None:
@@ -1162,7 +1167,7 @@ class _Resolver:
                     member.id
                     for item in self.mro(class_symbol)
                     for member in self.index.members(item.id)
-                    if member.kind is NodeKind.FUNCTION
+                    if member.kind is NodeKind.FUNCTION and not _is_private_member(member.name)
                 )
             )
         return cached
@@ -4600,6 +4605,16 @@ def _hook_free(name: str) -> bool:
     if name in HOOK_FREE_BASES:
         return True
     return "." not in name and name.endswith(("Error", "Exception", "Warning", "Exit", "Interrupt"))
+
+
+PRIVATE_PROTOCOL_METHODS = frozenset({"_asdict", "_replace", "_make"})
+"""Private-looking methods that outside code calls by protocol: the ``namedtuple`` interface."""
+
+
+def _is_private_member(name: str) -> bool:
+    """``_name`` or ``__name``, but not ``__name__``, a ``_name_`` hook, or a protocol method."""
+
+    return name.startswith("_") and not name.endswith("_") and name not in PRIVATE_PROTOCOL_METHODS
 
 
 def _base_name(resolver: _Resolver, base: ast.expr, module: PythonModule) -> str:
