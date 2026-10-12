@@ -3,7 +3,8 @@
 Read `CONTRIBUTING.md` and the decision records in `docs/adr/` before semantic changes.
 
 - Keep one active milestone. The current milestone is stabilization toward 0.1.0b1: scanner
-  semantics stay at model 31 unless a change has its own independent case, ADR, and revision bump.
+  semantics stay at the current model unless a change has its own independent case, ADR, and
+  revision bump; measure each change on reviewed public findings (`docs/field/`).
   Inputs, runtime versions, CLI robustness, and documentation changes keep corpus reports
   byte-identical.
 - Never import or execute target code from scanner paths.
