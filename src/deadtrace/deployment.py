@@ -22,6 +22,8 @@ from deadtrace.scanner import is_skipped_directory
 MAX_DEPLOYMENT_FILE_BYTES = 1024 * 1024
 """Deployment files and logging configurations are small; larger files are data and skipped."""
 
+DOCUMENT_SUFFIXES = (".md", ".rst")
+"""Documents whose ``pytest`` commands name test files to run (ADR-0099)."""
 COMMAND_FILE_PATTERNS = (
     "docker-compose*.yml",
     "docker-compose*.yaml",
@@ -117,6 +119,7 @@ def read_deployment_references(
     if not root.is_dir():
         return ()
     commands: list[tuple[Path, str]] = []
+    documents: list[tuple[Path, str]] = []
     configurations: list[tuple[Path, str]] = []
     tools: set[DeploymentReference] = set()
     for current, directory_names, file_names in os.walk(root, followlinks=False):
@@ -136,6 +139,8 @@ def read_deployment_references(
                 relative.startswith(".github/workflows/") and name.endswith((".yml", ".yaml"))
             ) or any(fnmatchcase(name, pattern) for pattern in COMMAND_FILE_PATTERNS):
                 commands.append((path, relative))
+            elif name.lower().endswith(DOCUMENT_SUFFIXES):
+                documents.append((path, relative))
             if name.lower().endswith(CONFIGURATION_SUFFIXES):
                 configurations.append((path, relative))
             if _is_tool_module(relative):
@@ -146,6 +151,16 @@ def read_deployment_references(
         text = _read_text(path)
         if text is not None:
             found.update(_command_references(text, relative, log_configurations))
+    for path, relative in documents:
+        # A README that says ``pytest tests/contract_checks.py`` documents how those tests run;
+        # its other commands are examples, not deployments (ADR-0099).
+        text = _read_text(path)
+        if text is not None and "pytest" in text:
+            found.update(
+                reference
+                for reference in _command_references(text, relative, set())
+                if reference.kind == "test_path"
+            )
     for path, relative in configurations:
         named = "log" in path.name.lower() or any(
             relative == item or relative.endswith(f"/{item}") for item in log_configurations

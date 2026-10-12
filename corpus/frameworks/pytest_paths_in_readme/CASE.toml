@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "pytest-paths-in-readme"
+description = "A pytest command in a README names test files that run outside python_files."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/contract_checks.py"
+kind = "function"
+qualified_name = "test_contract"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/never_run.py"
+kind = "function"
+qualified_name = "test_orphan"
+expectation = "candidate"

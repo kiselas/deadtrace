@@ -17,6 +17,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   for build and metadata hooks, is a tool module like `setup.py`.
 - Model revision `python-fastapi-dishka/81` (ADR-0098): `INSTALLED_APPS` given as a keyword argument or a
   dict key, as test helpers and `override_settings` do, installs Django applications.
+- Model revision `python-fastapi-dishka/82` (ADR-0099): `pytest path/to/file.py` in a README or other
+  Markdown/RST document collects that file; other commands there are not read.
 
 ## 0.1.0a5 - 2026-10-12
 
