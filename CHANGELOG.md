@@ -3,7 +3,15 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
-## Unreleased
+## 0.1.0a4 - 2026-10-12
+
+### Measured
+
+- On a second blind cohort of 67 public GitHub projects scanned once at model 59, 87 of 129 reviewed
+  findings were true: 67.4% (95% CI 59.0-74.9), in line with 65.4% for the first at model 53. Model
+  61 then removed 9 false findings of that cohort and no true one (72.5%, not blind).
+
+### Changed
 
 - Model revisions `python-fastapi-dishka/60` and `61` (ADR-0077, ADR-0078): routers of modules imported
   inside functions are not reported by RCH002; a module that edits `sys.path` imports its siblings by

@@ -60,7 +60,7 @@ interpreter that runs it only needs to be new enough to parse that project's syn
 syntax is reported as `DT1001`). With [uv](https://docs.astral.sh/uv/):
 
 ```console
-uv tool install --python 3.12 "deadtrace==0.1.0a3"
+uv tool install --python 3.12 "deadtrace==0.1.0a4"
 deadtrace --version
 deadtrace scan .
 ```
@@ -68,7 +68,7 @@ deadtrace scan .
 Or install into a Python 3.12 virtual environment:
 
 ```console
-python -m pip install "deadtrace==0.1.0a3"
+python -m pip install "deadtrace==0.1.0a4"
 ```
 
 For development from this repository:
@@ -83,7 +83,7 @@ To test the distributable package without importing the source tree:
 ```console
 uv build
 uv run --isolated --no-project --python 3.12 \
-  --with ./dist/deadtrace-0.1.0a3-py3-none-any.whl deadtrace --version
+  --with ./dist/deadtrace-0.1.0a4-py3-none-any.whl deadtrace --version
 ```
 
 The interpreter is selected explicitly because `--no-project` ignores `.python-version`, and the
@@ -93,7 +93,7 @@ Exercise scanning and saved artifacts from the installed wheel with:
 
 ```console
 uv run --isolated --no-project --python 3.12 \
-  --with ./dist/deadtrace-0.1.0a3-py3-none-any.whl python scripts/wheel_smoke.py
+  --with ./dist/deadtrace-0.1.0a4-py3-none-any.whl python scripts/wheel_smoke.py
 ```
 
 The smoke script uses a temporary directory, rejects a source-tree package import, and checks
@@ -228,7 +228,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: kiselas/deadtrace@v0.1.0a3
+      - uses: kiselas/deadtrace@v0.1.0a4
         with:
           baseline: deadtrace-baseline.json
 ```
@@ -243,7 +243,7 @@ and `deadtrace-report` (fails on any finding):
 ```yaml
 repos:
   - repo: https://github.com/kiselas/deadtrace
-    rev: v0.1.0a3
+    rev: v0.1.0a4
     hooks:
       - id: deadtrace
         language_version: python3.12

@@ -1,9 +1,9 @@
-# 0.1.0a3 support matrix
+# 0.1.0a4 support matrix
 
 | Area | Alpha scope | Evidence / limit |
 | --- | --- | --- |
 | Runtime | CPython 3.12, 3.13 and 3.14 | Package requires >=3.12,<3.15; CI runs tests and the wheel smoke on each, on Linux and Windows. Corpus reports are byte-identical between versions. 0.1.0a1 supported 3.12 only |
-| Python | Static references, imports, inheritance, receiver joins, bounded dispatch and API closure | Model 54; corpus and unit tests; general dynamic Python is conservative |
+| Python | Static references, imports, inheritance, receiver joins, bounded dispatch and API closure | Model 61; corpus and unit tests; general dynamic Python is conservative |
 | FastAPI | Modeled apps/routers, Depends, lifespan, background tasks, bounded factories | Supported >=0.100,<1; oracle pins 0.141.1 |
 | Dishka | Modeled providers, aliases, context, injections, route/container/lifecycle patterns | Supported >=1.0,<2; oracle pins 1.10.1; components/conditional activation guarded |
 | pytest | Separate test worlds, fixture/hook/plugin/configuration discovery | Repository tests and corpus; arbitrary dynamic plugins guarded |
@@ -17,8 +17,9 @@ block strong negative findings. An unpinned version is not presented as verified
 
 Unknown values, dynamic reflection/imports, descriptors/metaclasses and arbitrary external
 consumers can protect large regions, reducing recall. The independent object_setattr_store recall
-gap is retained under fixtures/recall-gaps on this release. On a blind sample of 72 public GitHub projects at model 53, 104 of 159 reviewed findings were true
-(65.4%, 95% CI 57.7-72.4); earlier blind samples were 39-50% at models 33 and 35. Vulture 2.16 on 224
+gap is retained under fixtures/recall-gaps on this release. On two blind samples of public GitHub projects, 104 of 159 reviewed findings were true at model 53
+(65.4%, 95% CI 57.7-72.4) and 87 of 129 at model 59 (67.4%, 59.0-74.9); earlier blind samples were
+39-50% at models 33 and 35. Vulture 2.16 on 224
 public projects was 15.8% under the same review; see [the cohort document](field/2026-10-cohort.md)
 for the verdicts and the false-finding classes. Model-31 development-sample injection recall was 474/721, including Pydantic 0/76: [measurement](public-return-api-results-2026-10-05.md)
 and [reviewed diagnosis](pydantic-recall-review-2026-10-05.md). These are sample-specific research

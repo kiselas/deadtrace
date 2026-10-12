@@ -1,6 +1,6 @@
 # Alpha analysis contract
 
-Deadtrace 0.1.0a3 analyzes Python source statically with scanner model 54. It never imports,
+Deadtrace 0.1.0a4 analyzes Python source statically with scanner model 61. It never imports,
 executes, installs or contacts target code during ordinary scan. The CLI reads source/configuration
 and writes only explicitly requested reports, baselines and diagnostic artifacts.
 
