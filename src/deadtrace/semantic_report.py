@@ -15,8 +15,11 @@ REPORT_SCHEMA_VERSION = 1
 _EXPLANATION_LIMIT = 2_000
 
 
-def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
+def semantic_report_dict(result: AnalysisResult, *, world_members: bool = False) -> dict[str, Any]:
+    """The JSON report. World member lists are counts unless ``world_members`` (ADR-0079)."""
+
     node_map = result.model.graph.node_map()
+    shared_keys = _common_limitation_keys(result)
     derivations = sorted(
         (
             _derivation_dict(derivation, node_map)
@@ -61,7 +64,17 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
             for item in result.model.capabilities
         ],
         "target_environment": result.target_environment.to_dict(),
-        "worlds": [_world_dict(world, node_map) for world in result.snapshot.worlds],
+        "worlds": [
+            _world_dict(world, node_map, world_members=world_members, shared_keys=shared_keys)
+            for world in result.snapshot.worlds
+        ],
+        "shared_limitations": _limitation_list(
+            _unique_limitations(result.snapshot.worlds[0].limitations, shared_keys),
+            node_map,
+            group_guards=not world_members,
+        )
+        if len(result.snapshot.worlds) > 1
+        else [],
         "issues": [issue.to_dict() for issue in result.inventory.issues],
         "findings": [finding.to_dict() for finding in result.findings],
         "blocked_findings": [finding.to_dict() for finding in result.blocked_findings],
@@ -90,9 +103,14 @@ def semantic_report_dict(result: AnalysisResult) -> dict[str, Any]:
     }
 
 
-def render_semantic_json(result: AnalysisResult) -> str:
+def render_semantic_json(result: AnalysisResult, *, world_members: bool = False) -> str:
     return (
-        json.dumps(semantic_report_dict(result), ensure_ascii=False, indent=2, sort_keys=True)
+        json.dumps(
+            semantic_report_dict(result, world_members=world_members),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
         + "\n"
     )
 
@@ -407,8 +425,69 @@ def _counted(line: str, count: int) -> str:
     return f"{line} (x{count})" if count > 1 else line
 
 
-def _world_dict(world: Any, node_map: dict[NodeId, Any]) -> dict[str, Any]:
+def _common_limitation_keys(result: AnalysisResult) -> set[tuple[str, str, str]]:
+    """Limitations that every world has, guards included; the JSON report lists them once."""
+
+    worlds = result.snapshot.worlds
+    if len(worlds) < 2:
+        return set()
+    common = {_limitation_key(item) for item in worlds[0].limitations}
+    for world in worlds[1:]:
+        common &= {_limitation_key(item) for item in world.limitations}
+    return common
+
+
+def _unique_limitations(
+    limitations: Iterable[Limitation], keys: set[tuple[str, str, str]]
+) -> list[Limitation]:
+    seen: set[tuple[str, str, str]] = set()
+    found: list[Limitation] = []
+    for item in limitations:
+        key = _limitation_key(item)
+        if key in keys and key not in seen:
+            seen.add(key)
+            found.append(item)
+    return found
+
+
+def _limitation_list(
+    limitations: list[Limitation], node_map: dict[NodeId, Any], *, group_guards: bool
+) -> list[dict[str, Any]]:
+    """Limitations as JSON; guards grouped by message with a count unless every origin is asked
+    for (ADR-0079). A large project has a hundred thousand guard origins per world."""
+
+    if not group_guards:
+        return [_limitation_dict(item, node_map) for item in limitations]
+    result: list[dict[str, Any]] = []
+    guards: dict[str, int] = {}
+    for item in limitations:
+        if item.code == GUARD_CODE:
+            guards[item.message] = guards.get(item.message, 0) + 1
+        else:
+            result.append(_limitation_dict(item, node_map))
+    result.extend(
+        {"code": GUARD_CODE, "message": message, "origin": None, "origins": count}
+        for message, count in sorted(guards.items())
+    )
+    return result
+
+
+def _limitation_dict(item: Limitation, node_map: dict[NodeId, Any]) -> dict[str, Any]:
     return {
+        "code": item.code,
+        "message": item.message,
+        "origin": node_map[item.origin].display_name if item.origin in node_map else None,
+    }
+
+
+def _world_dict(
+    world: Any,
+    node_map: dict[NodeId, Any],
+    *,
+    world_members: bool = True,
+    shared_keys: set[tuple[str, str, str]] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "id": {"profile": world.id.profile, "scenario": world.id.scenario},
         "assembly_state": world.assembly_state.value,
         "roots": sorted(node_map[item].display_name for item in world.roots),
@@ -424,21 +503,28 @@ def _world_dict(world: Any, node_map: dict[NodeId, Any]) -> dict[str, Any]:
         "conservative_roots": sorted(
             node_map[item].display_name for item in world.conservative_roots
         ),
-        "resolved_may_run": sorted(node_map[item].display_name for item in world.resolved_may_run),
-        "conservative_may_run": sorted(
-            node_map[item].display_name for item in world.conservative_may_run
-        ),
+        "resolved_count": len(world.resolved_may_run),
+        "conservative_count": len(world.conservative_may_run),
         "retained_declarations": sorted(node_map[item].display_name for item in world.retained),
-        "limitations": [
-            {
-                "code": item.code,
-                "message": item.message,
-                "origin": node_map[item.origin].display_name if item.origin in node_map else None,
-            }
-            for item in world.limitations
-        ],
+        "limitations": _limitation_list(
+            [
+                item
+                for item in world.limitations
+                if _limitation_key(item) not in (shared_keys or set())
+            ],
+            node_map,
+            group_guards=not world_members,
+        ),
         "negative_findings_allowed": world.negative_findings_allowed,
     }
+    if world_members:
+        payload["resolved_may_run"] = sorted(
+            node_map[item].display_name for item in world.resolved_may_run
+        )
+        payload["conservative_may_run"] = sorted(
+            node_map[item].display_name for item in world.conservative_may_run
+        )
+    return payload
 
 
 def _derivation_dict(derivation: Derivation, node_map: dict[NodeId, Any]) -> dict[str, str | None]:

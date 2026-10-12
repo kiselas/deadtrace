@@ -149,3 +149,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0076](0076-doctest-modules.md) — docstring examples under `--doctest-modules` (revision 58). Accepted.
 - [ADR-0077](0077-router-modules-imported-in-functions.md) — router modules imported inside functions (revision 60). Accepted.
 - [ADR-0078](0078-sys-path-sibling-imports.md) — a module that edits `sys.path` imports its siblings by bare name (revision 61). Accepted.
+- [ADR-0079](0079-compact-semantic-report.md) — a compact semantic report: member counts, shared limitations once, guards grouped. Accepted.

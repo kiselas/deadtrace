@@ -3,6 +3,12 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
+## Unreleased
+
+- Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
+  `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
+  guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.
+
 ## 0.1.0a4 - 2026-10-12
 
 ### Measured
