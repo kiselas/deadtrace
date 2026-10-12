@@ -3121,7 +3121,14 @@ class _ExecutionVisitor:
         if external_targets is not None:
             targets = external_targets
         else:
-            targets = self._receiver_methods(receiver) or ()
+            methods = self._receiver_methods(receiver)
+            if methods is None and not self._may_be_module(receiver):
+                # ``prime = getattr(tracker, "prime", None)`` reads what ``tracker.prime`` reads:
+                # a known name dispatches by name (ADR-0107).
+                dispatched = self._names_dispatched_by(arguments[1].value)
+                if dispatched is not None and not self._string_value(arguments[1].value).unknown:
+                    self._dispatched.update(dispatched)
+            targets = methods or ()
             if targets:
                 targets = self._named_like(targets, arguments[1].value)
             else:
