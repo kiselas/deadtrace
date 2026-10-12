@@ -154,3 +154,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0081](0081-modules-held-in-containers.md) — modules held in a literal container dispatch by name. Accepted.
 - [ADR-0082](0082-subscripted-project-bases.md) — a subscripted base is the project class it subscribes. Accepted.
 - [ADR-0083](0083-private-methods-not-exposed.md) — a class handed to an unknown consumer exposes no private methods. Accepted.
+- [ADR-0084](0084-getattr-on-project-class.md) — getattr on a project class selects the class's members. Accepted.

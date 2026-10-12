@@ -20,6 +20,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   exposes its public methods, special methods, and `_name_` hooks, but not its private methods,
   which only the class's own resolved calls reach. On the recall injections reported definitions
   went from 66.0% to 74.1%.
+- Model revision `python-fastapi-dishka/67` (ADR-0084): `getattr` with a computed name on a project
+  class itself, such as `getattr(Datasets, f"_process_{name}")`, selects that class's members.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.
