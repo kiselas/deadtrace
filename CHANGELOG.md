@@ -3,7 +3,17 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
-## Unreleased
+## 0.1.0a3 - 2026-10-12
+
+### Measured
+
+- On a blind cohort of 72 public GitHub projects scanned once at model 53, 104 of 159 reviewed
+  findings were true: 65.4% (95% CI 57.7-72.4); earlier blind cohorts were 39-50% at models 33-45.
+  Model 54 then removed 16 false RCH002 findings of that cohort and no true one (72.7%, not blind).
+- Vulture 2.16 on 224 public projects, reviewed the same way: 15.8% (66 of 417). Method, verdict
+  classes and limits: `docs/field/2026-10-cohort.md`.
+
+### Changed
 
 - Model revision `python-fastapi-dishka/54` (ADR-0072): RCH002 no longer reports routers included by
   a possibly published router, routers read as `module.router`, or routers imported inside the
