@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "getattr-on-dynamically-imported-module"
+description = "getattr on a module imported by a computed name may return a public top-level definition."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/_validators/even.py"
+kind = "function"
+qualified_name = "validate_api"
+expectation = "protected"
+
+[[targets]]
+path = "main.py"
+kind = "function"
+qualified_name = "_never"
+expectation = "candidate"
