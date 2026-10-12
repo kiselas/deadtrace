@@ -5,6 +5,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/59`: hooks blocked through a mixin or another class of the
+  hierarchy are public or dunder names only (ADR-0074).
 - Model revision `python-fastapi-dishka/58` (ADR-0076): with `--doctest-modules`, names called in
   docstring examples are reached by the tests world.
 - Faster frontend: each function body is flattened once per analysis.
