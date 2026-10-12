@@ -1083,12 +1083,28 @@ def _doctest_targets(program: PythonProgram) -> set[NodeId]:
                 examples = parser.get_examples(text)
             except ValueError:
                 continue
+            # ``>>> from tests.examples import Plan`` binds names for the examples that follow.
+            local: dict[str, str] = {}
             for example in examples:
                 try:
                     tree = ast.parse(example.source)
                 except (SyntaxError, ValueError):
                     continue
                 for part in ast.walk(tree):
+                    if isinstance(part, ast.ImportFrom) and part.module and not part.level:
+                        for alias in part.names:
+                            local[alias.asname or alias.name] = f"{part.module}.{alias.name}"
+                            target = program.resolve_symbol(f"{part.module}.{alias.name}")
+                            if target is not None:
+                                found.add(target.id)
+                        imported = program.modules.get(part.module)
+                        if imported is not None:
+                            found.add(imported.node_id)
+                    elif isinstance(part, ast.Import):
+                        for alias in part.names:
+                            local[alias.asname or alias.name.split(".")[0]] = (
+                                alias.name if alias.asname else alias.name.split(".")[0]
+                            )
                     if not isinstance(part, (ast.Name, ast.Attribute)):
                         continue
                     dotted = _dotted_name(part)
@@ -1096,11 +1112,12 @@ def _doctest_targets(program: PythonProgram) -> set[NodeId]:
                         continue
                     first, _, rest = dotted.partition(".")
                     binding = module.imports.get(first)
-                    full = (
-                        (f"{binding.target}.{rest}" if rest else binding.target)
-                        if binding is not None
-                        else f"{module.name}.{dotted}"
-                    )
+                    if first in local:
+                        full = f"{local[first]}.{rest}" if rest else local[first]
+                    elif binding is not None:
+                        full = f"{binding.target}.{rest}" if rest else binding.target
+                    else:
+                        full = f"{module.name}.{dotted}"
                     target = program.resolve_symbol(full)
                     if target is not None:
                         found.add(target.id)

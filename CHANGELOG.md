@@ -5,6 +5,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/62` (ADR-0076): imports inside docstring examples bind names
+  and reach the imported definitions.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.

@@ -15,6 +15,12 @@ qualified_name = "_round"
 expectation = "test_only"
 
 [[targets]]
+path = "tests/examples.py"
+kind = "function"
+qualified_name = "sample_basket"
+expectation = "not_candidate"
+
+[[targets]]
 path = "shop/pricing.py"
 kind = "function"
 qualified_name = "_never_documented"

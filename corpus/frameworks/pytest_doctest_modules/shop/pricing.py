@@ -11,5 +11,15 @@ def discounted(price: float) -> float:
     return price * 0.9
 
 
+def total(items: list[float]) -> float:
+    """Sum of a basket.
+
+    >>> from tests.examples import sample_basket
+    >>> total(sample_basket())
+    10.0
+    """
+    return sum(items)
+
+
 def _never_documented(value: float) -> float:
     return value
