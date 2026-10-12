@@ -9,6 +9,7 @@ from .adapters import claude, codex, kimi
 
 AGENT_LOADERS = {"claude-code": claude, "codex": codex, "kimi": kimi}
 
+
 def _load_entries(agent_id):
     loader = AGENT_LOADERS.get(agent_id)
     return loader.load_entries() if loader else []

@@ -11,6 +11,7 @@ class TypeMeta(type):
     def lookups(cls):
         return cls._lookups()
 
+
 class BaseType(metaclass=TypeMeta):
     @staticmethod
     def _lookups(): ...

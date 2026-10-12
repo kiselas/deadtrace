@@ -5,6 +5,19 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+## 0.1.0a5 - 2026-10-12
+
+### Measured
+
+- On a third blind cohort of 81 public GitHub projects scanned once at model 75, 100 of 140 reviewed
+  findings were true: 71.4% (95% CI 63.5-78.3); the earlier blind cohorts were 65.4% (model 53) and
+  67.4% (model 59).
+- Recall injections: 534 of 721 injected definitions reported on the development packages (74.1%,
+  was 66.0% at model 61) and 964 of 1,565 on 39 held-out packages (61.6%). Pydantic stays at 0/76.
+- The largest public cohort project (859k lines) scans in about two minutes with a 24.5 MB report.
+
+### Changed
+
 - Model revision `python-fastapi-dishka/62` (ADR-0076): imports inside docstring examples bind names
   and reach the imported definitions.
 - Model revision `python-fastapi-dishka/63` (ADR-0080): a `test*.py` module whose cases derive from
