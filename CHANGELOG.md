@@ -5,6 +5,19 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+## 0.1.0a6 - 2026-10-12
+
+### Measured
+
+- On a fourth blind cohort of 88 public GitHub projects scanned once at model 88, 124 of 169 reviewed
+  findings were true: 73.4% (95% CI 66.2-79.5). `RCH001` was 81.5% and `RCH001` with `RCH004` 80.0%
+  (73.0-85.5); `RCH002` was 0 of 14, routers mounted in loops over modules. The earlier blind cohorts
+  were 65.4%, 67.4% and 71.4%.
+- Recall injections are unchanged: 534 of 721 on the development packages (74.1%), 964 of 1,565 on
+  held-out packages (61.6%).
+
+### Changed
+
 - Model revision `python-fastapi-dishka/76` (ADR-0093): `vars(obj)` lists an instance's own
   attributes, not methods; only `vars(SomeClass)` protects class members.
 - Model revision `python-fastapi-dishka/77` (ADR-0094): a field annotation in a class defined inside a

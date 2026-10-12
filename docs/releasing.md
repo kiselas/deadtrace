@@ -1,7 +1,7 @@
 # Release acceptance and publication
 
-0.1.0a5 is the fifth public read-only alpha, scanner model 75 (ADR-0092). 0.1.0a5 was model 61
-(ADR-0078), 0.1.0a3 model 54 (ADR-0072), 0.1.0a2 model 35 (ADR-0053) and 0.1.0a1 model 31 (ADR-0049). Freeze semantics during release preparation. Future semantic changes require their own independent cases, ADR and model
+0.1.0a6 is the sixth public read-only alpha, scanner model 88 (ADR-0105). 0.1.0a5 was model 75
+(ADR-0092), 0.1.0a4 model 61 (ADR-0078), 0.1.0a3 model 54 (ADR-0072), 0.1.0a2 model 35 (ADR-0053) and 0.1.0a1 model 31 (ADR-0049). Freeze semantics during release preparation. Future semantic changes require their own independent cases, ADR and model
 revision. The selected object-store refinement is outside this release.
 
 | Acceptance | Required evidence |
@@ -28,16 +28,16 @@ Hosted verification and public installation are recorded in the tagged GitHub Re
 Run CONTRIBUTING.md's local gates, both validators, build and isolated installed-wheel smoke.
 CI's build job seals dist/release-receipt.json and uploads deadtrace-COMMIT-distributions; both
 operating systems consume those bytes. After all checks pass, merge the release PR and wait for
-the main push CI to pass. Create v0.1.0a5 at that commit, then dispatch publish.yml from main with
-tag v0.1.0a5 and ci_run_id from that successful main run. The verifier checks GitHub run identity,
+the main push CI to pass. Create v0.1.0a6 at that commit, then dispatch publish.yml from main with
+tag v0.1.0a6 and ci_run_id from that successful main run. The verifier checks GitHub run identity,
 tag/version/ancestry, metadata and receipt hashes before an OIDC-enabled job publishes without
 rebuilding. The owner's PyPI pending publisher must authorize kiselas/deadtrace and publish.yml.
 
 Download that CI artifact for GitHub Release attachments, then verify installation with:
 
 ```console
-uv run --isolated --no-project --python 3.12 --with "deadtrace==0.1.0a5" deadtrace --version
-uv run --isolated --no-project --python 3.12 --with "deadtrace==0.1.0a5" python scripts/wheel_smoke.py
+uv run --isolated --no-project --python 3.12 --with "deadtrace==0.1.0a6" deadtrace --version
+uv run --isolated --no-project --python 3.12 --with "deadtrace==0.1.0a6" python scripts/wheel_smoke.py
 ```
 
 Before tagging, set the default `version` input in `action.yml` to the release version; the
