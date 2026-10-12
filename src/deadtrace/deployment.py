@@ -198,13 +198,15 @@ def _statements(text: str) -> str:
     return _ATTACHED_BREAKS.sub(r" \1 ", "\n".join(lines))
 
 
-TOOL_MODULES = frozenset({"noxfile.py", "setup.py", "fabfile.py", "dodo.py", "pavement.py"})
+TOOL_MODULES = frozenset(
+    {"noxfile.py", "setup.py", "fabfile.py", "dodo.py", "pavement.py", "hatch_build.py"}
+)
 """Python files that a development tool runs by their file name (ADR-0066)."""
 _DOCUMENTATION_DIRECTORIES = frozenset({"docs", "doc", "documentation"})
 
 
 def _is_tool_module(relative: str) -> bool:
-    """A file a tool executes: nox, setuptools, fabric, doit, paver, or Sphinx's ``conf.py``.
+    """A file a tool executes: nox, setuptools, fabric, doit, paver, hatchling (ADR-0097), Sphinx.
 
     The tool runs the module and calls its top-level functions by convention (``@nox.session``,
     Sphinx's ``setup(app)``), so they are exposed like a gunicorn configuration's hooks.

@@ -13,6 +13,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   test conftest, installs Django applications: their models are registered.
 - Model revision `python-fastapi-dishka/79` (ADR-0096): modules a computed `import_module` may reach are
   values, so a loader that returns the module keeps the functions called on it.
+- Model revision `python-fastapi-dishka/80` (ADR-0097): `hatch_build.py`, which hatchling loads by name
+  for build and metadata hooks, is a tool module like `setup.py`.
 
 ## 0.1.0a5 - 2026-10-12
 

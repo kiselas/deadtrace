@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "hatch-build-hook"
+description = "hatchling runs hatch_build.py by its file name; its top-level helpers serve the build hook."
+
+[analysis]
+complete = true
+worlds = ["production:commands", "production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "hatch_build.py"
+kind = "function"
+qualified_name = "_helper"
+expectation = "not_candidate"
+
+[[targets]]
+path = "hatch_build.py"
+kind = "function"
+qualified_name = "_get_version"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/_core.py"
+kind = "function"
+qualified_name = "_dead"
+expectation = "candidate"
