@@ -367,12 +367,19 @@ def entry() -> None:
 
 
 def test_unlocalized_dynamic_dispatch_protects_whole_graph() -> None:
+    """With modules imported by computed names, any definition may be the attribute."""
+
     program = build_python_program(
         _collection(
             **{
                 "case.py": """
+import importlib
+
 def dynamic(obj: object, name: str) -> None:
     getattr(obj, name)()
+
+def load(path: str) -> object:
+    return importlib.import_module(path)
 
 def otherwise_candidate() -> None:
     pass
@@ -388,6 +395,37 @@ def otherwise_candidate() -> None:
     ).world(world)
 
     assert _id(program, "case:otherwise_candidate") in result.conservative_may_run
+
+
+def test_unlocalized_dynamic_dispatch_without_module_values_reaches_class_members() -> None:
+    """Without modules as values, the attribute is a member of a project class (ADR-0088)."""
+
+    program = build_python_program(
+        _collection(
+            **{
+                "case.py": """
+class Plugin:
+    def handle(self) -> None:
+        pass
+
+def dynamic(obj: object, name: str) -> None:
+    getattr(obj, name)()
+
+def otherwise_candidate() -> None:
+    pass
+"""
+            }
+        )
+    )
+    world = WorldId("production", "dynamic")
+
+    result = solve(
+        program.graph,
+        (WorldPlan(world, (_id(program, "case:dynamic"), _id(program, "case:Plugin"))),),
+    ).world(world)
+
+    assert _id(program, "case:Plugin.handle") in result.conservative_may_run
+    assert _id(program, "case:otherwise_candidate") not in result.conservative_may_run
 
 
 def test_property_and_protocol_hooks_guard_transitive_helpers() -> None:

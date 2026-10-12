@@ -583,6 +583,10 @@ class _Resolver:
         self._top_level: dict[str, tuple[NodeId, ...]] | None = None
         self._stand_ins: dict[str, tuple[NodeId, ...]] | None = None
         self._value_module_members: dict[str, tuple[NodeId, ...]] | None = None
+        self._member_universe: (
+            tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]] | None
+        ) = None
+        self._computed_imports: bool | None = None
         self._through_imports: dict[str, PythonSymbol | None] = {}
         self._scope_imports: dict[NodeId, dict[str, ImportBinding]] = {}
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
@@ -916,6 +920,41 @@ class _Resolver:
                     if isinstance(item, ast.Name) and item.id in imported
                 )
         return held
+
+    def member_universe(self) -> tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]]:
+        """What an attribute of a value that is no unknown module may be, with gates (ADR-0088).
+
+        Every member of a project class, gated on its class, and every top-level definition of a
+        module held as a value (ADR-0081), gated on its module.
+        """
+
+        if self._member_universe is None:
+            gated: list[tuple[NodeId, NodeId]] = []
+            for symbol in self.symbols.values():
+                owner = self.symbols.get(symbol.owner) if symbol.owner is not None else None
+                if owner is not None and owner.kind is NodeKind.CLASS:
+                    gated.append((symbol.id, owner.id))
+            for name in self._modules_held_as_values():
+                module = self.modules[name]
+                gated.extend(
+                    (symbol.id, module.node_id) for symbol in module.symbols if symbol.owner is None
+                )
+            gated.sort()
+            self._member_universe = (tuple(target for target, _ in gated), tuple(gated))
+        return self._member_universe
+
+    def imports_computed_modules(self) -> bool:
+        """Whether the project imports a module by a name it computes (ADR-0088).
+
+        ``import_module(path)``, ``__import__(path)`` or ``sys.modules[path]`` with a path that is
+        no string constant may yield any project module, which code may then hold as a value.
+        """
+
+        if self._computed_imports is None:
+            self._computed_imports = any(
+                _imports_computed_module(module) for module in self.modules.values()
+            )
+        return self._computed_imports
 
     def dispatchable_names(self) -> frozenset[str]:
         """Names that a call on a value of unknown type may dispatch to."""
@@ -3075,6 +3114,22 @@ class _ExecutionVisitor:
                     # ``llm.saveState()``: it dispatches by name (ADR-0087).
                     self._dispatched.update(dispatched)
                     return
+                if not self.resolver.imports_computed_modules():
+                    # Any attribute of a value that is no module: a member of a project class or
+                    # of a module held as a value; a stored callable escaped at its store
+                    # (ADR-0088).
+                    universe, gates = self.resolver.member_universe()
+                    if universe:
+                        self.boundaries.append(
+                            UnknownBoundary(
+                                source=self.source,
+                                domain="dynamic_attribute_dispatch",
+                                reason="dynamic getattr may return any member of a project class",
+                                targets=universe,
+                                gates=gates,
+                            )
+                        )
+                    return
             targets = methods or ()
             if len(arguments) > 1:
                 names = self._string_value(arguments[1].value)
@@ -3096,16 +3151,29 @@ class _ExecutionVisitor:
         """``sys.modules[name]``, an ``import_module`` result, or a name of a project module."""
 
         if isinstance(receiver, ast.Subscript):
-            return _dotted_name(receiver.value) == "sys.modules"
+            return _is_module_table(receiver.value)
         if isinstance(receiver, ast.Call):
             function = _dotted_name(receiver.func) or ""
-            return function in MODULE_LOADERS or function == "sys.modules.get"
+            return function in MODULE_LOADERS or (
+                isinstance(receiver.func, ast.Attribute)
+                and receiver.func.attr == "get"
+                and _is_module_table(receiver.func.value)
+            )
         dotted = _dotted_name(receiver)
         if dotted is None:
             return False
         head, _, rest = dotted.partition(".")
         if head in self._dynamic_modules:
             return True
+        if self.current is not None and not rest:
+            # ``def load(plugin: ModuleType)`` names a module parameter.
+            for parameter in self.current.parameters:
+                if (
+                    parameter.name == head
+                    and parameter.annotation is not None
+                    and "ModuleType" in ast.unparse(parameter.annotation)
+                ):
+                    return True
         if head in self._locals and self.current is not None:
             # ``module = sys.modules[__name__]`` or any other assignment of a module to the local.
             for node in flow_nodes(getattr(self.current.node, "body", [])):
@@ -4782,6 +4850,33 @@ MODULE_READERS = frozenset(
     }
 )
 """Calls that read a module passed as their first argument without keeping it."""
+
+
+def _is_module_table(expression: ast.expr) -> bool:
+    """``sys.modules`` however ``sys`` is reached: ``__import__("sys").modules`` too."""
+
+    return isinstance(expression, ast.Attribute) and expression.attr == "modules"
+
+
+def _imports_computed_module(module: PythonModule) -> bool:
+    """Whether the module imports a module by a computed name (ADR-0088)."""
+
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Call):
+            function = _dotted_name(node.func) or ""
+            if function in {"importlib.import_module", "import_module", "__import__"} or (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and _is_module_table(node.func.value)
+            ):
+                first = node.args[0] if node.args else None
+                if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+                    return True
+        elif isinstance(node, ast.Subscript) and _is_module_table(node.value):
+            key = node.slice
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                return True
+    return False
 
 
 def _base_name(resolver: _Resolver, base: ast.expr, module: PythonModule) -> str:
