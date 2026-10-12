@@ -125,3 +125,17 @@ def test_exit_codes_ignore_blocked_findings_and_json_lists_them(tmp_path: Path) 
     assert report["blocked_findings"][0]["blocked"] == ["non_production_area"]
     assert "[blocked: non_production_area]" in shown.stdout
     assert "examples/_demo.py:1  helper" in shown.stdout
+
+
+def test_method_of_mixin_mixed_into_class_with_external_base_is_blocked(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "_tool.py": TOOL
+            + "\n\nfrom django.test import TestCase\n\n\n"
+            + "class DataMixin:\n    @classmethod\n    def setUpTestData(cls):\n        pass\n\n\n"
+            + "class FormTest(DataMixin, TestCase):\n    pass\n",
+        },
+    )
+
+    assert "external_base_hooks" in _blocked(tmp_path)["DataMixin.setUpTestData"]

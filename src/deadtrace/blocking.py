@@ -153,6 +153,7 @@ def apply_blocking(
         for symbol in program.symbols.values()
     }
     modules = {module.path: module for module in program.modules.values()}
+    hierarchy = _ClassHierarchy(program)
     for finding in findings:
         if finding.code not in BLOCKABLE_CODES:
             shown.append(finding)
@@ -161,7 +162,7 @@ def apply_blocking(
             {
                 reason
                 for member in finding.members
-                for reason in _reasons(program, member, text, symbols, modules)
+                for reason in _reasons(program, member, text, symbols, modules, hierarchy)
             }
         )
         if reasons:
@@ -177,6 +178,7 @@ def _reasons(
     text: ProjectText,
     symbols: dict[tuple[str, str, int], PythonSymbol],
     modules: dict[str, PythonModule],
+    hierarchy: _ClassHierarchy,
 ) -> set[str]:
     reasons: set[str] = set()
     parts = member.path.replace("\\", "/").split("/")
@@ -189,7 +191,7 @@ def _reasons(
         if (
             owner is not None
             and isinstance(owner.node, ast.ClassDef)
-            and _has_external_base(program, owner)
+            and hierarchy.meets_external_base(owner)
         ):
             reasons.add("external_base_hooks")
     if _is_public_package_member(member, directories) and (
@@ -206,12 +208,66 @@ def _reasons(
     return reasons
 
 
-def _has_external_base(program: PythonProgram, class_symbol: PythonSymbol) -> bool:
-    """Whether a base of the class is neither a project class nor a neutral typing base."""
+class _ClassHierarchy:
+    """Project classes with their project bases, subclasses, and external bases."""
+
+    def __init__(self, program: PythonProgram) -> None:
+        self.program = program
+        self.bases: dict[str, list[PythonSymbol]] = {}
+        self.subclasses: dict[str, list[PythonSymbol]] = {}
+        self.external: set[str] = set()
+        for symbol in program.symbols.values():
+            if not isinstance(symbol.node, ast.ClassDef):
+                continue
+            external, bases = _classify_bases(program, symbol)
+            if external:
+                self.external.add(str(symbol.id))
+            self.bases[str(symbol.id)] = bases
+            for base in bases:
+                self.subclasses.setdefault(str(base.id), []).append(symbol)
+
+    def meets_external_base(self, class_symbol: PythonSymbol) -> bool:
+        """Whether the class, a project ancestor, or a project subclass has an external base.
+
+        A mixin without bases becomes part of every subclass, so a framework that calls hooks
+        on such a subclass (``setUpTestData``, ``render_to_response``) may call the mixin's.
+        """
+
+        seen: set[str] = set()
+        queue = [class_symbol]
+        while queue:
+            current = queue.pop()
+            key = str(current.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            if key in self.external:
+                return True
+            queue.extend(self.bases.get(key, ()))
+        seen_down: set[str] = set()
+        queue = [class_symbol]
+        while queue:
+            current = queue.pop()
+            key = str(current.id)
+            if key in seen_down:
+                continue
+            seen_down.add(key)
+            if key in self.external:
+                return True
+            queue.extend(self.subclasses.get(key, ()))
+        return False
+
+
+def _classify_bases(
+    program: PythonProgram, class_symbol: PythonSymbol
+) -> tuple[bool, list[PythonSymbol]]:
+    """Whether a base is external (neither project nor neutral), and the project bases."""
 
     module = program.modules.get(class_symbol.module)
     if module is None:
-        return False
+        return False, []
+    external = False
+    project: list[PythonSymbol] = []
     for base in class_symbol.bases:
         dotted = _dotted_name(_unstarred(base))
         if dotted is None and isinstance(base, ast.Subscript):
@@ -226,9 +282,12 @@ def _has_external_base(program: PythonProgram, class_symbol: PythonSymbol) -> bo
             full = f"{binding.target}.{rest}" if rest else binding.target
         else:
             full = f"{module.name}.{dotted}"
-        if program.resolve_symbol(full) is None:
-            return True
-    return False
+        resolved = program.resolve_symbol(full)
+        if resolved is None:
+            external = True
+        elif isinstance(resolved.node, ast.ClassDef):
+            project.append(resolved)
+    return external, project
 
 
 def _is_public_package_member(member: FindingMember, directories: list[str]) -> bool:
