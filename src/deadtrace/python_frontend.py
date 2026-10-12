@@ -3200,6 +3200,14 @@ class _ExecutionVisitor:
             and func.id not in self._locals
             and func.id not in self._names
         )
+        if builtin and isinstance(func, ast.Name) and func.id == "vars":
+            # ``vars(obj)`` is ``obj.__dict__``: an instance's own attributes, which escaped where
+            # they were stored; only a class's namespace holds its methods (ADR-0093).
+            listed = call.args[0]
+            named = self._resolve(listed) if _dotted_name(listed) is not None else None
+            if named is not None and named.kind is NodeKind.CLASS:
+                self._record_member_listing(listed)
+            return
         if builtin or self._external_name(func) in NAMESPACE_LISTERS:
             self._record_member_listing(call.args[0])
             return
@@ -3231,6 +3239,11 @@ class _ExecutionVisitor:
         if self._is_external_module(receiver) or self._may_be_module(receiver):
             return
         if self._external_reflection_targets(receiver) is not None:
+            return
+        value = self._receiver_value(receiver)
+        if value.external and not value.unknown and not value.types:
+            # ``vars(parser.parse_args())`` lists an object from outside the project, whose
+            # attributes are its own or project values that escaped where they were stored.
             return
         methods = self._receiver_methods(receiver)
         if methods is not None:

@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "vars-lists-instance-attributes"
+description = "vars(instance) lists instance attributes, not methods; vars(Class) lists the class members."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "tool.py"
+kind = "function"
+qualified_name = "_Store.save"
+expectation = "candidate"
+
+[[targets]]
+path = "tool.py"
+kind = "function"
+qualified_name = "_Registry.handler"
+expectation = "protected"

@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/76` (ADR-0093): `vars(obj)` lists an instance's own
+  attributes, not methods; only `vars(SomeClass)` protects class members.
+
 ## 0.1.0a5 - 2026-10-12
 
 ### Measured
