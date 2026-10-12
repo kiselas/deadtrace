@@ -465,19 +465,29 @@ def test_external_annotation_reflection_protects_members_without_module_wide_gua
         ),
     ],
 )
-def test_external_reflection_unknown_origins_keep_the_whole_graph_guard(
+def test_external_reflection_unknown_origins_reach_class_members_not_module_functions(
     imports: str, annotation: str, body: str
 ) -> None:
+    """An unknown attribute of an unknown value is a project class member (ADR-0088).
+
+    A module function that nothing references cannot be attached to the value; a module given
+    as ``ModuleType`` keeps the whole-graph guard.
+    """
+
     program = _program(
         **{
             "main.py": imports
             + "\nfrom external import factory\n"
+            + "class Handler:\n    def _possibly_called(self): pass\n"
+            + "HANDLER = Handler()\n"
             + "def _possibly_attached(): pass\n"
             + f"def main(value: {annotation}, name, unknown):\n    {body}\n"
         }
     )
     world = _world(program, "main:main")
-    assert _state(program, world, "main:_possibly_attached") is not None
+    module_typed = "ModuleType" in annotation
+    assert (_state(program, world, "main:_possibly_attached") is not None) is module_typed
+    assert _state(program, world, "main:Handler._possibly_called") is not None
 
 
 def test_external_reflection_keeps_escaped_function_attributes_protected() -> None:
@@ -920,3 +930,19 @@ b.isinstance = consumer
     )
     world = _world(program, "main:main")
     assert _state(program, world, "main:Checked.idle") is not None
+
+
+def test_module_table_reached_through_import_keeps_the_whole_graph_guard() -> None:
+    """``__import__("sys").modules[__name__]`` stored on an object may be read by any name."""
+
+    program = _program(
+        **{
+            "main.py": "class Box:\n"
+            "    def __init__(self): self.value = __import__('sys').modules[__name__]\n"
+            "    def dispatch(self, name): getattr(self.value, name)()\n"
+            "def _attached(): pass\n"
+            "def main(name): Box().dispatch(name)\n"
+        }
+    )
+    world = _world(program, "main:main")
+    assert _state(program, world, "main:_attached") is not None
