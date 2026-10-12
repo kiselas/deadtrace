@@ -35,6 +35,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   be a module or the project imports modules by computed names.
 - Model revision `python-fastapi-dishka/72` (ADR-0089): `x.__dict__.get(name)` is `getattr(x, name)`, and
   `dir(x)`, `vars(x)`, `inspect.getmembers(x)` use the members they list.
+- Model revision `python-fastapi-dishka/73` (ADR-0090): in a metaclass method, `cls.name` dispatches by
+  name to the members of classes built with the metaclass.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.
