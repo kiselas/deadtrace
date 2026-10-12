@@ -165,3 +165,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0092](0092-listing-unknown-values-public-members.md) — listing a value of unknown type uses its public members. Accepted.
 - [ADR-0093](0093-vars-lists-instance-attributes.md) — vars() of a value lists its own attributes. Accepted.
 - [ADR-0094](0094-annotations-see-enclosing-function-classes.md) — annotations in a class body see the enclosing function's classes. Accepted.
+- [ADR-0095](0095-django-settings-configure.md) — settings.configure installs Django applications. Accepted.
