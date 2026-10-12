@@ -1,7 +1,7 @@
 # Deadtrace Development Roadmap
 
-Current milestone, 2026-10-12: stabilization toward 0.1.0b1; 0.1.0a4 is scanner model 61 (ADR-0078),
-0.1.0a3 was model 54 (ADR-0072), 0.1.0a2 model 35 (ADR-0053) and 0.1.0a1 model 31 (ADR-0049).
+Current milestone, 2026-10-12: stabilization toward 0.1.0b1; 0.1.0a5 is scanner model 75 (ADR-0092),
+0.1.0a4 was model 61 (ADR-0078), 0.1.0a3 model 54 (ADR-0072), 0.1.0a2 model 35 (ADR-0053) and 0.1.0a1 model 31 (ADR-0049).
 The owner has requested PyPI publication. Release preparation freezes existing scanner semantics;
 model 32's selected attribute-store refinement remains follow-up work. The previous inventory-only
 PR-01 instruction is superseded by this release decision. This is not acceptance of the complete

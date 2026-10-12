@@ -11,7 +11,8 @@ base = {"outtmpl": dest, "logger": _CollectingLogger()}
 attempts = [base]
 attempts.append({**base, "cookiefile": cookies})
 for opts in attempts:
-    with yt_dlp.YoutubeDL(opts) as ydl: ...
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ...
 ```
 
 The argument `opts` is a loop variable over a container local, and the instance sits in a second

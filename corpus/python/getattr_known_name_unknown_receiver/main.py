@@ -4,7 +4,7 @@ from app._llm import Llm
 
 
 def run(llm, kind):
-    getattr(llm, "saveState")("model")
+    getattr(llm, "saveState")("model")  # noqa: B009
     return getattr(llm, f"load_{kind}")()
 
 

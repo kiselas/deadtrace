@@ -1,6 +1,5 @@
-from somelib import register
-
 from app._handlers import Handler
+from somelib import register
 
 
 def main():

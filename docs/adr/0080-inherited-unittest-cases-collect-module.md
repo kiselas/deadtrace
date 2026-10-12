@@ -10,6 +10,7 @@ derives from `TestCase`:
 ```python
 from openwisp_users.tests.test_admin import TestUsersAdmin as BaseTestUsersAdmin
 
+
 class TestUsersAdmin(BaseTestUsersAdmin):
     app_label = "sample_users"
 ```

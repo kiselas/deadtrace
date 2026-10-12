@@ -3,7 +3,7 @@ from typing import Generic, TypeVar
 T = TypeVar("T")
 
 
-class BaseRepo(Generic[T]):
+class BaseRepo(Generic[T]):  # noqa: UP046
     def get(self):
         return self._load()
 

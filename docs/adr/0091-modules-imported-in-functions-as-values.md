@@ -11,7 +11,9 @@ imports bind were considered, so a module imported inside a function was missed:
 @pytest.fixture(scope="session")
 def helpers():
     from tests.helpers import helpers
+
     return helpers
+
 
 def test_build(helpers):
     helpers.dedent(...)

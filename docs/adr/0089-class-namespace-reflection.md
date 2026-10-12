@@ -6,8 +6,8 @@ Two reflective forms reached members without a call the model resolved, and priv
 exposure (removed by ADR-0083) had hidden them:
 
 ```python
-handler = type(self).__dict__.get("_On" + node.op_type)   # an entry of a class namespace
-[name for name in dir(obj) if inspect.ismethod(getattr(obj, name))]   # a listing
+handler = type(self).__dict__.get("_On" + node.op_type)  # an entry of a class namespace
+[name for name in dir(obj) if inspect.ismethod(getattr(obj, name))]  # a listing
 ```
 
 In the review of the findings that revision 71 added (cohorts b-f, 99 findings), five methods of
