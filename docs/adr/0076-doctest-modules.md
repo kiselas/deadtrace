@@ -12,6 +12,10 @@ text and runs nothing; each example is parsed with `ast`, and a plain name or a 
 through the module's imports that resolves to a project definition becomes a root of the tests
 world. As with other test roots, production code reached only this way is an RCH004 finding.
 
-The case `corpus/frameworks/pytest_doctest_modules` fails on revision 57.
+Revision 62: imports written in the examples themselves (`>>> from tests.examples import Plan`) bind
+names for the examples that follow, and the imported definitions are reached too.
+
+The case `corpus/frameworks/pytest_doctest_modules` fails on revision 57 (and its `sample_basket`
+target on revision 61).
 
 MODEL_REVISION becomes `python-fastapi-dishka/58`.
