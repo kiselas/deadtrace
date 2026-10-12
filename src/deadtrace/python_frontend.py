@@ -2634,6 +2634,18 @@ class _ExecutionVisitor:
         the same name (ADR-0018).
         """
 
+        if any(_expects_raise(item.context_expr) for item in node.items):
+            # ``with pytest.raises(SetupError): class _(Base): ...``: creating the class is what
+            # the test checks (ADR-0102).
+            pending: list[ast.AST] = list(node.body)
+            while pending:
+                statement = pending.pop()
+                if isinstance(statement, ast.ClassDef):
+                    symbol = self.resolver.by_node.get(id(statement))
+                    if symbol is not None:
+                        self._escaped.add(symbol.id)
+                elif not isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+                    pending.extend(ast.iter_child_nodes(statement))
         for item in node.items:
             target = item.optional_vars
             if not isinstance(target, ast.Name):
@@ -5052,6 +5064,22 @@ def _nested_module_imports(
                         local = alias.asname or alias.name.partition(".")[0]
                         found[local] = alias.name if alias.asname else local
     return found
+
+
+RAISE_EXPECTATIONS = frozenset(
+    {"raises", "warns", "assertRaises", "assertRaisesRegex", "assertWarns", "assertWarnsRegex"}
+)
+"""Context managers that expect the statements of their block to raise or warn."""
+
+
+def _expects_raise(expression: ast.expr) -> bool:
+    """``pytest.raises(E)``, ``raises(E)``, ``self.assertRaises(E)`` and the warning forms."""
+
+    if not isinstance(expression, ast.Call):
+        return False
+    function = expression.func
+    name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
+    return name in RAISE_EXPECTATIONS
 
 
 def _computed_import_prefixes(module: PythonModule) -> set[str]:

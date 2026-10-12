@@ -12,9 +12,9 @@ def test_reference_corpus_manifest_and_static_result(project_root: Path) -> None
     result = validate_cases(project_root / "corpus")
     analysis = analyze(case_root, load_config(case_root / "pyproject.toml"))
 
-    assert result.cases == 170
-    assert result.targets == 562
-    assert result.semantic_cases == 170
+    assert result.cases == 171
+    assert result.targets == 564
+    assert result.semantic_cases == 171
     assert analysis.complete
     assert [finding.code for finding in analysis.findings] == ["RCH003"]
     assert {member.qualified_name for member in analysis.findings[0].members} >= {

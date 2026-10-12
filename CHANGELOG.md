@@ -23,6 +23,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   object from outside the project (`request.user = MockUser()`) offers its public methods.
 - Model revision `python-fastapi-dishka/84` (ADR-0101): a blocked reason `interface_declaration` holds back
   stub or abstract methods that a project subclass overrides.
+- Model revision `python-fastapi-dishka/85` (ADR-0102): a class declared inside `pytest.raises(...)` or
+  `assertRaises(...)` is used by the test that expects its creation to fail.
 
 ## 0.1.0a5 - 2026-10-12
 

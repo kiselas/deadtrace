@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "class-statement-expected-to-raise"
+description = "A class statement inside pytest.raises is the behaviour under test."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "tests/test_setup.py"
+kind = "class"
+qualified_name = "test_invalid._Invalid"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/test_setup.py"
+kind = "class"
+qualified_name = "test_other._Unused"
+expectation = "candidate"
