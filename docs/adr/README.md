@@ -145,3 +145,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0072](0072-routers-reached-from-unresolved-includes.md) — routers reached from an unresolved include are not reported (revision 54). Accepted.
 - [ADR-0073](0073-mixin-members-for-self-calls.md) — a self call reaches the member each subclass's MRO finds (revision 55). Accepted.
 - [ADR-0074](0074-external-base-hooks-across-hierarchy.md) — external base hooks are blocked across the class hierarchy (revision 56). Accepted.
+- [ADR-0075](0075-instances-in-containers-passed-to-consumers.md) — instances in literal containers passed to a consumer (revision 57). Accepted.

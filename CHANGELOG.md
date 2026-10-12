@@ -5,6 +5,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/57` (ADR-0075): a project instance inside a literal dict or
+  list passed to a library (an options dict with a `logger`) has its methods protected.
 - Model revision `python-fastapi-dishka/56` (ADR-0074): `external_base_hooks` also blocks methods of
   mixins and of classes whose project ancestor or subclass has an external base.
 - Model revision `python-fastapi-dishka/55` (ADR-0073): `self.m()` in a base class reaches `m` of a mixin

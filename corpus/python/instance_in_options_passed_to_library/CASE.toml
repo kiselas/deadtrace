@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "instance-in-options-passed-to-library"
+description = "Instances in a literal container passed to an external consumer may have their methods called."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_dl.py"
+kind = "function"
+qualified_name = "download._CollectingLogger.debug"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_dl.py"
+kind = "function"
+qualified_name = "_Direct.info"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_dl.py"
+kind = "function"
+qualified_name = "_Kept.run"
+expectation = "candidate"

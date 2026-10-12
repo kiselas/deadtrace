@@ -3049,6 +3049,10 @@ class _ExecutionVisitor:
                 )
             elif isinstance(argument.value, ast.Attribute):
                 self._reference_receiver(argument.value)
+            if _consumer_calls_instance_methods(consumer) and not self._stores_in_container(
+                call.func
+            ):
+                escaped.update(self._instances_in_container(argument.value))
         if escaped:
             external = self._external_name(call.func) or "unknown consumer"
             self.boundaries.append(
@@ -3061,6 +3065,53 @@ class _ExecutionVisitor:
             )
             if external not in INSPECTING_CONSUMERS:
                 self._expose_classes(escaped, external)
+
+    def _instances_in_container(self, expression: ast.expr) -> set[NodeId]:
+        """Project classes whose instances a literal container passed to a consumer holds.
+
+        ``YoutubeDL({"logger": _Logger()})``, or the same dict bound to a local first: the consumer
+        calls the instance's methods by protocol (ADR-0075). Only literal dicts, lists, tuples and
+        sets are opened, at most three levels deep, and a local only when this scope assigns it a
+        literal container.
+        """
+
+        literals: list[tuple[ast.expr, int]] = []
+        if isinstance(expression, ast.Name) and self.current is not None:
+            body = getattr(self.current.node, "body", [])
+            literals.extend(
+                (node.value, 0)
+                for node in flow_nodes(body)
+                if isinstance(node, ast.Assign)
+                and isinstance(node.value, (ast.Dict, ast.List, ast.Tuple, ast.Set))
+                and any(
+                    isinstance(target, ast.Name) and target.id == expression.id
+                    for target in node.targets
+                )
+            )
+        elif isinstance(expression, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
+            literals.append((expression, 0))
+        found: set[NodeId] = set()
+        while literals:
+            container, depth = literals.pop()
+            items = (
+                [value for value in container.values if value is not None]
+                if isinstance(container, ast.Dict)
+                else list(container.elts)  # type: ignore[attr-defined]
+            )
+            for item in items:
+                if isinstance(item, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
+                    if depth < 2:
+                        literals.append((item, depth + 1))
+                    continue
+                if not isinstance(item, ast.Call):
+                    continue
+                type_name = self._infer_expression_type(item)
+                instance_class = (
+                    self.resolver.class_named(type_name) if type_name is not None else None
+                )
+                if instance_class is not None:
+                    found.add(instance_class.id)
+        return found
 
     def _stores_in_container(self, function: ast.expr) -> bool:
         """``items.append(Handler())`` on a builtin container keeps the instance, calls nothing.
