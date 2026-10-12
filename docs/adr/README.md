@@ -142,3 +142,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0069](0069-nested-package-strings.md) — dotted strings resolve through a nested package like imports (revision 51). Accepted.
 - [ADR-0070](0070-nested-installed-apps.md) — installed applications resolve through a nested package (revision 52). Accepted.
 - [ADR-0071](0071-blocked-findings.md) — blocked findings: forms that reviews showed to be mostly false are held back with a reason (revision 53). Accepted.
+- [ADR-0072](0072-routers-reached-from-unresolved-includes.md) — routers reached from an unresolved include are not reported (revision 54). Accepted.

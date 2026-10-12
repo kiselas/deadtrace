@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
@@ -176,15 +177,12 @@ def _unpublished_router_findings(
     }
     if not apps:
         return []
-    published = set(apps)
-    queue = deque(sorted(apps))
-    while queue:
-        owner = queue.popleft()
-        for include in model.includes:
-            if include.owner == owner and include.router not in published:
-                published.add(include.router)
-                queue.append(include.router)
-    may_be_published = model.escaping_routers if model.unknown_includes else frozenset()
+    published = _included_from(model, apps)
+    # A router that an unresolved ``include_router`` may include may be published, and so may every
+    # router it includes in turn (ADR-0072).
+    may_be_published = (
+        _included_from(model, model.escaping_routers) if model.unknown_includes else frozenset()
+    )
     by_router: defaultdict[str, list[RouteRegistration]] = defaultdict(list)
     for route in model.routes:
         if route.owner not in published and route.owner not in may_be_published:
@@ -207,6 +205,20 @@ def _unpublished_router_findings(
                 )
             )
     return findings
+
+
+def _included_from(model: FrameworkModel, roots: Iterable[str]) -> frozenset[str]:
+    """``roots`` and every router their ``include_router`` calls reach, transitively."""
+
+    reached = set(roots)
+    queue = deque(sorted(reached))
+    while queue:
+        owner = queue.popleft()
+        for include in model.includes:
+            if include.owner == owner and include.router not in reached:
+                reached.add(include.router)
+                queue.append(include.router)
+    return frozenset(reached)
 
 
 def _unrequested_binding_findings(
