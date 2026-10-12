@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "typing-cast-receiver"
+description = "typing.cast(T, value) is a value of T: a method called on it resolves in T."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "app/_archive.py"
+kind = "function"
+qualified_name = "ArchiveStrategy._build"
+expectation = "live"
+
+[[targets]]
+path = "app/_archive.py"
+kind = "function"
+qualified_name = "ArchiveStrategy._unused"
+expectation = "candidate"

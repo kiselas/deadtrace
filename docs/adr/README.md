@@ -155,3 +155,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0082](0082-subscripted-project-bases.md) — a subscripted base is the project class it subscribes. Accepted.
 - [ADR-0083](0083-private-methods-not-exposed.md) — a class handed to an unknown consumer exposes no private methods. Accepted.
 - [ADR-0084](0084-getattr-on-project-class.md) — getattr on a project class selects the class's members. Accepted.
+- [ADR-0085](0085-typing-cast-receiver.md) — typing.cast names the type of its result. Accepted.

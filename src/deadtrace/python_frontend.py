@@ -2770,6 +2770,13 @@ class _ExecutionVisitor:
             and len(expression.args) == 1
         ):
             return self._infer_expression_type(expression.args[0])
+        if (
+            isinstance(expression, ast.Call)
+            and expression.args
+            and self._external_name(expression.func) in TYPE_CASTS
+        ):
+            # ``cast(ArchiveStrategy, self.archive)`` is a value of the named class (ADR-0085).
+            return self._resolve_annotation(expression.args[0])
         if isinstance(expression, ast.Call):
             target = self._resolve(expression.func)
             if target is not None and target.kind is NodeKind.CLASS:
@@ -4611,6 +4618,9 @@ def _hook_free(name: str) -> bool:
         return True
     return "." not in name and name.endswith(("Error", "Exception", "Warning", "Exit", "Interrupt"))
 
+
+TYPE_CASTS = frozenset({"typing.cast", "typing_extensions.cast"})
+"""Functions that return their second argument as a value of the type their first one names."""
 
 PRIVATE_PROTOCOL_METHODS = frozenset({"_asdict", "_replace", "_make"})
 """Private-looking methods that outside code calls by protocol: the ``namedtuple`` interface."""
