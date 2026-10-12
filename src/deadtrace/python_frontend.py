@@ -887,6 +887,8 @@ class _Resolver:
                 for local, binding in module.imports.items()
                 if binding.target in self.modules
             }
+            # ``from tests.helpers import helpers`` in a fixture binds a module there (ADR-0091).
+            imported.update(_nested_module_imports(module, self.modules))
             if not imported:
                 continue
             for node in ast.walk(module.tree):
@@ -4951,6 +4953,36 @@ def _is_module_table(expression: ast.expr) -> bool:
     """``sys.modules`` however ``sys`` is reached: ``__import__("sys").modules`` too."""
 
     return isinstance(expression, ast.Attribute) and expression.attr == "modules"
+
+
+def _nested_module_imports(
+    module: PythonModule, modules: Mapping[str, PythonModule]
+) -> dict[str, str]:
+    """Names that imports inside functions bind to project modules, with the module names."""
+
+    package = module.name if module.path.endswith("__init__.py") else module.name.rpartition(".")[0]
+    found: dict[str, str] = {}
+    for statement in module.tree.body:
+        if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for node in ast.walk(statement):
+            if isinstance(node, ast.ImportFrom):
+                if node.level:
+                    parts = package.split(".")
+                    base = ".".join(parts[: len(parts) - node.level + 1])
+                    base = f"{base}.{node.module}" if node.module else base
+                else:
+                    base = node.module or ""
+                for alias in node.names:
+                    target = f"{base}.{alias.name}"
+                    if target in modules:
+                        found[alias.asname or alias.name] = target
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in modules:
+                        local = alias.asname or alias.name.partition(".")[0]
+                        found[local] = alias.name if alias.asname else local
+    return found
 
 
 def _imports_computed_module(module: PythonModule) -> bool:
