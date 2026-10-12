@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "module-dispatch-table"
+description = "Modules held in a literal container may run the names called on values read from it."
+
+[analysis]
+complete = true
+worlds = ["production:library"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "tracker/adapters/_claude.py"
+kind = "function"
+qualified_name = "load_entries"
+expectation = "protected"
+
+[[targets]]
+path = "tracker/adapters/_codex.py"
+kind = "function"
+qualified_name = "load_recent"
+expectation = "protected"
+
+[[targets]]
+path = "tracker/adapters/_claude.py"
+kind = "function"
+qualified_name = "_unused_helper"
+expectation = "candidate"
+
+[[targets]]
+path = "tracker/_legacy.py"
+kind = "function"
+qualified_name = "load_entries"
+expectation = "candidate"
