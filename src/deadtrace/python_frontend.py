@@ -3364,6 +3364,15 @@ def _overload_implementation(
     return None
 
 
+_FLOW_CACHE: dict[int, tuple[list[ast.stmt], tuple[ast.AST, ...]]] = {}
+"""Flattened bodies by the id of their statement list; the list is kept so its id stays its own.
+``clear_flow_cache`` empties it after each analysis."""
+
+
+def clear_flow_cache() -> None:
+    _FLOW_CACHE.clear()
+
+
 def flow_nodes(statements: Iterable[ast.stmt]) -> Iterator[ast.AST]:
     """Nodes of ``statements`` in order, without entering nested function or class definitions.
 
@@ -3371,8 +3380,19 @@ def flow_nodes(statements: Iterable[ast.stmt]) -> Iterator[ast.AST]:
     statements nested in it, so an assignment is seen before the calls that follow it. A nested
     definition is yielded itself, so a consumer can evaluate its header, but nothing inside it is.
     The order among the expression nodes of one statement is not significant to any consumer.
+    A body list is flattened once and reused: many passes walk the same function body.
     """
 
+    if isinstance(statements, list):
+        cached = _FLOW_CACHE.get(id(statements))
+        if cached is None or cached[0] is not statements:
+            cached = (statements, tuple(_flow_nodes(statements)))
+            _FLOW_CACHE[id(statements)] = cached
+        return iter(cached[1])
+    return _flow_nodes(statements)
+
+
+def _flow_nodes(statements: Iterable[ast.stmt]) -> Iterator[ast.AST]:
     for statement in statements:
         yield statement
         if not isinstance(statement, DEFINITION_TYPES):
@@ -3384,7 +3404,7 @@ def _flow_parts(node: ast.AST) -> Iterator[ast.AST]:
         value = getattr(node, name, None)
         if isinstance(value, list):
             if value and isinstance(value[0], ast.stmt):
-                yield from flow_nodes(value)
+                yield from _flow_nodes(value)
                 continue
             for item in value:
                 if isinstance(item, (ast.excepthandler, ast.match_case)):

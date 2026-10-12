@@ -25,7 +25,7 @@ from deadtrace.pytest_semantics import (
     read_pytest_collection,
     with_explicit_test_paths,
 )
-from deadtrace.python_frontend import PythonProgram, build_python_program
+from deadtrace.python_frontend import PythonProgram, build_python_program, clear_flow_cache
 from deadtrace.scanner import (
     SourceCollection,
     collect_sources,
@@ -109,8 +109,11 @@ def _deep_recursion() -> Iterator[None]:
 def analyze(scan_path: Path, config: Config) -> AnalysisResult:
     """Run one immutable, read-only analysis snapshot."""
 
-    with _deep_recursion():
-        return _analyze(scan_path, config)
+    try:
+        with _deep_recursion():
+            return _analyze(scan_path, config)
+    finally:
+        clear_flow_cache()
 
 
 def _analyze(scan_path: Path, config: Config) -> AnalysisResult:
