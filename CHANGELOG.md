@@ -10,6 +10,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 - Model revision `python-fastapi-dishka/63` (ADR-0080): a `test*.py` module whose cases derive from
   `unittest.TestCase` through a project base, as a Django sample app rerunning a shared suite does, is
   collected.
+- Model revision `python-fastapi-dishka/64` (ADR-0081): project modules held in a literal container,
+  such as a table of adapter modules, may run the names called on a value read back from it.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.

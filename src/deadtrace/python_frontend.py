@@ -582,6 +582,7 @@ class _Resolver:
         self.import_roots = ImportRoots(modules)
         self._top_level: dict[str, tuple[NodeId, ...]] | None = None
         self._stand_ins: dict[str, tuple[NodeId, ...]] | None = None
+        self._value_module_members: dict[str, tuple[NodeId, ...]] | None = None
         self._through_imports: dict[str, PythonSymbol | None] = {}
         self._scope_imports: dict[NodeId, dict[str, ImportBinding]] = {}
         self._locals_by_scope: dict[NodeId, tuple[frozenset[str], bool]] = {}
@@ -848,6 +849,56 @@ class _Resolver:
                     found.setdefault(symbol.name, []).append(symbol.id)
             self._stand_ins = {key: tuple(sorted(value)) for key, value in found.items()}
         return self._stand_ins.get(name, ())
+
+    def value_module_members_named(self, name: str) -> tuple[NodeId, ...]:
+        """Top-level definitions named ``name`` of project modules held as values (ADR-0081).
+
+        ``LOADERS = {"claude": claude, "codex": codex}`` keeps modules in a literal container. A
+        value read back from it has no known type, and ``loader.load_entries()`` runs the
+        ``load_entries`` of any module it holds, as a method call runs any method of that name.
+        """
+
+        if self._value_module_members is None:
+            found: dict[str, list[NodeId]] = {}
+            for module_name in sorted(self._modules_held_as_values()):
+                for symbol in self.modules[module_name].symbols:
+                    if symbol.owner is None:
+                        found.setdefault(symbol.name, []).append(symbol.id)
+            self._value_module_members = {key: tuple(sorted(value)) for key, value in found.items()}
+        return self._value_module_members.get(name, ())
+
+    def _modules_held_as_values(self) -> set[str]:
+        """Project modules that a module imports and places in a literal container."""
+
+        held: set[str] = set()
+        for module in self.modules.values():
+            imported = {
+                local: binding.target
+                for local, binding in module.imports.items()
+                if binding.target in self.modules
+            }
+            if not imported:
+                continue
+            for node in ast.walk(module.tree):
+                if isinstance(node, ast.Dict):
+                    items: list[ast.expr | None] = list(node.values)
+                elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                    items = list(node.elts)
+                else:
+                    continue
+                held.update(
+                    imported[item.id]
+                    for item in items
+                    if isinstance(item, ast.Name) and item.id in imported
+                )
+        return held
+
+    def dispatch_targets_named(self, name: str) -> tuple[NodeId, ...]:
+        """What ``value.name`` may run on a value of unknown type: methods, held modules' names."""
+
+        held = self.value_module_members_named(name)
+        methods = self.methods_named(name)
+        return tuple(sorted({*methods, *held})) if held else methods
 
     def top_level_named(self, name: str) -> tuple[NodeId, ...]:
         """Functions and classes of every module defined at its top level under ``name``."""
@@ -1575,7 +1626,7 @@ class _ExecutionVisitor:
                             {
                                 target
                                 for name in names
-                                for target in self.resolver.methods_named(name)
+                                for target in self.resolver.dispatch_targets_named(name)
                             }
                         )
                     ),
@@ -2193,7 +2244,7 @@ class _ExecutionVisitor:
             self._escaped.update(self.resolver.top_level_named(node.attr))
             return
         elif self._unknown_local_head(node):
-            if self.resolver.methods_named(node.attr):
+            if self.resolver.dispatch_targets_named(node.attr):
                 self._dispatched.add(node.attr)
             return
         elif self._is_super(node):
@@ -2269,7 +2320,7 @@ class _ExecutionVisitor:
             self._escaped.update(self.resolver.top_level_named(attribute.attr))
             return
         if self._unknown_local_head(attribute):
-            if self.resolver.methods_named(attribute.attr):
+            if self.resolver.dispatch_targets_named(attribute.attr):
                 self._dispatched.add(attribute.attr)
             return
         # ``gateways.mikrotik()`` on a ``Gateways`` whose base supplies ``mikrotik``: no member is
@@ -2303,7 +2354,7 @@ class _ExecutionVisitor:
             ):
                 self._stand_ins.add(attribute.attr)
             return
-        if self.resolver.methods_named(attribute.attr):
+        if self.resolver.dispatch_targets_named(attribute.attr):
             self._dispatched.add(attribute.attr)
 
     def _unknown_local_head(self, attribute: ast.Attribute) -> bool:
@@ -2313,9 +2364,9 @@ class _ExecutionVisitor:
         """
 
         head = attribute.value
-        if not isinstance(head, ast.Name):
-            return False
-        name = head.id
+        return isinstance(head, ast.Name) and self._unknown_local(head.id)
+
+    def _unknown_local(self, name: str) -> bool:
         value = self._receiver_values.get(name)
         if value is not None:
             return value.unknown or (bool(value.types) and value.external)
@@ -2888,6 +2939,19 @@ class _ExecutionVisitor:
                 targets = self._named_like(targets, arguments[1].value)
             else:
                 targets = self._module_members(receiver, arguments[1].value)
+            if not targets and isinstance(receiver, ast.Name) and self._unknown_local(receiver.id):
+                # ``getattr(loader, "load_recent", None)`` on a module read from a container.
+                names = self._string_value(arguments[1].value)
+                if not names.unknown:
+                    targets = tuple(
+                        sorted(
+                            {
+                                target
+                                for item in names.names
+                                for target in self.resolver.value_module_members_named(item)
+                            }
+                        )
+                    )
         if targets:
             self.boundaries.append(
                 UnknownBoundary(
