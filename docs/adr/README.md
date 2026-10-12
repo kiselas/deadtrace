@@ -159,3 +159,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0086](0086-instances-in-nested-container-locals.md) — instances reach a consumer through nested container locals. Accepted.
 - [ADR-0087](0087-getattr-known-name-dispatch.md) — getattr with a known name dispatches by name. Accepted.
 - [ADR-0088](0088-getattr-unknown-name-member-universe.md) — an unknown attribute of an unknown value is a class member. Accepted.
+- [ADR-0089](0089-class-namespace-reflection.md) — reflection over a namespace uses its members. Accepted.
