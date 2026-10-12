@@ -869,7 +869,12 @@ class _Resolver:
         return self._value_module_members.get(name, ())
 
     def _modules_held_as_values(self) -> set[str]:
-        """Project modules that a module imports and places in a literal container."""
+        """Project modules that a module imports and uses as a value.
+
+        A module placed in a literal container, passed to a call other than one that only reads
+        it (``getattr(module, name)``), stored in an attribute, or returned may be read back as a
+        value of unknown type (ADR-0081, ADR-0087).
+        """
 
         held: set[str] = set()
         for module in self.modules.values():
@@ -885,6 +890,24 @@ class _Resolver:
                     items: list[ast.expr | None] = list(node.values)
                 elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
                     items = list(node.elts)
+                elif isinstance(node, ast.Call):
+                    function = _dotted_name(node.func) or ""
+                    items = [
+                        argument.value if isinstance(argument, ast.Starred) else argument
+                        for index, argument in enumerate(node.args)
+                        if not (index == 0 and function in MODULE_READERS)
+                    ]
+                    items.extend(keyword.value for keyword in node.keywords)
+                elif (
+                    isinstance(node, (ast.Assign, ast.AnnAssign))
+                    and not all(
+                        isinstance(target, ast.Name)
+                        for target in (
+                            node.targets if isinstance(node, ast.Assign) else [node.target]
+                        )
+                    )
+                ) or isinstance(node, ast.Return):
+                    items = [node.value]
                 else:
                     continue
                 held.update(
@@ -893,6 +916,13 @@ class _Resolver:
                     if isinstance(item, ast.Name) and item.id in imported
                 )
         return held
+
+    def dispatchable_names(self) -> frozenset[str]:
+        """Names that a call on a value of unknown type may dispatch to."""
+
+        self.value_module_members_named("")
+        assert self._value_module_members is not None
+        return frozenset(self._methods) | frozenset(self._value_module_members)
 
     def dispatch_targets_named(self, name: str) -> tuple[NodeId, ...]:
         """What ``value.name`` may run on a value of unknown type: methods, held modules' names."""
@@ -3037,7 +3067,15 @@ class _ExecutionVisitor:
                         )
                     )
                 return
-            targets = self._receiver_methods(receiver) or ()
+            methods = self._receiver_methods(receiver)
+            if methods is None and len(arguments) > 1 and not self._may_be_module(receiver):
+                dispatched = self._names_dispatched_by(arguments[1].value)
+                if dispatched is not None:
+                    # ``getattr(llm, "saveState")()`` on a value of unknown type is the call
+                    # ``llm.saveState()``: it dispatches by name (ADR-0087).
+                    self._dispatched.update(dispatched)
+                    return
+            targets = methods or ()
             if len(arguments) > 1:
                 names = self._string_value(arguments[1].value)
                 if not names.unknown and targets:
@@ -3053,6 +3091,70 @@ class _ExecutionVisitor:
                 targets=targets,
             )
         )
+
+    def _may_be_module(self, receiver: ast.expr) -> bool:
+        """``sys.modules[name]``, an ``import_module`` result, or a name of a project module."""
+
+        if isinstance(receiver, ast.Subscript):
+            return _dotted_name(receiver.value) == "sys.modules"
+        if isinstance(receiver, ast.Call):
+            function = _dotted_name(receiver.func) or ""
+            return function in MODULE_LOADERS or function == "sys.modules.get"
+        dotted = _dotted_name(receiver)
+        if dotted is None:
+            return False
+        head, _, rest = dotted.partition(".")
+        if head in self._dynamic_modules:
+            return True
+        if head in self._locals and self.current is not None:
+            # ``module = sys.modules[__name__]`` or any other assignment of a module to the local.
+            for node in flow_nodes(getattr(self.current.node, "body", [])):
+                if (
+                    isinstance(node, ast.Assign)
+                    and any(isinstance(item, ast.Name) and item.id == head for item in node.targets)
+                    and isinstance(node.value, (ast.Subscript, ast.Call, ast.Name, ast.Attribute))
+                    and node.value is not receiver
+                    and self._may_be_module(node.value)
+                ):
+                    return True
+        binding = self._local_imports.get(head)
+        if binding is None and head not in self._locals:
+            binding = self.module.imports.get(head)
+        if binding is None:
+            return False
+        full = f"{binding.target}.{rest}" if rest else binding.target
+        return binding.target in self.resolver.modules or full in self.resolver.modules
+
+    def _names_dispatched_by(self, name: ast.expr) -> set[str] | None:
+        """Attribute names a computed ``getattr`` name may take, or ``None`` when it is unknown.
+
+        A constant or finite set of strings gives those names; a name with a constant start or
+        end gives every method or held module member whose name fits it (ADR-0087). Only names
+        something in the project defines matter, as for an attribute call.
+        """
+
+        value = self._string_value(name)
+        if not value.unknown:
+            return {item for item in value.names if self.resolver.dispatch_targets_named(item)}
+        prefix, suffix = _constant_affixes(name)
+        if not (prefix or suffix) and isinstance(name, ast.Name) and self.current is not None:
+            values = [
+                node.value
+                for node in flow_nodes(getattr(self.current.node, "body", []))
+                if isinstance(node, ast.Assign)
+                and any(isinstance(item, ast.Name) and item.id == name.id for item in node.targets)
+            ]
+            if len(values) == 1:
+                prefix, suffix = _constant_affixes(values[0])
+        if not (prefix or suffix):
+            return None
+        return {
+            item
+            for item in self.resolver.dispatchable_names()
+            if item.startswith(prefix)
+            and item.endswith(suffix)
+            and len(item) >= len(prefix) + len(suffix)
+        }
 
     def _record_escaped_project_callables(self, call: ast.Call) -> None:
         escaped: set[NodeId] = set()
@@ -4653,6 +4755,33 @@ def _is_private_member(name: str) -> bool:
     """``_name`` or ``__name``, but not ``__name__``, a ``_name_`` hook, or a protocol method."""
 
     return name.startswith("_") and not name.endswith("_") and name not in PRIVATE_PROTOCOL_METHODS
+
+
+MODULE_LOADERS = frozenset(
+    {"importlib.import_module", "import_module", "__import__", "importlib.reload", "reload"}
+)
+"""Calls whose result is a module object."""
+MODULE_READERS = frozenset(
+    {
+        "getattr",
+        "hasattr",
+        "delattr",
+        "setattr",
+        "vars",
+        "dir",
+        "isinstance",
+        "issubclass",
+        "id",
+        "type",
+        "repr",
+        "str",
+        "print",
+        "callable",
+        "importlib.reload",
+        "reload",
+    }
+)
+"""Calls that read a module passed as their first argument without keeping it."""
 
 
 def _base_name(resolver: _Resolver, base: ast.expr, module: PythonModule) -> str:
