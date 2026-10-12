@@ -3076,7 +3076,11 @@ class _ExecutionVisitor:
         """
 
         literals: list[tuple[ast.expr, int]] = []
-        if isinstance(expression, ast.Name) and self.current is not None:
+        if (
+            isinstance(expression, ast.Name)
+            and self.current is not None
+            and expression.id in self._container_locals
+        ):
             body = getattr(self.current.node, "body", [])
             literals.extend(
                 (node.value, 0)
