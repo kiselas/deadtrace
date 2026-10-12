@@ -868,7 +868,18 @@ class _Resolver:
 
         if self._value_module_members is None:
             found: dict[str, list[NodeId]] = {}
-            for module_name in sorted(self._modules_held_as_values()):
+            held = self._modules_held_as_values()
+            # A module imported by a computed name may be returned and called anywhere: the
+            # modules the name may reach are held as values too (ADR-0096).
+            prefixes = {
+                prefix
+                for module in self.modules.values()
+                for prefix in _computed_import_prefixes(module)
+            }
+            held.update(
+                name for name in self.modules if any(name.startswith(prefix) for prefix in prefixes)
+            )
+            for module_name in sorted(held):
                 for symbol in self.modules[module_name].symbols:
                     if symbol.owner is None:
                         found.setdefault(symbol.name, []).append(symbol.id)
@@ -5020,6 +5031,39 @@ def _nested_module_imports(
                         local = alias.asname or alias.name.partition(".")[0]
                         found[local] = alias.name if alias.asname else local
     return found
+
+
+def _computed_import_prefixes(module: PythonModule) -> set[str]:
+    """Constant starts of the module names the module imports by computed names (ADR-0096).
+
+    ``import_module(f"app.plugins.{name}")`` gives ``app.plugins.``; a name with no constant
+    start, or a relative one, gives ``""``: any module.
+    """
+
+    prefixes: set[str] = set()
+    if "import" not in module.unit.source and "modules" not in module.unit.source:
+        return prefixes
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Call):
+            function = _dotted_name(node.func) or ""
+            if function not in {"importlib.import_module", "import_module", "__import__"} and not (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and _is_module_table(node.func.value)
+            ):
+                continue
+            first = node.args[0] if node.args else None
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                continue
+            prefix = _constant_affixes(first)[0]
+            prefixes.add("" if prefix.startswith(".") else prefix)
+        elif isinstance(node, ast.Subscript) and _is_module_table(node.value):
+            key = node.slice
+            if isinstance(key, ast.Name) and key.id == "__name__":
+                prefixes.add(module.name)  # ``sys.modules[__name__]`` is this module
+            elif not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                prefixes.add(_constant_affixes(key)[0])
+    return prefixes
 
 
 def _imports_computed_module(module: PythonModule) -> bool:
