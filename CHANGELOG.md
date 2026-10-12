@@ -7,6 +7,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 - Model revision `python-fastapi-dishka/76` (ADR-0093): `vars(obj)` lists an instance's own
   attributes, not methods; only `vars(SomeClass)` protects class members.
+- Model revision `python-fastapi-dishka/77` (ADR-0094): a field annotation in a class defined inside a
+  function resolves names to the classes that function defines.
 
 ## 0.1.0a5 - 2026-10-12
 

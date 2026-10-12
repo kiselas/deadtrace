@@ -1119,6 +1119,14 @@ class _Resolver:
             in_scope = self.resolve_full_name(f"{module.name}.{scope}.{name}")
             if in_scope is not None:
                 return in_scope
+            # A class body defined in a function sees that function's local classes:
+            # ``class Person: pets: list[Pet]`` with ``Pet`` defined beside it (ADR-0094).
+            enclosing = scope.rpartition(".")[0]
+            while enclosing:
+                local = self.index.resolve(f"{module.name}.{enclosing}.{name}")
+                if local is not None:
+                    return local
+                enclosing = enclosing.rpartition(".")[0]
         return self.resolve_full_name(f"{module.name}.{name}")
 
     def resolve_full_name(self, full_name: str) -> PythonSymbol | None:
