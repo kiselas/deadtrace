@@ -20,6 +20,8 @@ Reasons, each measured on reviewed findings of public projects:
 - ``interface_declaration``: every member is a method whose body is only a docstring, ``pass``,
   ``...`` or ``raise NotImplementedError``, or that is abstract, and that a project subclass of
   its class overrides; it declares the interface the subclasses implement (ADR-0101).
+- ``type_check_input``: code under a test directory, in a ``typing``, ``type_checking``,
+  ``typecheck`` or ``typesafety`` directory or file: a type checker reads it (ADR-0105).
 
 Files are read as bounded text; nothing is imported or executed.
 """
@@ -52,6 +54,7 @@ BLOCKING_REASONS = (
     "public_api",
     "mentioned_in_config",
     "interface_declaration",
+    "type_check_input",
 )
 BLOCKABLE_CODES = frozenset({"RCH001", "RCH004"})
 """Reachability findings; RCH002 and RCH003 come from a framework model and are never blocked."""
@@ -75,6 +78,8 @@ NON_PRODUCTION_DIRECTORIES = frozenset(
     }
 )
 _TEST_DIRECTORIES = frozenset({"test", "tests", "testing"})
+_TYPE_CHECK_NAME = re.compile(r"(typing|type_checking|typecheck|typesafety)(_\w+)?")
+"""A directory or module of test inputs for a type checker: ``tests/typing/api_pass.py``."""
 _NEUTRAL_BASES = frozenset({"object", "Protocol", "Generic", "ABC", "ABCMeta"})
 CONFIGURATION_SUFFIXES = (
     ".cfg",
@@ -197,6 +202,10 @@ def _reasons(
     directories = parts[:-1]
     if any(part in NON_PRODUCTION_DIRECTORIES for part in directories):
         reasons.add("non_production_area")
+    if any(part in _TEST_DIRECTORIES for part in directories) and any(
+        _TYPE_CHECK_NAME.fullmatch(part.removesuffix(".py")) for part in parts
+    ):
+        reasons.add("type_check_input")
     symbol = symbols.get((member.path, member.qualified_name, member.occurrence))
     if symbol is not None and symbol.owner is not None:
         owner = program.symbols.get(symbol.owner)

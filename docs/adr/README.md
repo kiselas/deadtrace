@@ -175,3 +175,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0102](0102-class-statement-expected-to-raise.md) — a class statement expected to raise is used. Accepted.
 - [ADR-0103](0103-getattr-on-dynamic-module.md) — getattr on a dynamically imported module. Accepted.
 - [ADR-0104](0104-unittest-case-module.md) — TestCase imported from unittest.case. Accepted.
+- [ADR-0105](0105-type-check-inputs-blocked.md) — type checker inputs under tests are blocked. Accepted.

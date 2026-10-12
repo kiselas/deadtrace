@@ -29,6 +29,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   computed name uses public top-level definitions of project modules.
 - Model revision `python-fastapi-dishka/87` (ADR-0104): `from unittest.case import TestCase` is the unittest
   base, so its subclasses are collected.
+- Model revision `python-fastapi-dishka/88` (ADR-0105): a blocked reason `type_check_input` holds back code
+  in `tests/typing/`, `tests/type_checking.py` and similar type checker inputs.
 
 ## 0.1.0a5 - 2026-10-12
 
