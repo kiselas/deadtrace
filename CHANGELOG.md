@@ -11,6 +11,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   function resolves names to the classes that function defines.
 - Model revision `python-fastapi-dishka/78` (ADR-0095): `settings.configure(INSTALLED_APPS=[...])`, as in a
   test conftest, installs Django applications: their models are registered.
+- Model revision `python-fastapi-dishka/79` (ADR-0096): modules a computed `import_module` may reach are
+  values, so a loader that returns the module keeps the functions called on it.
 
 ## 0.1.0a5 - 2026-10-12
 

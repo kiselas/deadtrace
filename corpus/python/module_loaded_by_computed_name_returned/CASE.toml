@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "module-loaded-by-computed-name-returned"
+description = "A module imported by a computed name and returned may run the names called on the result."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/_backends/langfuse.py"
+kind = "function"
+qualified_name = "build_eval_command"
+expectation = "protected"
+
+[[targets]]
+path = "app/_backends/langfuse.py"
+kind = "function"
+qualified_name = "_unused"
+expectation = "candidate"
