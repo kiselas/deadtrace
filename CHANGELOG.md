@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revisions `python-fastapi-dishka/60` and `61` (ADR-0077, ADR-0078): routers of modules imported
+  inside functions are not reported by RCH002; a module that edits `sys.path` imports its siblings by
+  bare name.
 - Model revision `python-fastapi-dishka/59`: hooks blocked through a mixin or another class of the
   hierarchy are public or dunder names only (ADR-0074).
 - Model revision `python-fastapi-dishka/58` (ADR-0076): with `--doctest-modules`, names called in

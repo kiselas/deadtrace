@@ -3709,6 +3709,17 @@ class ImportRoots:
             candidate = distribution + name[len(first) :]
             if candidate in self.namespaces and candidate != importer.name:
                 return candidate
+        # A module that puts its own directory on ``sys.path`` imports its siblings by bare name,
+        # as ``caddiff/cli.py`` does ``import console`` for ``caddiff/console.py`` (ADR-0078).
+        if "sys.path" in importer.unit.source:
+            own = importer.name if is_package else importer.name.rpartition(".")[0]
+            if own:
+                candidate = f"{own}.{name}"
+                if candidate != importer.name and (
+                    candidate in self.modules
+                    or any(f"{candidate}.{member}" in self.modules for member in members)
+                ):
+                    return candidate
         # ``sys.path.insert(0, SRC_DIR)``, ``PYTHONPATH=src`` or a ``tests/`` import root make a
         # nested package importable by its own name, as ``core`` for ``src/core``. The shallowest
         # project package of that name, when unique and holding the imported module, is it

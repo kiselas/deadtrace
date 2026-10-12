@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "sys-path-sibling-import"
+description = "A module that inserts its own directory into sys.path imports siblings by bare name."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_tools/console.py"
+kind = "function"
+qualified_name = "colour"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_tools/console.py"
+kind = "function"
+qualified_name = "unused"
+expectation = "candidate"

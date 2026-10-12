@@ -147,3 +147,5 @@ each other. Typo and link fixes are fine.
 - [ADR-0074](0074-external-base-hooks-across-hierarchy.md) — external base hooks are blocked across the class hierarchy (revision 56). Accepted.
 - [ADR-0075](0075-instances-in-containers-passed-to-consumers.md) — instances in literal containers passed to a consumer (revision 57). Accepted.
 - [ADR-0076](0076-doctest-modules.md) — docstring examples under `--doctest-modules` (revision 58). Accepted.
+- [ADR-0077](0077-router-modules-imported-in-functions.md) — router modules imported inside functions (revision 60). Accepted.
+- [ADR-0078](0078-sys-path-sibling-imports.md) — a module that edits `sys.path` imports its siblings by bare name (revision 61). Accepted.
