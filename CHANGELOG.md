@@ -3,6 +3,12 @@
 All notable changes will be documented here. The project follows Semantic Versioning once public
 compatibility commitments are defined; alpha schemas may change between releases.
 
+## Unreleased
+
+- Model revision `python-fastapi-dishka/55` (ADR-0073): `self.m()` in a base class reaches `m` of a mixin
+  that a subclass lists before the base.
+- Faster frontend: one walk per module decides which functions track string values.
+
 ## 0.1.0a3 - 2026-10-12
 
 ### Measured

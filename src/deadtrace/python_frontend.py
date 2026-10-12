@@ -588,6 +588,7 @@ class _Resolver:
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
         self._roots: ImportRoots | None = None
+        self._scope_constructs: dict[str, frozenset[int]] = {}
         self._modules_with_star_imports = frozenset(
             module.name
             for module in modules.values()
@@ -796,6 +797,12 @@ class _Resolver:
             member = self.resolve_full_name(f"{subclass.module}.{subclass.qualified_name}.{name}")
             if member is not None:
                 found[member.id] = member
+            # A mixin listed before ``class_symbol`` in the subclass's bases may supply the
+            # member: ``class Query(_FilterMixin, BaseQuery)`` runs the mixin's ``_filter`` for
+            # ``self._filter()`` in ``BaseQuery`` (ADR-0073).
+            inherited = self.lookup_member(subclass, name)
+            if inherited is not None and inherited.owner != class_symbol.id:
+                found[inherited.id] = inherited
             queue.extend(self._subclasses.get(subclass.id, ()))
         # An annotation does not bind the receiver: a Protocol is met by any class with the
         # method, and tests pass hand-written stand-ins that derive from nothing (ADR-0017).
@@ -1021,6 +1028,25 @@ class _Resolver:
         return [
             name for name in dict.fromkeys(names) if name in self.modules and name != module.name
         ]
+
+    def functions_with_scope_constructs(self, module: PythonModule) -> frozenset[int]:
+        """Ids of the function nodes that contain, at any depth, a walrus, ``global``,
+        ``nonlocal``, or comprehension; computed with one walk of the module."""
+
+        cached = self._scope_constructs.get(module.name)
+        if cached is not None:
+            return cached
+        marked: set[int] = set()
+        stack: list[tuple[ast.AST, tuple[int, ...]]] = [(module.tree, ())]
+        while stack:
+            node, enclosing = stack.pop()
+            if isinstance(node, (ast.NamedExpr, ast.Global, ast.Nonlocal, ast.comprehension)):
+                marked.update(enclosing)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                enclosing = (*enclosing, id(node))
+            stack.extend((child, enclosing) for child in ast.iter_child_nodes(node))
+        result = self._scope_constructs[module.name] = frozenset(marked)
+        return result
 
     def scope_imports(self, scope: PythonSymbol | None) -> dict[str, ImportBinding]:
         """Imports a function's body binds, with those of enclosing functions it can see."""
@@ -1320,10 +1346,7 @@ class _ExecutionVisitor:
         self._track_strings = (
             current is not None
             and isinstance(current.node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and not any(
-                isinstance(node, (ast.NamedExpr, ast.Global, ast.Nonlocal, ast.comprehension))
-                for node in ast.walk(current.node)
-            )
+            and id(current.node) not in resolver.functions_with_scope_constructs(module)
         )
         self._container_attributes = _container_attributes(resolver, current)
         self._handled: set[int] = set()
