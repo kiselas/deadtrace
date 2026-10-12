@@ -2847,7 +2847,12 @@ class _ExecutionVisitor:
         else:
             receiver_type = self._infer_expression_type(receiver)
             if receiver_type is None:
-                return None
+                # ``getattr(Datasets, f"_process_{name}")`` reads a member of the class itself
+                # (ADR-0084).
+                named = self._resolve(receiver) if _dotted_name(receiver) is not None else None
+                if named is None or named.kind is not NodeKind.CLASS:
+                    return None
+                receiver_type = f"{named.module}.{named.qualified_name}"
             receiver_types = frozenset({receiver_type})
         # The value may be an instance of a project subclass, as ``getattr(self, ...)`` in a
         # base class of a visitor: its methods count as well.
