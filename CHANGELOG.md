@@ -39,6 +39,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   name to the members of classes built with the metaclass.
 - Model revision `python-fastapi-dishka/74` (ADR-0091): a module imported inside a function, such as a
   pytest fixture that returns it, counts as a value for name dispatch.
+- Model revision `python-fastapi-dishka/75` (ADR-0092): listing the members of a value of unknown type
+  protects the public members of project classes, not their private methods.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.
