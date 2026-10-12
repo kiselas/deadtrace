@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "mixin-supplies-template-hook"
+description = "A self call in a base class reaches the member a subclass's MRO finds first."
+
+[analysis]
+complete = true
+worlds = ["production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "_queries.py"
+kind = "function"
+qualified_name = "_NoFilterMixin._filter"
+expectation = "not_candidate"
+
+[[targets]]
+path = "_queries.py"
+kind = "class"
+qualified_name = "_UnusedMixin"
+expectation = "candidate"

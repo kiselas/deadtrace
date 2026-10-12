@@ -143,3 +143,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0070](0070-nested-installed-apps.md) — installed applications resolve through a nested package (revision 52). Accepted.
 - [ADR-0071](0071-blocked-findings.md) — blocked findings: forms that reviews showed to be mostly false are held back with a reason (revision 53). Accepted.
 - [ADR-0072](0072-routers-reached-from-unresolved-includes.md) — routers reached from an unresolved include are not reported (revision 54). Accepted.
+- [ADR-0073](0073-mixin-members-for-self-calls.md) — a self call reaches the member each subclass's MRO finds (revision 55). Accepted.
