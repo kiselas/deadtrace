@@ -2192,6 +2192,7 @@ class _ExecutionVisitor:
             self._escaped.update(
                 member.id for member in self.resolver.index.members(self.current.id)
             )
+        self._record_namespace_reflection(node)
         if self._external_name(func) in UNITTEST_RUNNERS:
             # ``unittest.main()`` collects the test cases of ``__main__``, this module (ADR-0028).
             self._escaped.update(
@@ -3146,6 +3147,80 @@ class _ExecutionVisitor:
                 targets=targets,
             )
         )
+
+    def _record_namespace_reflection(self, call: ast.Call) -> None:
+        """``dir(x)``, ``vars(x)``, ``inspect.getmembers(x)``, and ``x.__dict__.get(name)``.
+
+        Listing a namespace hands every member on, as ``getattr`` over the listed names does;
+        reading one entry of it is ``getattr(x, name)`` (ADR-0089).
+        """
+
+        func = call.func
+        if not call.args:
+            return
+        builtin = (
+            isinstance(func, ast.Name)
+            and func.id in {"dir", "vars"}
+            and func.id not in self._locals
+            and func.id not in self._names
+        )
+        if builtin or self._external_name(func) in NAMESPACE_LISTERS:
+            self._record_member_listing(call.args[0])
+            return
+        if not (isinstance(func, ast.Attribute) and func.attr == "get"):
+            return
+        namespace = func.value
+        if isinstance(namespace, ast.Attribute) and namespace.attr == "__dict__":
+            receiver: ast.expr = namespace.value
+        elif (
+            isinstance(namespace, ast.Call)
+            and isinstance(namespace.func, ast.Name)
+            and namespace.func.id == "vars"
+            and namespace.args
+        ):
+            receiver = namespace.args[0]
+        else:
+            return
+        self._record_getattr_value(
+            ast.Call(
+                func=ast.Name(id="getattr", ctx=ast.Load()),
+                args=[receiver, call.args[0]],
+                keywords=[],
+            )
+        )
+
+    def _record_member_listing(self, receiver: ast.expr) -> None:
+        """Members of what ``dir(receiver)`` lists may be used through the names (ADR-0089)."""
+
+        if self._is_external_module(receiver) or self._may_be_module(receiver):
+            return
+        if self._external_reflection_targets(receiver) is not None:
+            return
+        methods = self._receiver_methods(receiver)
+        if methods is not None:
+            if methods:
+                self.boundaries.append(
+                    UnknownBoundary(
+                        source=self.source,
+                        domain="dynamic_attribute_dispatch",
+                        reason="members listed by dir() or inspect.getmembers() may be used",
+                        targets=methods,
+                    )
+                )
+            return
+        if self.resolver.imports_computed_modules():
+            return
+        universe, gates = self.resolver.member_universe()
+        if universe:
+            self.boundaries.append(
+                UnknownBoundary(
+                    source=self.source,
+                    domain="dynamic_attribute_dispatch",
+                    reason="members listed by dir() or inspect.getmembers() may be used",
+                    targets=universe,
+                    gates=gates,
+                )
+            )
 
     def _may_be_module(self, receiver: ast.expr) -> bool:
         """``sys.modules[name]``, an ``import_module`` result, or a name of a project module."""
@@ -4877,6 +4952,10 @@ def _imports_computed_module(module: PythonModule) -> bool:
             if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
                 return True
     return False
+
+
+NAMESPACE_LISTERS = frozenset({"inspect.getmembers", "inspect.getmembers_static"})
+"""Calls that list the members of what they receive, with their values."""
 
 
 def _base_name(resolver: _Resolver, base: ast.expr, module: PythonModule) -> str:

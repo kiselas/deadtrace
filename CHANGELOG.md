@@ -33,6 +33,8 @@ compatibility commitments are defined; alpha schemas may change between releases
 - Model revision `python-fastapi-dishka/71` (ADR-0088): `getattr(value, name)(...)` with an unknown
   name protects every member of a project class instead of the whole graph, unless the value may
   be a module or the project imports modules by computed names.
+- Model revision `python-fastapi-dishka/72` (ADR-0089): `x.__dict__.get(name)` is `getattr(x, name)`, and
+  `dir(x)`, `vars(x)`, `inspect.getmembers(x)` use the members they list.
 - Compact JSON report (ADR-0079): worlds give `resolved_count`/`conservative_count` (member lists with
   `--world-members`), limitations common to all worlds appear once in `shared_limitations`, and `DT2002`
   guards are grouped by message. The largest public cohort project went from 340 MB to 24.5 MB.
