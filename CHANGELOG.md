@@ -19,6 +19,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   dict key, as test helpers and `override_settings` do, installs Django applications.
 - Model revision `python-fastapi-dishka/82` (ADR-0099): `pytest path/to/file.py` in a README or other
   Markdown/RST document collects that file; other commands there are not read.
+- Model revision `python-fastapi-dishka/83` (ADR-0100): a project instance stored as an attribute of an
+  object from outside the project (`request.user = MockUser()`) offers its public methods.
 
 ## 0.1.0a5 - 2026-10-12
 

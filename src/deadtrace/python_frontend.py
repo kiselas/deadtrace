@@ -2669,6 +2669,8 @@ class _ExecutionVisitor:
         container = _is_container_value(node.value)
         for target in node.targets:
             if not isinstance(target, ast.Name):
+                if isinstance(target, ast.Attribute):
+                    self._expose_stored_instance(target, node.value)
                 for child in ast.walk(target):
                     if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
                         self._set_receiver(child.id, UNKNOWN_RECEIVER)
@@ -3578,6 +3580,25 @@ class _ExecutionVisitor:
             else None
         )
         return tuple(item.id for item in self.resolver.overrides(receiver or owner, target.name))
+
+    def _expose_stored_instance(self, target: ast.Attribute, value: ast.expr) -> None:
+        """``request.user = MockUser()``: an instance stored on an object outside the project.
+
+        Code that owns the object reads the attribute and calls the instance's methods by
+        protocol, as a consumer that receives the instance would (ADR-0100).
+        """
+
+        base = target.value
+        if isinstance(base, ast.Name) and base.id in {"self", "cls"}:
+            return
+        if self._infer_expression_type(base) is not None:
+            return  # an object of a project class keeps it in a field the model tracks
+        if _dotted_name(base) is not None and self._resolve(base) is not None:
+            return  # a project module or class attribute
+        type_name = self._infer_expression_type(value)
+        stored = self.resolver.class_named(type_name) if type_name is not None else None
+        if stored is not None:
+            self._expose_classes({stored.id}, f"an attribute {target.attr} of an unknown object")
 
     def _expose_classes(self, escaped: set[NodeId], external: str) -> None:
         """A consumer that receives a class may call its methods: one boundary per class.
