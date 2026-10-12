@@ -1,0 +1,21 @@
+schema_version = 1
+case_id = "django-settings-configure-in-conftest"
+description = "settings.configure(INSTALLED_APPS=...) in a conftest installs the applications for the tests."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts", "tests:pytest"]
+finding_codes = ["RCH001"]
+limitation_codes = []
+
+[[targets]]
+path = "tests/models.py"
+kind = "class"
+qualified_name = "Anchor"
+expectation = "not_candidate"
+
+[[targets]]
+path = "tests/models.py"
+kind = "function"
+qualified_name = "_helper"
+expectation = "candidate"

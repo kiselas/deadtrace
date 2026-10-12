@@ -2603,9 +2603,15 @@ def _discover_django_applications(state: _BuildState) -> None:
     program = state.program
     for module in program.modules.values():
         installed = _django_installed_apps(module)
+        configured = installed is None
+        if installed is None:
+            # ``settings.configure(INSTALLED_APPS=[...])`` in a test conftest installs the
+            # applications for the tests that the module serves; it is no application (ADR-0095).
+            installed = _django_configured_apps(module)
         if installed is None:
             continue
-        state.applications[module.name] = ("django", module.name)
+        if not configured:
+            state.applications[module.name] = ("django", module.name)
         packages = sorted(
             {
                 package
@@ -2669,6 +2675,8 @@ def _discover_django_applications(state: _BuildState) -> None:
                             for base in symbol.bases
                         )
                     )
+        if configured:
+            continue
         for server_module in _django_server_modules(state):
             state.edges.append(
                 ExecutionEdge(
@@ -2724,6 +2732,31 @@ def _django_installed_apps(module: PythonModule) -> list[str] | None:
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         )
     return apps if found else None
+
+
+def _django_configured_apps(module: PythonModule) -> list[str] | None:
+    """Strings of ``INSTALLED_APPS`` that ``settings.configure(...)`` receives (ADR-0095)."""
+
+    if "configure" not in module.unit.source or "INSTALLED_APPS" not in module.unit.source:
+        return None
+    apps: list[str] | None = None
+    for node in ast.walk(module.tree):
+        if not (
+            isinstance(node, ast.Call)
+            and _expanded_name(module, node.func).endswith("settings.configure")
+        ):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "INSTALLED_APPS" or (
+                keyword.arg is not None and keyword.arg.endswith("_APPS")
+            ):
+                apps = apps or []
+                apps.extend(
+                    item.value
+                    for item in ast.walk(keyword.value)
+                    if isinstance(item, ast.Constant) and isinstance(item.value, str)
+                )
+    return apps
 
 
 def _django_app_package(state: _BuildState, app: str) -> str | None:
