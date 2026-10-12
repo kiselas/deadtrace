@@ -2111,6 +2111,20 @@ class _ExecutionVisitor:
             f"{self.module.name}.{self.current.qualified_name}.{dotted}"
         )
 
+    def _metaclass_instance(self, receiver: ast.expr) -> bool:
+        """The first parameter of a method of a metaclass: a class built with it (ADR-0090)."""
+
+        if not isinstance(receiver, ast.Name) or self.current is None:
+            return False
+        parameters = self.current.parameters
+        if not parameters or parameters[0].name != receiver.id:
+            return False
+        owner = self._containing_class()
+        return owner is not None and any(
+            name.rpartition(".")[2] in METACLASS_BASES or name.endswith("Meta")
+            for name in self.resolver.external_bases(owner)
+        )
+
     def _containing_class(self) -> PythonSymbol | None:
         owner_name = _containing_class_qname(self.current) if self.current is not None else None
         if owner_name is None:
@@ -2392,6 +2406,12 @@ class _ExecutionVisitor:
         provided = self._members_provided_by_subclasses(attribute)
         if provided:
             self._escaped.update(member.id for member in provided)
+            return
+        if self._metaclass_instance(receiver):
+            # ``cls._lookups()`` in a metaclass method: ``cls`` is a class built with the
+            # metaclass, whose members the metaclass does not know (ADR-0090).
+            if self.resolver.dispatch_targets_named(attribute.attr):
+                self._dispatched.add(attribute.attr)
             return
         if isinstance(receiver, ast.Name) and receiver.id in self._dynamic_modules:
             self._escaped.update(self.resolver.top_level_named(attribute.attr))
@@ -4954,6 +4974,8 @@ def _imports_computed_module(module: PythonModule) -> bool:
     return False
 
 
+METACLASS_BASES = frozenset({"type", "ABCMeta", "EnumMeta", "EnumType"})
+"""Bases outside the project that make a class a metaclass."""
 NAMESPACE_LISTERS = frozenset({"inspect.getmembers", "inspect.getmembers_static"})
 """Calls that list the members of what they receive, with their values."""
 
