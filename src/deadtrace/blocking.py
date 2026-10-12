@@ -17,6 +17,9 @@ Reasons, each measured on reviewed findings of public projects:
 - ``mentioned_in_config``: the name appears in a configuration or template file of the project
   (YAML, TOML, INI, templates, Makefiles, Dockerfiles; not JSON, text, or deadtrace's own
   artifacts), where it is usually loaded by name.
+- ``interface_declaration``: every member is a method whose body is only a docstring, ``pass``,
+  ``...`` or ``raise NotImplementedError``, or that is abstract, and that a project subclass of
+  its class overrides; it declares the interface the subclasses implement (ADR-0101).
 
 Files are read as bounded text; nothing is imported or executed.
 """
@@ -48,6 +51,7 @@ BLOCKING_REASONS = (
     "non_production_area",
     "public_api",
     "mentioned_in_config",
+    "interface_declaration",
 )
 BLOCKABLE_CODES = frozenset({"RCH001", "RCH004"})
 """Reachability findings; RCH002 and RCH003 come from a framework model and are never blocked."""
@@ -164,6 +168,14 @@ def apply_blocking(
                 for member in finding.members
                 for reason in _reasons(program, member, text, symbols, modules, hierarchy)
             }
+            | (
+                {"interface_declaration"}
+                if all(
+                    _is_interface_declaration(symbols, member, hierarchy)
+                    for member in finding.members
+                )
+                else set()
+            )
         )
         if reasons:
             blocked.append(replace(finding, blocked=tuple(reasons)))
@@ -212,6 +224,71 @@ def _reasons(
     ):
         reasons.add("mentioned_in_config")
     return reasons
+
+
+def _is_interface_declaration(
+    symbols: dict[tuple[str, str, int], PythonSymbol],
+    member: FindingMember,
+    hierarchy: _ClassHierarchy,
+) -> bool:
+    """A stub or abstract method that a project subclass of its class overrides (ADR-0101)."""
+
+    symbol = symbols.get((member.path, member.qualified_name, member.occurrence))
+    if symbol is None or symbol.owner is None:
+        return False
+    node = symbol.node
+    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return False
+    owner = hierarchy.program.symbols.get(symbol.owner)
+    if owner is None or not isinstance(owner.node, ast.ClassDef):
+        return False
+    if not (_is_stub(node) or _is_abstract_method(node)):
+        return False
+    seen: set[str] = set()
+    queue = list(hierarchy.subclasses.get(str(owner.id), ()))
+    while queue:
+        subclass = queue.pop()
+        key = str(subclass.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        assert isinstance(subclass.node, ast.ClassDef)
+        if any(
+            isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == node.name
+            for item in subclass.node.body
+        ):
+            return True
+        queue.extend(hierarchy.subclasses.get(key, ()))
+    return False
+
+
+def _is_stub(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """A body of only a docstring, ``pass``, ``...``, or ``raise NotImplementedError``."""
+
+    body = [
+        statement
+        for statement in node.body
+        if not (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Constant))
+    ]
+    if not body:
+        return True
+    if len(body) != 1:
+        return False
+    statement = body[0]
+    if isinstance(statement, ast.Pass):
+        return True
+    if isinstance(statement, ast.Raise) and statement.exc is not None:
+        raised = statement.exc.func if isinstance(statement.exc, ast.Call) else statement.exc
+        return isinstance(raised, ast.Name) and raised.id == "NotImplementedError"
+    return False
+
+
+def _is_abstract_method(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any(
+        (decorator.attr if isinstance(decorator, ast.Attribute) else getattr(decorator, "id", ""))
+        == "abstractmethod"
+        for decorator in node.decorator_list
+    )
 
 
 class _ClassHierarchy:

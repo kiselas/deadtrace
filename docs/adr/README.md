@@ -171,3 +171,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0098](0098-installed-apps-in-settings-dicts.md) — INSTALLED_APPS in a settings dict installs applications. Accepted.
 - [ADR-0099](0099-pytest-paths-in-documents.md) — pytest commands in documents name test files. Accepted.
 - [ADR-0100](0100-instance-stored-on-unknown-object.md) — an instance stored on an unknown object is handed on. Accepted.
+- [ADR-0101](0101-interface-declarations-blocked.md) — overridden stub methods are interface declarations. Accepted.

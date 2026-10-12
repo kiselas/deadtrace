@@ -21,6 +21,8 @@ compatibility commitments are defined; alpha schemas may change between releases
   Markdown/RST document collects that file; other commands there are not read.
 - Model revision `python-fastapi-dishka/83` (ADR-0100): a project instance stored as an attribute of an
   object from outside the project (`request.user = MockUser()`) offers its public methods.
+- Model revision `python-fastapi-dishka/84` (ADR-0101): a blocked reason `interface_declaration` holds back
+  stub or abstract methods that a project subclass overrides.
 
 ## 0.1.0a5 - 2026-10-12
 

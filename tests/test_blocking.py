@@ -153,3 +153,24 @@ def test_private_helper_of_a_mixin_is_not_blocked_as_a_hook(tmp_path: Path) -> N
     )
 
     assert "AdminMixin._check_operator" not in _blocked(tmp_path)
+
+
+def test_overridden_stub_method_is_an_interface_declaration(tmp_path: Path) -> None:
+    """A base stub that subclasses override declares their interface (ADR-0101)."""
+
+    _write(
+        tmp_path,
+        {
+            "_tool.py": TOOL
+            + "\n\nclass _Base:\n"
+            + "    def _validate(self, path):\n        raise NotImplementedError\n\n"
+            + "    def _never(self):\n        raise NotImplementedError\n\n\n"
+            + "class _Csv(_Base):\n"
+            + "    def run(self, path):\n        self._validate(path)\n\n"
+            + "    def _validate(self, path):\n        return path\n\n\n"
+            + "def _use():\n    _Csv().run('x')\n\n\n_use()\n",
+        },
+    )
+
+    assert _blocked(tmp_path) == {"_Base._validate": ("interface_declaration",)}
+    assert "_Base._never" in _shown(tmp_path)
