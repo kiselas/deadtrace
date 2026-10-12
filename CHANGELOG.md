@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/89` (ADR-0106): routers mounted in a loop over modules, or from
+  a table of module names through `import_module`, are not reported by `RCH002`.
+
 ## 0.1.0a6 - 2026-10-12
 
 ### Measured

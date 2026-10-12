@@ -176,3 +176,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0103](0103-getattr-on-dynamic-module.md) — getattr on a dynamically imported module. Accepted.
 - [ADR-0104](0104-unittest-case-module.md) — TestCase imported from unittest.case. Accepted.
 - [ADR-0105](0105-type-check-inputs-blocked.md) — type checker inputs under tests are blocked. Accepted.
+- [ADR-0106](0106-routers-mounted-by-loop-and-table.md) — routers mounted in a loop or from a table of module names. Accepted.

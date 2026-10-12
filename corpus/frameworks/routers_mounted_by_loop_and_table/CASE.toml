@@ -1,0 +1,33 @@
+schema_version = 1
+case_id = "routers-mounted-by-loop-and-table"
+description = "Routers mounted in a loop over modules or from a table of module names are included."
+
+[analysis]
+complete = true
+worlds = ["production:web"]
+finding_codes = ["RCH002"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "app/api/users.py"
+kind = "function"
+qualified_name = "list_users"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/api/items.py"
+kind = "function"
+qualified_name = "list_items"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/api/plugin.py"
+kind = "function"
+qualified_name = "list_plugin"
+expectation = "not_candidate"
+
+[[targets]]
+path = "app/api/orphan.py"
+kind = "function"
+qualified_name = "list_orphan"
+expectation = "candidate"

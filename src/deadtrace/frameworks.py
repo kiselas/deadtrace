@@ -1345,9 +1345,63 @@ def _escaping_routers(state: _BuildState) -> frozenset[str]:
         )
         is not None
     }
+    # ``for module in (users, items): app.include_router(module.router)`` reads the router of
+    # each module the loop goes over (ADR-0106).
+    for module in state.program.modules.values():
+        if not any(f".{name}" in module.unit.source for name in names):
+            continue
+        local = {
+            **{alias: binding.target for alias, binding in module.imports.items()},
+            **nested_bindings.get(module.name, {}),
+        }
+        for node in ast.walk(module.tree):
+            if not (
+                isinstance(node, ast.For | ast.AsyncFor | ast.comprehension)
+                and isinstance(node.target, ast.Name)
+                and isinstance(node.iter, ast.Tuple | ast.List | ast.Set)
+            ):
+                continue
+            targets = [
+                local[item.id]
+                for item in node.iter.elts
+                if isinstance(item, ast.Name) and item.id in local
+            ]
+            variable = node.target.id
+            scope = node.body if isinstance(node, ast.For | ast.AsyncFor) else []
+            attributes = {
+                child.attr
+                for statement in scope
+                for child in ast.walk(statement)
+                if isinstance(child, ast.Attribute)
+                and isinstance(child.value, ast.Name)
+                and child.value.id == variable
+                and child.attr in names
+            }
+            attribute_reads.update(
+                f"{target}.{attribute}" for target in targets for attribute in attributes
+            )
+    # ``("app.api.users", "router")`` in a table that ``import_module`` and ``getattr`` mount: a
+    # string naming the router's module (ADR-0106).
+    router_modules = {obj.module for obj in routers.values()}
+    named_modules: set[str] = set()
+    for module in state.program.modules.values():
+        source = module.unit.source
+        if not any(name in source for name in router_modules):
+            continue
+        named_modules.update(
+            node.value.partition(":")[0]
+            for node in ast.walk(module.tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.partition(":")[0] in router_modules
+        )
     escaping: set[str] = set()
     for key, obj in routers.items():
-        if f"{obj.module}.{obj.name}" in imported or f"{obj.module}.{obj.name}" in attribute_reads:
+        if (
+            f"{obj.module}.{obj.name}" in imported
+            or f"{obj.module}.{obj.name}" in attribute_reads
+            or obj.module in named_modules
+        ):
             escaping.add(key)
             continue
         module = state.program.modules[obj.module]
