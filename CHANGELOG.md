@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/58` (ADR-0076): with `--doctest-modules`, names called in
+  docstring examples are reached by the tests world.
+- Faster frontend: each function body is flattened once per analysis.
 - Model revision `python-fastapi-dishka/57` (ADR-0075): a project instance inside a literal dict or
   list passed to a library (an options dict with a `logger`) has its methods protected.
 - Model revision `python-fastapi-dishka/56` (ADR-0074): `external_base_hooks` also blocks methods of
