@@ -14,6 +14,15 @@ from email.parser import BytesParser
 from pathlib import Path
 
 
+def reject_environment_files(names: list[str]) -> None:
+    for name in names:
+        parts = name.replace("\\", "/").split("/")
+        if "pyvenv.cfg" in parts or any(
+            part == ".venv" or part.startswith(".venv-") for part in parts
+        ):
+            raise ValueError(f"distribution contains a virtual environment: {name}")
+
+
 def describe(dist: Path, version: str) -> dict[str, dict[str, str | int]]:
     expected = {
         f"deadtrace-{version}-py3-none-any.whl",
@@ -31,12 +40,14 @@ def describe(dist: Path, version: str) -> dict[str, dict[str, str | int]]:
         path = dist / name
         if name.endswith(".whl"):
             with zipfile.ZipFile(path) as wheel:
+                reject_environment_files(wheel.namelist())
                 names = [item for item in wheel.namelist() if item.endswith(".dist-info/METADATA")]
                 if len(names) != 1:
                     raise ValueError("wheel must have exactly one METADATA")
                 raw = wheel.read(names[0])
         else:
             with tarfile.open(path, "r:gz") as sdist:
+                reject_environment_files(sdist.getnames())
                 members = [
                     item
                     for item in sdist.getmembers()

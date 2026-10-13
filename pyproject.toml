@@ -58,6 +58,9 @@ oracle = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/deadtrace"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [".venv*/"]
+
 [tool.deadtrace]
 # Corpus and fixture programs are data that tests analyze; the project never runs them.
 exclude = ["corpus/**", "fixtures/**"]

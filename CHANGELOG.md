@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Source distributions exclude local `.venv*` directories. Release artifact validation rejects
+  virtual-environment files before sealing or verifying a receipt (ADR-0111).
+
 - Module-flow queries visit each expression once (ADR-0110), avoiding repeated traversal of
   alias diamonds while preserving model 92 and existing reports.
 

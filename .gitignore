@@ -11,6 +11,7 @@ htmlcov/
 
 # Environments and builds
 .venv/
+.venv-*/
 build/
 dist/
 
