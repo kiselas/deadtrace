@@ -595,6 +595,7 @@ class _Resolver:
         self._top_level: dict[str, tuple[NodeId, ...]] | None = None
         self._stand_ins: dict[str, tuple[NodeId, ...]] | None = None
         self._value_module_members: dict[str, tuple[NodeId, ...]] | None = None
+        self._held_modules: frozenset[str] | None = None
         self._member_universe: (
             tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]] | None
         ) = None
@@ -880,7 +881,7 @@ class _Resolver:
 
         if self._value_module_members is None:
             found: dict[str, list[NodeId]] = {}
-            held = self._modules_held_as_values()
+            held = set(self._modules_held_as_values())
             # A module imported by a computed name may be returned and called anywhere: the
             # modules the name may reach are held as values too (ADR-0096).
             prefixes = {
@@ -898,7 +899,7 @@ class _Resolver:
             self._value_module_members = {key: tuple(sorted(value)) for key, value in found.items()}
         return self._value_module_members.get(name, ())
 
-    def _modules_held_as_values(self) -> set[str]:
+    def _modules_held_as_values(self) -> frozenset[str]:
         """Project modules that a module imports and uses as a value.
 
         A module placed in a literal container, passed to a call other than one that only reads
@@ -906,6 +907,8 @@ class _Resolver:
         value of unknown type (ADR-0081, ADR-0087).
         """
 
+        if self._held_modules is not None:
+            return self._held_modules
         held: set[str] = set()
         for module in self.modules.values():
             imported = {
@@ -947,7 +950,8 @@ class _Resolver:
                     for item in items
                     if isinstance(item, ast.Name) and item.id in imported
                 )
-        return held
+        self._held_modules = frozenset(held)
+        return self._held_modules
 
     def member_universe(
         self, *, public: bool = False

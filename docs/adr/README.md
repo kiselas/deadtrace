@@ -184,3 +184,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0111](0111-exclude-local-environments-from-distributions.md) — local virtual environments stay outside distributions. Accepted; packaging only.
 - [ADR-0112](0112-inherited-django-fixture-hooks.md) — used Django database cases protect inherited fixture hooks. Accepted; paired development evaluation complete.
 - [ADR-0113](0113-bounded-derivation-projection.md) — JSON projects only the shown derivation prefix. Accepted; report runtime only.
+- [ADR-0114](0114-share-module-value-scan.md) — resolver projections share one immutable module-value scan. Accepted; frontend runtime only.
