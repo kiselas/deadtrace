@@ -19,6 +19,19 @@ DEFINITION_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 
 
+def _ast_attribute_holders() -> dict[type[ast.AST], type]:
+    """Grammar metadata only; classes retain attribute names, never parsed values."""
+
+    return {
+        node_type: type("_ASTAttributes", (), {})
+        for node_type in vars(ast).values()
+        if isinstance(node_type, type) and issubclass(node_type, ast.AST)
+    }
+
+
+_AST_ATTRIBUTE_HOLDERS = _ast_attribute_holders()
+
+
 class SourceText:
     """Source text of one module with line lookup and character columns.
 
@@ -96,10 +109,10 @@ def _compact_ast_attributes(tree: ast.AST) -> None:
 
     Ordinary Python instances can share dictionary keys. AST nodes receive those
     dictionaries before the parsed source becomes the immutable input to analysis.
-    The temporary holder classes belong to this parse; no cache survives it.
+    Holder classes depend only on the interpreter's grammar. They retain keys,
+    never node values; every node still owns its independent dictionary.
     """
 
-    holders: dict[type[ast.AST], type] = {}
     pending = [tree]
     while pending:
         node = pending.pop()
@@ -112,11 +125,7 @@ def _compact_ast_attributes(tree: ast.AST) -> None:
                 pending.append(value)
             elif isinstance(value, list):
                 pending.extend(item for item in value if isinstance(item, ast.AST))
-        node_type = type(node)
-        holder_type = holders.get(node_type)
-        if holder_type is None:
-            holder_type = type("_ASTAttributes", (), {})
-            holders[node_type] = holder_type
+        holder_type = _AST_ATTRIBUTE_HOLDERS[type(node)]
         holder = holder_type()
         # An update into an empty dict can replace its shared keys with a full copy.
         # Seed the first attribute, then let the bulk update retain the shared layout.
