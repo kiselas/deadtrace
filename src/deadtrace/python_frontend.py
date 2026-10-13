@@ -3342,54 +3342,62 @@ class _ExecutionVisitor:
                 )
             )
 
-    def _may_be_module(self, receiver: ast.expr, seen: frozenset[int] = frozenset()) -> bool:
+    def _may_be_module(self, receiver: ast.expr) -> bool:
         """``sys.modules[name]``, an ``import_module`` result, or a name of a project module."""
 
-        if id(receiver) in seen:
-            return False
-        seen = seen | {id(receiver)}
-        if isinstance(receiver, ast.Subscript):
-            return _is_module_table(receiver.value)
-        if isinstance(receiver, ast.Call):
-            function = _dotted_name(receiver.func) or ""
-            return function in MODULE_LOADERS or (
-                isinstance(receiver.func, ast.Attribute)
-                and receiver.func.attr == "get"
-                and _is_module_table(receiver.func.value)
-            )
-        dotted = _dotted_name(receiver)
-        if dotted is None:
-            return False
-        head, _, rest = dotted.partition(".")
-        if head in self._dynamic_modules:
-            return True
-        if self.current is not None and not rest:
-            # ``def load(plugin: ModuleType)`` names a module parameter.
-            for parameter in self.current.parameters:
-                if (
-                    parameter.name == head
-                    and parameter.annotation is not None
-                    and "ModuleType" in ast.unparse(parameter.annotation)
+        pending = [receiver]
+        seen: set[int] = set()
+        while pending:
+            expression = pending.pop()
+            if id(expression) in seen:
+                continue
+            seen.add(id(expression))
+            if isinstance(expression, ast.Subscript):
+                if _is_module_table(expression.value):
+                    return True
+                continue
+            if isinstance(expression, ast.Call):
+                function = _dotted_name(expression.func) or ""
+                if function in MODULE_LOADERS or (
+                    isinstance(expression.func, ast.Attribute)
+                    and expression.func.attr == "get"
+                    and _is_module_table(expression.func.value)
                 ):
                     return True
-        if head in self._locals and self.current is not None:
-            # ``module = sys.modules[__name__]`` or any other assignment of a module to the local.
-            for node in flow_nodes(getattr(self.current.node, "body", [])):
-                if (
-                    isinstance(node, ast.Assign)
+                continue
+            dotted = _dotted_name(expression)
+            if dotted is None:
+                continue
+            head, _, rest = dotted.partition(".")
+            if head in self._dynamic_modules:
+                return True
+            if self.current is not None and not rest:
+                # ``def load(plugin: ModuleType)`` names a module parameter.
+                for parameter in self.current.parameters:
+                    if (
+                        parameter.name == head
+                        and parameter.annotation is not None
+                        and "ModuleType" in ast.unparse(parameter.annotation)
+                    ):
+                        return True
+            if head in self._locals and self.current is not None:
+                # The same assignment can be reached through several aliases. Expand it once.
+                pending.extend(
+                    node.value
+                    for node in flow_nodes(getattr(self.current.node, "body", []))
+                    if isinstance(node, ast.Assign)
                     and any(isinstance(item, ast.Name) and item.id == head for item in node.targets)
-                    and isinstance(node.value, (ast.Subscript, ast.Call, ast.Name, ast.Attribute))
-                    and node.value is not receiver
-                    and self._may_be_module(node.value, seen)
-                ):
+                    and isinstance(node.value, ast.Subscript | ast.Call | ast.Name | ast.Attribute)
+                    and node.value is not expression
+                )
+            binding = self._local_imports.get(head)
+            if binding is None and head not in self._locals:
+                binding = self.module.imports.get(head)
+            if binding is not None:
+                full = f"{binding.target}.{rest}" if rest else binding.target
+                if binding.target in self.resolver.modules or full in self.resolver.modules:
                     return True
-        binding = self._local_imports.get(head)
-        if binding is None and head not in self._locals:
-            binding = self.module.imports.get(head)
-        if binding is None:
-            return False
-        full = f"{binding.target}.{rest}" if rest else binding.target
-        return binding.target in self.resolver.modules or full in self.resolver.modules
+        return False
 
     def _names_dispatched_by(self, name: ast.expr) -> set[str] | None:
         """Attribute names a computed ``getattr`` name may take, or ``None`` when it is unknown.

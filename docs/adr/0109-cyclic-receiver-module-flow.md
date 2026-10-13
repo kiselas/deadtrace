@@ -2,6 +2,8 @@
 
 **Status:** Accepted, 2026-10-13; model revision 92.
 
+The traversal algorithm is superseded by ADR-0110; its module-flow semantics remain unchanged.
+
 ## Context
 
 ADR-0107 uses the module-flow query for optional getattr values. The query follows local

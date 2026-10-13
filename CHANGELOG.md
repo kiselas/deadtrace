@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Module-flow queries visit each expression once (ADR-0110), avoiding repeated traversal of
+  alias diamonds while preserving model 92 and existing reports.
+
 - Model revision `python-fastapi-dishka/92` (ADR-0109): receiver alias cycles in `getattr` module-flow
   checks terminate instead of raising `RecursionError`; other module assignments remain recognized.
 
