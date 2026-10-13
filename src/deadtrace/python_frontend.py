@@ -18,6 +18,7 @@ from fnmatch import fnmatchcase
 from functools import lru_cache
 from typing import Any, NamedTuple
 
+from deadtrace.ast_storage import native_type
 from deadtrace.core import (
     EdgeKind,
     ExecutionEdge,
@@ -1871,7 +1872,7 @@ class _ExecutionVisitor:
         }
         handled = self._handled
         for node in nodes:
-            handler = handlers.get(type(node))
+            handler = handlers.get(native_type(node))
             if handler is not None and id(node) not in handled:
                 handler(node)
 
