@@ -10,6 +10,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 
+from deadtrace.ast_storage import compact_tree
 from deadtrace.model import Definition, DefinitionKind, SourceSpan
 from deadtrace.timing import StageTimings
 
@@ -100,8 +101,9 @@ def parse_source(source: str) -> ParsedSource:
         warnings.simplefilter("ignore", SyntaxWarning)
         warnings.simplefilter("ignore", DeprecationWarning)
         tree = ast.parse(source)
-    _compact_ast_attributes(tree)
-    return ParsedSource(tree, SourceText(source))
+    packed = compact_tree(tree)
+    assert isinstance(packed, ast.Module)
+    return ParsedSource(packed, SourceText(source))
 
 
 def _compact_ast_attributes(tree: ast.AST) -> None:
