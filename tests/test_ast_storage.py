@@ -2,9 +2,11 @@
 
 import ast
 import copy
+import gc
 import pickle
 import platform
 import sys
+import weakref
 
 import pytest
 
@@ -66,3 +68,15 @@ def test_separate_parses_keep_their_own_attribute_dictionaries() -> None:
     assert vars(first_assignment) is not vars(second_assignment)
     assert ast.get_source_segment(first.text.text, first_assignment.value) == '"ё"'
     assert ast.get_source_segment(second.text.text, second_assignment.value) == '"日本"'
+
+
+def test_grammar_holders_do_not_retain_parsed_nodes() -> None:
+    parsed = parse_source('def private_name():\n    return "private value"\n')
+    module_reference = weakref.ref(parsed.tree)
+    function_reference = weakref.ref(parsed.tree.body[0])
+
+    del parsed
+    gc.collect()
+
+    assert module_reference() is None
+    assert function_reference() is None
