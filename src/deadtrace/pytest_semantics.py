@@ -1296,8 +1296,20 @@ def _usefixtures_names(
     program: PythonProgram, module: PythonModule, symbol: PythonSymbol
 ) -> set[str]:
     names: set[str] = set()
-    for expression in _marks(program, module, symbol):
-        if not _expanded_name(module, expression.func).endswith("pytest.mark.usefixtures"):
+    marks = [(module, expression) for expression in _marks(program, module, symbol)]
+    owner = symbol.owner
+    while owner is not None and owner in program.symbols:
+        owner_symbol = program.symbols[owner]
+        if owner_symbol.kind is NodeKind.CLASS:
+            for ancestor in _project_ancestry(program, owner_symbol):
+                marks.extend(
+                    (program.modules[ancestor.module], expression)
+                    for expression in ancestor.decorators
+                    if isinstance(expression, ast.Call)
+                )
+        owner = owner_symbol.owner
+    for mark_module, expression in marks:
+        if not _expanded_name(mark_module, expression.func).endswith("pytest.mark.usefixtures"):
             continue
         for argument in call_arguments(expression):
             value = _string_value(argument.value)

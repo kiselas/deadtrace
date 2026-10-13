@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/91` (ADR-0108): collected test methods request fixtures
+  named by `usefixtures` marks inherited from project base classes, including bases in other modules.
+
 - Model revision `python-fastapi-dishka/89` (ADR-0106): routers mounted in a loop over modules, or from
   a table of module names through `import_module`, are not reported by `RCH002`.
 - Model revision `python-fastapi-dishka/90` (ADR-0107): `hook = getattr(value, "name", None)` on a value of
