@@ -187,6 +187,7 @@ each other. Typo and link fixes are fine.
 - [ADR-0114](0114-share-module-value-scan.md) — resolver projections share one immutable module-value scan. Accepted; frontend runtime only.
 - [ADR-0115](0115-compact-ast-attribute-storage.md) — AST attribute dictionaries share grammar keys. Accepted; storage only, with a measured time/memory tradeoff.
 - [ADR-0116](0116-statement-only-nested-import-walk.md) — nested module imports traverse statement containers in BFS order. Accepted; frontend runtime only, reports unchanged.
+- [ADR-0117](0117-slotted-ast-storage.md) — parsed AST fields use slots with canonical native-type dispatch. Proposed; storage only.
 - [ADR-0118](0118-shared-module-syntax-walk.md) — resolver syntax projections share one module walk. Accepted; frontend runtime only, reports unchanged.
 - [ADR-0119](0119-cookiecutter-local-extensions.md) — explicitly named local Cookiecutter extensions are roots. Accepted; model 94, paired development evaluation complete.
 - [ADR-0121](0121-routine-dependency-updates.md) — routine dependency updates are batched; oracle pins move deliberately. Accepted; packaging and tooling only.

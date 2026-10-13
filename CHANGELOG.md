@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Parsed AST fields use slots while preserving grammar, values and canonical visitor
+  dispatch (ADR-0117); model 94 is unchanged.
+
 - Development tools and CI actions update in one batch (ADR-0121): mypy 2.4.0, Ruff 0.17.0,
   Hypothesis 6.169.0, Typer 0.27.3 in the lock and download-artifact 8.0.2. Dependabot no
   longer proposes the oracle pins, which move with the oracle's tested versions.
