@@ -87,7 +87,32 @@ def parse_source(source: str) -> ParsedSource:
         warnings.simplefilter("ignore", SyntaxWarning)
         warnings.simplefilter("ignore", DeprecationWarning)
         tree = ast.parse(source)
+    _compact_ast_attributes(tree)
     return ParsedSource(tree, SourceText(source))
+
+
+def _compact_ast_attributes(tree: ast.AST) -> None:
+    """Share attribute keys without changing stdlib nodes or their values.
+
+    Ordinary Python instances can share dictionary keys. AST nodes receive those
+    dictionaries before the parsed source becomes the immutable input to analysis.
+    The temporary holder classes belong to this parse; no cache survives it.
+    """
+
+    holders: dict[type[ast.AST], type] = {}
+    for node in ast.walk(tree):
+        attributes = vars(node)
+        if not attributes:
+            continue
+        node_type = type(node)
+        holder_type = holders.get(node_type)
+        if holder_type is None:
+            holder_type = type("_ASTAttributes", (), {})
+            holders[node_type] = holder_type
+        holder = holder_type()
+        for name, value in attributes.items():
+            setattr(holder, name, value)
+        node.__dict__ = vars(holder)
 
 
 def child_statements(statement: ast.stmt) -> list[ast.stmt]:

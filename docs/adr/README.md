@@ -185,3 +185,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0112](0112-inherited-django-fixture-hooks.md) — used Django database cases protect inherited fixture hooks. Accepted; paired development evaluation complete.
 - [ADR-0113](0113-bounded-derivation-projection.md) — JSON projects only the shown derivation prefix. Accepted; report runtime only.
 - [ADR-0114](0114-share-module-value-scan.md) — resolver projections share one immutable module-value scan. Accepted; frontend runtime only.
+- [ADR-0115](0115-compact-ast-attribute-storage.md) — AST attribute dictionaries share keys within each parse. Proposed; storage only.
