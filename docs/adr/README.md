@@ -179,3 +179,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0106](0106-routers-mounted-by-loop-and-table.md) — routers mounted in a loop or from a table of module names. Accepted.
 - [ADR-0107](0107-getattr-known-name-value.md) — a getattr value with a known name dispatches by name. Accepted.
 - [ADR-0108](0108-inherited-usefixtures-marks.md) — collected tests inherit usefixtures marks from project bases. Accepted.
+- [ADR-0109](0109-cyclic-receiver-module-flow.md) — module-flow queries terminate on cyclic receiver aliases. Accepted.

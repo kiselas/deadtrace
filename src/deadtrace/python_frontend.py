@@ -3342,9 +3342,12 @@ class _ExecutionVisitor:
                 )
             )
 
-    def _may_be_module(self, receiver: ast.expr) -> bool:
+    def _may_be_module(self, receiver: ast.expr, seen: frozenset[int] = frozenset()) -> bool:
         """``sys.modules[name]``, an ``import_module`` result, or a name of a project module."""
 
+        if id(receiver) in seen:
+            return False
+        seen = seen | {id(receiver)}
         if isinstance(receiver, ast.Subscript):
             return _is_module_table(receiver.value)
         if isinstance(receiver, ast.Call):
@@ -3377,7 +3380,7 @@ class _ExecutionVisitor:
                     and any(isinstance(item, ast.Name) and item.id == head for item in node.targets)
                     and isinstance(node.value, (ast.Subscript, ast.Call, ast.Name, ast.Attribute))
                     and node.value is not receiver
-                    and self._may_be_module(node.value)
+                    and self._may_be_module(node.value, seen)
                 ):
                     return True
         binding = self._local_imports.get(head)

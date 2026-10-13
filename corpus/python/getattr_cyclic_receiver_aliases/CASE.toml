@@ -1,0 +1,22 @@
+schema_version = 1
+case_id = "getattr-cyclic-receiver-aliases"
+description = "Cyclic local receiver aliases terminate without hiding other module assignments."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "_hooks.py"
+kind = "function"
+qualified_name = "Worker.prime"
+expectation = "protected"
+
+[[targets]]
+path = "_hooks.py"
+kind = "function"
+qualified_name = "Worker.unused"
+expectation = "candidate"
+

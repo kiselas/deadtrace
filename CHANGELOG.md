@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/92` (ADR-0109): receiver alias cycles in `getattr` module-flow
+  checks terminate instead of raising `RecursionError`; other module assignments remain recognized.
+
 - Model revision `python-fastapi-dishka/91` (ADR-0108): collected test methods request fixtures
   named by `usefixtures` marks inherited from project base classes, including bases in other modules.
 
