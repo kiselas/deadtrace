@@ -186,3 +186,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0113](0113-bounded-derivation-projection.md) — JSON projects only the shown derivation prefix. Accepted; report runtime only.
 - [ADR-0114](0114-share-module-value-scan.md) — resolver projections share one immutable module-value scan. Accepted; frontend runtime only.
 - [ADR-0115](0115-compact-ast-attribute-storage.md) — AST attribute dictionaries share grammar keys. Accepted; storage only, with a measured time/memory tradeoff.
+- [ADR-0116](0116-statement-only-nested-import-walk.md) — nested module imports traverse statement containers in BFS order. Proposed; frontend runtime only.
