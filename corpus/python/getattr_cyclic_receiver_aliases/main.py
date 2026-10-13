@@ -11,7 +11,9 @@ def probe(value):
 
 
 def main():
-    probe(_hooks.Worker())
+    hook = probe(_hooks.Worker())
+    if hook:
+        hook()
 
 
 if __name__ == "__main__":
