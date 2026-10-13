@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- AST nodes share attribute-dictionary keys within each parse (ADR-0115), preserving
+  exact stdlib node types, all values and model 93.
+
 - Module-value projections share one project scan per resolver (ADR-0114), preserving
   direct-module and computed-prefix boundaries, model 93 and report bytes.
 
