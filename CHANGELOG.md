@@ -5,8 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
-- AST nodes share attribute-dictionary keys within each parse (ADR-0115), preserving
-  exact stdlib node types, all values and model 93.
+- AST nodes share grammar attribute-dictionary keys (ADR-0115), preserving exact stdlib
+  node types, all values and model 93. Paired development measurements used 19–20% less
+  peak memory on two large FastAPI applications at about 4–5% more scan time.
 
 - Module-value projections share one project scan per resolver (ADR-0114), preserving
   direct-module and computed-prefix boundaries, model 93 and report bytes.
