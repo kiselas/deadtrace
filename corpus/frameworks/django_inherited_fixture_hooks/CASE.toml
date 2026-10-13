@@ -1,0 +1,57 @@
+schema_version = 1
+case_id = "django-inherited-fixture-hooks"
+description = "Used Django database cases inherit framework fixture hooks from project mixins."
+
+[analysis]
+complete = true
+worlds = ["production:library", "production:scripts"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_InstanceHooks._fixture_setup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_InstanceHooks._fixture_teardown"
+expectation = "not_candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_ClassHooks._fixture_setup"
+expectation = "not_candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_ClassHooks._fixture_teardown"
+expectation = "not_candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_InstanceHooks._private_helper"
+expectation = "candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_DormantHooks._fixture_setup"
+expectation = "candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_ShadowedHooks._fixture_setup"
+expectation = "candidate"
+
+[[targets]]
+path = "hooks.py"
+kind = "function"
+qualified_name = "_PlainHooks._fixture_setup"
+expectation = "candidate"

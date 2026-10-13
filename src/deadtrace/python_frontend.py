@@ -115,6 +115,18 @@ ENUM_BASES = frozenset(
     {"enum.Enum", "enum.Flag", "enum.IntEnum", "enum.IntFlag", "enum.ReprEnum", "enum.StrEnum"}
 )
 ENUM_HOOKS = frozenset({"_generate_next_value_", "_missing_"})
+DJANGO_DATABASE_TEST_BASES = frozenset(
+    {
+        "django.test.TestCase",
+        "django.test.TransactionTestCase",
+        "django.test.LiveServerTestCase",
+        "django.test.testcases.TestCase",
+        "django.test.testcases.TransactionTestCase",
+        "django.test.testcases.LiveServerTestCase",
+        "django.contrib.staticfiles.testing.StaticLiveServerTestCase",
+    }
+)
+DJANGO_FIXTURE_HOOKS = ("_fixture_setup", "_fixture_teardown")
 PYTEST_REGISTRATIONS = frozenset({"pytest.fixture", "pytest_asyncio.fixture"})
 
 
@@ -4842,6 +4854,15 @@ def _unsupported_python_hook_boundaries(
             external_targets = {method.id for method in methods if method.name in ENUM_HOOKS}
         if not hooking:
             external_targets = set()
+        # Django's external database test base dispatches these inherited mixin hooks.
+        # Keep the first project definition, not shadowed or unrelated methods (ADR-0112).
+        if any(name in DJANGO_DATABASE_TEST_BASES for name in external):
+            external_targets.update(
+                method.id
+                for name in DJANGO_FIXTURE_HOOKS
+                if (method := resolver.lookup_member(class_symbol, name)) is not None
+                and is_function(method)
+            )
         # A metaclass or base outside the project reads nested classes as options: Django's and
         # Django REST framework's ``Meta``, Pydantic's ``Config`` (ADR-0017).
         external_targets.update(
