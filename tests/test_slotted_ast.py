@@ -109,3 +109,16 @@ def test_template_string_fields_follow_the_running_interpreter() -> None:
     expected = ast.dump(ordinary, include_attributes=True)
     assert ast.dump(packed, include_attributes=True) == expected
     assert ast.dump(pickle.loads(pickle.dumps(packed)), include_attributes=True) == expected
+
+
+def test_shared_children_and_extra_attributes_are_copied_without_mutating_input() -> None:
+    from deadtrace.ast_storage import compact_tree
+
+    child = ast.parse("value + 1", mode="eval").body
+    parent = ast.Tuple(elts=[child, child], ctx=ast.Load())
+    vars(parent)["annotation"] = child
+    packed = compact_tree(parent)
+    assert isinstance(packed, ast.Tuple)
+    assert packed.elts[0] is packed.elts[1] is vars(packed)["annotation"]
+    assert packed.elts[0] is not child
+    assert parent.elts[0] is parent.elts[1] is vars(parent)["annotation"] is child
