@@ -22,7 +22,10 @@ Continue parsing with the running interpreter's standard-library `ast` parser,
 then rebuild one file using subclasses of its concrete node classes with slots
 for the grammar fields and location attributes. Convert before publishing the
 immutable `ParsedSource`. A local worklist/map handles children without recursive
-conversion. Empty-field operators and contexts keep their original objects and
+conversion. Copy fields once from each native node while allocating its stored
+children, rather than walking every child and then revisiting the parent. The
+map preserves shared children and extra attributes without mutating the input.
+Empty-field operators and contexts keep their original objects and
 exact native types, including the frontend's `type(ctx) is ast.Load` check.
 
 The grammar-only class registry retains no input values. Subclasses keep native
