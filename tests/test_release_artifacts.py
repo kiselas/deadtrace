@@ -74,3 +74,31 @@ def test_rejects_invalid_publish_inputs(tmp_path: Path, project_root: Path, prob
     )
     assert result.returncode != 0
     assert not (dist / "release-receipt.json").exists()
+
+
+@pytest.mark.parametrize("archive_kind", ["wheel", "sdist"])
+@pytest.mark.parametrize("environment", [".venv", ".venv-3.14", "custom-env"])
+def test_rejects_environment_files_before_sealing(
+    tmp_path: Path, project_root: Path, archive_kind: str, environment: str
+) -> None:
+    dist = candidate(tmp_path)
+    entry = f"{environment}/" + ("pyvenv.cfg" if environment == "custom-env" else "lib/package.py")
+    if archive_kind == "wheel":
+        with zipfile.ZipFile(dist / f"deadtrace-{VERSION}-py3-none-any.whl", "a") as archive:
+            archive.writestr(entry, "home = /local/python\n")
+    else:
+        with tarfile.open(dist / f"deadtrace-{VERSION}.tar.gz", "r:gz") as archive:
+            metadata = archive.extractfile(f"deadtrace-{VERSION}/PKG-INFO")
+            assert metadata is not None
+            raw = metadata.read()
+        with tarfile.open(dist / f"deadtrace-{VERSION}.tar.gz", "w:gz") as archive:
+            for name, content in [
+                (f"deadtrace-{VERSION}/PKG-INFO", raw),
+                (f"deadtrace-{VERSION}/{entry}", b"home = /local/python\n"),
+            ]:
+                item = tarfile.TarInfo(name)
+                item.size = len(content)
+                archive.addfile(item, io.BytesIO(content))
+    failed = run(tmp_path, project_root / "scripts" / "release_artifacts.py", "seal")
+    assert failed.returncode != 0 and "virtual environment" in failed.stderr
+    assert not (dist / "release-receipt.json").exists()
