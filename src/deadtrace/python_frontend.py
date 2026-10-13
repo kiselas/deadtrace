@@ -11,7 +11,7 @@ import io
 import re
 import tokenize
 from bisect import bisect_left
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
@@ -5118,7 +5118,16 @@ def _nested_module_imports(
     for statement in module.tree.body:
         if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
-        for node in ast.walk(statement):
+        pending: deque[ast.AST] = deque([statement])
+        while pending:
+            node = pending.popleft()
+            # Imports are statements. Keep handler/case containers to preserve
+            # their original BFS depth and the order of conflicting bindings.
+            pending.extend(
+                child
+                for child in ast.iter_child_nodes(node)
+                if isinstance(child, (ast.stmt, ast.ExceptHandler, ast.match_case))
+            )
             if isinstance(node, ast.ImportFrom):
                 if node.level:
                     parts = package.split(".")
