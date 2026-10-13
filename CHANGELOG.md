@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/93` (ADR-0112): used Django database test cases
+  protect `_fixture_setup` and `_fixture_teardown` inherited from project mixins.
+
 - Source distributions exclude local `.venv*` directories. Release artifact validation rejects
   virtual-environment files before sealing or verifying a receipt (ADR-0111).
 

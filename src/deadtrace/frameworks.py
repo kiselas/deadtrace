@@ -376,6 +376,7 @@ def build_framework_model(
             FrameworkCapability("frameworks.application-roots", 1, "guarded"),
             FrameworkCapability("celery.autodiscover-tasks", 1, "guarded"),
             FrameworkCapability("django.installed-apps", 2, "modeled"),
+            FrameworkCapability("django.test-fixture-hooks", 1, "modeled"),
             FrameworkCapability("alembic.migrations", 1, "modeled"),
             FrameworkCapability("cli.commands", 1, "modeled"),
             # The capability set describes the method, so it holds whether or not tests exist.

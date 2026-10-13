@@ -302,7 +302,8 @@ ordinary `scan` never imports or executes target modules and does not use the ne
 ## Project documentation
 
 The canonical implementation plan is [ROADMAP.md](ROADMAP.md). Architecture decision records are
-in [docs/adr](docs/adr/README.md). The [analysis contract](docs/analysis-contract.md),
+in [docs/adr](docs/adr/README.md), including [inherited Django fixture hooks](docs/adr/0112-inherited-django-fixture-hooks.md).
+The [analysis contract](docs/analysis-contract.md),
 [architecture](docs/architecture.md), [support matrix](docs/support-matrix.md), and
 [release acceptance](docs/releasing.md) define this alpha's scope and verification. Repository policies are
 in [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
