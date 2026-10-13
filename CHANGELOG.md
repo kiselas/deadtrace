@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Module-value projections share one project scan per resolver (ADR-0114), preserving
+  direct-module and computed-prefix boundaries, model 93 and report bytes.
+
 - JSON reports convert only the first 2,000 sorted derivations to dictionaries (ADR-0113),
   preserving ordering, total counts and report bytes with model 93 unchanged.
 
