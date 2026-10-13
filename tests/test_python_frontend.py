@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
+import pytest
+
+from deadtrace import python_frontend
 from deadtrace.core import NodeId, ReachabilityKind, WorldId, WorldPlan, solve
 from deadtrace.python_frontend import PythonProgram, PythonSymbol, build_python_program
 from deadtrace.scanner import SourceCollection, SourceUnit
@@ -23,6 +27,49 @@ def _id(program: PythonProgram, target: str) -> NodeId:
     symbol = program.resolve_symbol(target)
     assert symbol is not None, target
     return symbol.id
+
+
+def test_receiver_alias_diamonds_do_not_repeat_name_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checks = 0
+    original = python_frontend._dotted_name
+
+    def counted(expression: ast.expr) -> str | None:
+        nonlocal checks
+        checks += 1
+        return original(expression)
+
+    monkeypatch.setattr(python_frontend, "_dotted_name", counted)
+    body = ["    v0 = value"]
+    for level in range(1, 13):
+        body.extend([f"    v{level} = v{level - 1}"] * 2)
+    body.extend(['    hook = getattr(v12, "prime", None)', "    if hook:", "        hook()"])
+    source = (
+        "from _hooks import Worker\n\ndef probe(value):\n"
+        + "\n".join(body)
+        + "\n\ndef entry():\n    probe(Worker())\n"
+    )
+    program = build_python_program(
+        _collection(
+            **{
+                "main.py": source,
+                "_hooks.py": (
+                    "class Worker:\n    def prime(self):\n        pass\n"
+                    "    def unused(self):\n        pass\n"
+                ),
+            }
+        )
+    )
+    world = WorldId("production", "probe")
+    result = solve(
+        program.graph,
+        (WorldPlan(world, (program.modules["main"].node_id, _id(program, "main:entry"))),),
+    ).world(world)
+    assert result.state_of(_id(program, "_hooks:Worker.prime")) is ReachabilityKind.CONSERVATIVE
+    assert result.state_of(_id(program, "_hooks:Worker.unused")) is None
+    # This input has 24 assignments, not thousands of independent alias paths to inspect.
+    assert checks < 2_000
 
 
 def test_symbol_index_answers_exactly_what_a_scan_of_the_symbol_table_returns() -> None:

@@ -180,3 +180,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0107](0107-getattr-known-name-value.md) — a getattr value with a known name dispatches by name. Accepted.
 - [ADR-0108](0108-inherited-usefixtures-marks.md) — collected tests inherit usefixtures marks from project bases. Accepted.
 - [ADR-0109](0109-cyclic-receiver-module-flow.md) — module-flow queries terminate on cyclic receiver aliases. Accepted.
+- [ADR-0110](0110-visit-module-query-expressions-once.md) — module-flow queries expand each expression once. Accepted; runtime only.
