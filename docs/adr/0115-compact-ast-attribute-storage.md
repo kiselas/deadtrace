@@ -1,6 +1,6 @@
 # ADR-0115: Share keys in AST attribute dictionaries
 
-**Status:** Proposed, 2026-10-13. Storage change; model revision remains 93.
+**Status:** Accepted, 2026-10-13. Storage change; model revision remains 93.
 
 ## Context
 
@@ -48,3 +48,22 @@ injection identities and outcomes must remain unchanged. Fresh-process paired
 measurements must include the additional traversal and dictionary copying, and
 measure both time and OS peak RSS. No overall speed or memory claim follows
 from the synthetic dictionary budget alone. Model revision stays 93.
+
+## Measured tradeoff
+
+Fresh-process comparisons on eight reviewed development inputs used CPython 3.12.4
+on Windows, the same locked runtime and files, alternating control/candidate order
+in two pairs per input. Control was `8770065`, candidate `8cd0a86`. All text and
+JSON outputs matched byte-for-byte in both separate series, as did the 358 corpus
+reports. The input and analyzer digests were checked between runs.
+
+For two large FastAPI applications (599 and 738 files), median local paired RSS
+ratios were 0.797 and 0.814: about 20.3% and 18.6% less peak memory. Their time
+ratios were 1.046 and 1.040. Pydantic 2.13.5 used about 14.9% less peak memory
+with a time ratio of 1.047. Across all eight text comparisons, time ratios ranged
+from 0.949 to 1.078. The smallest input used about 0.5 MiB more peak memory.
+
+Accept the lower retained memory on large inputs at this modest scan-time cost.
+This is a memory tradeoff, not a general speed improvement or evidence of resource
+superiority over another analyzer. Two pairs do not establish small timing effects
+as stable. Subsequent frontend work should remove the additional runtime cost.
