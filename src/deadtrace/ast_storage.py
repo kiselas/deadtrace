@@ -77,25 +77,27 @@ def compact_tree(tree: ast.AST) -> ast.AST:
     """
 
     converted: dict[int, ast.AST] = {}
-    pending = [(tree, False)]
-    while pending:
-        node, ready = pending.pop()
+    pending: list[tuple[ast.AST, ast.AST]] = []
+
+    def allocate(node: ast.AST) -> ast.AST:
         node_type = _SLOT_TYPES.get(type(node))
         if node_type is None:
-            converted[id(node)] = node
-            continue
-        if not ready:
-            pending.append((node, True))
-            pending.extend((child, False) for child in ast.iter_child_nodes(node))
-            continue
+            return node
+        found = converted.get(id(node))
+        if found is not None:
+            return found
         clone = ast.AST.__new__(node_type)
+        converted[id(node)] = clone
+        pending.append((node, clone))
+        return clone
+
+    result = allocate(tree)
+    while pending:
+        node, clone = pending.pop()
         for name, value in vars(node).items():
             if isinstance(value, ast.AST):
-                value = converted[id(value)]
+                value = allocate(value)
             elif isinstance(value, list):
-                value = [
-                    converted[id(item)] if isinstance(item, ast.AST) else item for item in value
-                ]
+                value = [allocate(item) if isinstance(item, ast.AST) else item for item in value]
             setattr(clone, name, value)
-        converted[id(node)] = clone
-    return converted[id(tree)]
+    return result
