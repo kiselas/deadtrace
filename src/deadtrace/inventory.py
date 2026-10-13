@@ -100,19 +100,30 @@ def _compact_ast_attributes(tree: ast.AST) -> None:
     """
 
     holders: dict[type[ast.AST], type] = {}
-    for node in ast.walk(tree):
-        attributes = vars(node)
+    pending = [tree]
+    while pending:
+        node = pending.pop()
+        attributes = node.__dict__
         if not attributes:
             continue
+        for field in node._fields:
+            value = attributes.get(field)
+            if isinstance(value, ast.AST):
+                pending.append(value)
+            elif isinstance(value, list):
+                pending.extend(item for item in value if isinstance(item, ast.AST))
         node_type = type(node)
         holder_type = holders.get(node_type)
         if holder_type is None:
             holder_type = type("_ASTAttributes", (), {})
             holders[node_type] = holder_type
         holder = holder_type()
-        for name, value in attributes.items():
-            setattr(holder, name, value)
-        node.__dict__ = vars(holder)
+        # An update into an empty dict can replace its shared keys with a full copy.
+        # Seed the first attribute, then let the bulk update retain the shared layout.
+        first = next(iter(attributes))
+        setattr(holder, first, attributes[first])
+        holder.__dict__.update(attributes)
+        node.__dict__ = holder.__dict__
 
 
 def child_statements(statement: ast.stmt) -> list[ast.stmt]:

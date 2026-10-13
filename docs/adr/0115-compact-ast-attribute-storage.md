@@ -22,6 +22,9 @@ replace nonempty node dictionaries with dictionaries populated on temporary
 ordinary instances. One holder class per AST node type is local to that parse.
 CPython can share keys among instances of the same holder class. The dictionary
 remains a normal, independently mutable dictionary after the holder is released.
+Seed the first attribute before the bulk dictionary update: updating an empty
+holder dictionary alone can replace the shared layout with an ordinary full copy.
+Walk child fields with a local worklist; no recursive conversion is needed.
 
 Keep the original AST node identities, exact types, attribute insertion order,
 and every attribute value, including location integers, child nodes and lists.
