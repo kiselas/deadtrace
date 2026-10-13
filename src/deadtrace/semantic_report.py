@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Iterable
+from heapq import nsmallest
 from typing import Any
 
 from deadtrace import __version__
@@ -20,20 +21,18 @@ def semantic_report_dict(result: AnalysisResult, *, world_members: bool = False)
 
     node_map = result.model.graph.node_map()
     shared_keys = _common_limitation_keys(result)
-    derivations = sorted(
-        (
-            _derivation_dict(derivation, node_map)
-            for world in result.snapshot.worlds
-            for derivation in world.derivations
-        ),
+    derivation_count = sum(len(world.derivations) for world in result.snapshot.worlds)
+    selected_derivations = nsmallest(
+        _EXPLANATION_LIMIT,
+        (derivation for world in result.snapshot.worlds for derivation in world.derivations),
         key=lambda item: (
-            item["world"],
-            item["target"],
-            item["reachability"],
-            item["kind"],
+            item.world.key,
+            node_map[item.target].display_name,
+            item.reachability.value,
+            item.kind.value,
         ),
     )
-    shown_derivations = derivations[:_EXPLANATION_LIMIT]
+    shown_derivations = [_derivation_dict(item, node_map) for item in selected_derivations]
     explainer = _FindingExplainer(result)
     finding_explanations = {
         finding.fingerprint: explainer.explain(finding) for finding in result.findings
@@ -80,8 +79,8 @@ def semantic_report_dict(result: AnalysisResult, *, world_members: bool = False)
         "blocked_findings": [finding.to_dict() for finding in result.blocked_findings],
         "explanations": {
             "derivations": shown_derivations,
-            "total": len(derivations),
-            "truncated": len(shown_derivations) < len(derivations),
+            "total": derivation_count,
+            "truncated": len(shown_derivations) < derivation_count,
             "findings": finding_explanations,
         },
         "metrics": {

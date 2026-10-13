@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- JSON reports convert only the first 2,000 sorted derivations to dictionaries (ADR-0113),
+  preserving ordering, total counts and report bytes with model 93 unchanged.
+
 - Model revision `python-fastapi-dishka/93` (ADR-0112): used Django database test cases
   protect `_fixture_setup` and `_fixture_teardown` inherited from project mixins.
 
