@@ -1,6 +1,6 @@
 # ADR-0112: Django database cases inherit fixture hooks from project mixins
 
-**Status:** Accepted, 2026-10-13; model revision 93. Field evaluation pending.
+**Status:** Accepted, 2026-10-13; model revision 93. Paired development evaluation complete.
 
 ## Context
 
@@ -38,3 +38,9 @@ Add capability `django.test-fixture-hooks` revision 1. Model revision becomes
 `python-fastapi-dishka/93`; no new blocked reason, runtime dependency or report schema is added.
 Compare reviewed development findings and identical seed-7 injection sets before accepting
 the measured effect. No new blind accuracy claim follows from these development comparisons.
+
+On the same 531 reviewed development targets, model 93 removes two confirmed false findings,
+with no new findings or true losses. Seed-7 development and holdout injection identities and
+reported flags are unchanged. Two other false callbacks in alternative conditional definitions
+remain reported because lookup currently selects one project class binding. This is a partial
+fix of that source pattern. See [the field methodology](../field/2026-10-cohort.md).
