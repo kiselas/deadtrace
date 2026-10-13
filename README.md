@@ -304,7 +304,8 @@ ordinary `scan` never imports or executes target modules and does not use the ne
 The canonical implementation plan is [ROADMAP.md](ROADMAP.md). Architecture decision records are
 in [docs/adr](docs/adr/README.md), including [inherited Django fixture hooks](docs/adr/0112-inherited-django-fixture-hooks.md)
 [AST attribute storage](docs/adr/0115-compact-ast-attribute-storage.md),
-and [nested import traversal](docs/adr/0116-statement-only-nested-import-walk.md).
+[nested import traversal](docs/adr/0116-statement-only-nested-import-walk.md),
+and [slotted AST storage](docs/adr/0117-slotted-ast-storage.md).
 The [analysis contract](docs/analysis-contract.md),
 [architecture](docs/architecture.md), [support matrix](docs/support-matrix.md), and
 [release acceptance](docs/releasing.md) define this alpha's scope and verification. Repository policies are

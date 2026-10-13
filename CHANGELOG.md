@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Parsed AST fields use slots while preserving grammar, values and canonical visitor
+  dispatch (ADR-0117); model 93 is unchanged.
+
 - Nested module-import discovery visits statement containers while preserving breadth-first
   alias precedence (ADR-0116), with model 93 unchanged.
 
