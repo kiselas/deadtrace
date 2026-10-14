@@ -5,6 +5,11 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/94` (ADR-0119): local Cookiecutter extensions
+  explicitly named in `cookiecutter.json` are roots, including simple-filter
+  functions and static package reexports. Unlisted neighboring definitions remain
+  reportable; target extensions are never imported or executed.
+
 - Resolver syntax projections share one traversal for star imports, nominal
   rebindings and function scope constructs (ADR-0118), with model 93, report bytes
   and exact seed-7 injection outcomes unchanged. Paired measurements show a local

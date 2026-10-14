@@ -19,7 +19,7 @@ import pytest
 from deadtrace.case_validator import unmet_targets
 
 KNOWN_VIOLATIONS: dict[str, tuple[str, ...]] = {}
-"""Empty: inherited Django fixture hook case moved to corpus after the model-93 fix."""
+"""Empty: Cookiecutter extension case moved to corpus after the model-94 fix."""
 
 
 def _cases_root(project_root: Path) -> Path:
