@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050">
+<rect width="1600" height="1050" fill="#F7F9FC"/>
+<text x="75" y="60" font-family="Arial, sans-serif" font-size="49" font-weight="700" fill="#18273E" dominant-baseline="hanging">Tests reach it. Does production?</text>
+<text x="77" y="130" font-family="Arial, sans-serif" font-size="29" font-weight="400" fill="#617187" dominant-baseline="hanging">Separate entry points. Separate reachability.</text>
+<rect x="60" y="205" width="1480" height="220" rx="26" fill="#EAF0FD" stroke="#CEDAF3" stroke-width="2"/>
+<text x="92" y="229" font-family="Consolas, monospace" font-size="27" font-weight="700" fill="#315EC3" dominant-baseline="hanging">production:web</text>
+<rect x="100" y="282" width="370" height="110" rx="20" fill="#FFFFFF" stroke="#315EC3" stroke-width="2"/>
+<text x="122" y="311" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#315EC3" dominant-baseline="hanging">Application</text>
+<text x="122" y="362" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">FastAPI app</text>
+<rect x="1050" y="282" width="440" height="110" rx="20" fill="#FFFFFF" stroke="#315EC3" stroke-width="2"/>
+<text x="1072" y="311" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#315EC3" dominant-baseline="hanging">GET / handler</text>
+<text x="1072" y="362" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">endpoint()</text>
+<path d="M470,337 L1050,337" fill="none" stroke="#315EC3" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1050,337 1035,329 1035,345" fill="#315EC3"/>
+<text x="645" y="292" font-family="Arial, sans-serif" font-size="26" font-weight="400" fill="#315EC3" dominant-baseline="hanging">HTTP request</text>
+<rect x="60" y="465" width="1480" height="300" rx="26" fill="#F0EBFA" stroke="#DED3F2" stroke-width="2"/>
+<text x="92" y="490" font-family="Consolas, monospace" font-size="27" font-weight="700" fill="#7351B7" dominant-baseline="hanging">tests:pytest</text>
+<text x="1038" y="490" font-family="Arial, sans-serif" font-size="28" font-weight="700" fill="#7351B7" dominant-baseline="hanging">Tests only · RCH004</text>
+<rect x="100" y="560" width="360" height="120" rx="20" fill="#FFFFFF" stroke="#7351B7" stroke-width="2"/>
+<text x="122" y="589" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#7351B7" dominant-baseline="hanging">Test</text>
+<text x="122" y="640" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">test_endpoint()</text>
+<rect x="600" y="560" width="300" height="120" rx="20" fill="#FFFFFF" stroke="#7351B7" stroke-width="2"/>
+<text x="622" y="589" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#7351B7" dominant-baseline="hanging">Fixture</text>
+<text x="622" y="640" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">value()</text>
+<rect x="1040" y="560" width="450" height="120" rx="20" fill="#FFFFFF" stroke="#7351B7" stroke-width="2"/>
+<text x="1062" y="589" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#7351B7" dominant-baseline="hanging">Application function</text>
+<text x="1062" y="640" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">test_only_helper()</text>
+<path d="M460,620 L600,620" fill="none" stroke="#7351B7" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="600,620 585,612 585,628" fill="#7351B7"/>
+<path d="M900,620 L1040,620" fill="none" stroke="#7351B7" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1040,620 1025,612 1025,628" fill="#7351B7"/>
+<text x="100" y="716" font-family="Arial, sans-serif" font-size="28" font-weight="400" fill="#7351B7" dominant-baseline="hanging">The test requests value; the fixture calls test_only_helper.</text>
+<rect x="100" y="817" width="470" height="120" rx="20" fill="#FFFFFF" stroke="#A15C12" stroke-width="2"/>
+<text x="122" y="846" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#A15C12" dominant-baseline="hanging">Separate function</text>
+<text x="122" y="897" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">unused()</text>
+<text x="650" y="832" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#18273E" dominant-baseline="hanging">Neither production nor tests</text>
+<text x="650" y="887" font-family="Arial, sans-serif" font-size="28" font-weight="400" fill="#A15C12" dominant-baseline="hanging">RCH001 · no path found</text>
+<text x="78" y="997" font-family="Arial, sans-serif" font-size="24" font-weight="400" fill="#617187" dominant-baseline="hanging">Based on corpus/frameworks/pytest_separation. Findings are for review.</text>
+</svg>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="536" viewBox="0 0 1800 536">
+<rect width="1800" height="536" fill="#101A2B"/>
+<text x="55" y="35" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#A5B4CC" dominant-baseline="hanging">DEADTRACE · ACTUAL SCAN OUTPUT (EXCERPT)</text>
+<text x="55" y="95" font-family="Consolas, monospace" font-size="27" font-weight="400" fill="#70DDD0" dominant-baseline="hanging">$ deadtrace scan corpus/reference/fastapi_dishka_basic</text>
+<text x="55" y="170" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#F3C182" dominant-baseline="hanging">RCH003 rch003-e7d741dd16b73dae  Registered binding is not requested: app.domain.LegacyService</text>
+<text x="55" y="213" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#E9EFF8" dominant-baseline="hanging">  The provider is registered, but no demand reaches this binding.</text>
+<text x="55" y="256" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#E9EFF8" dominant-baseline="hanging">  app/domain.py:25  LegacyService</text>
+<text x="55" y="299" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#E9EFF8" dominant-baseline="hanging">  app/domain.py:26  LegacyService.run</text>
+<text x="55" y="342" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#E9EFF8" dominant-baseline="hanging">  app/providers.py:18  AppProvider.legacy</text>
+<text x="55" y="385" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#E9EFF8" dominant-baseline="hanging"></text>
+<text x="55" y="428" font-family="Consolas, monospace" font-size="26" font-weight="400" fill="#94A3BB" dominant-baseline="hanging">A review finding is not a claim that deletion is safe.</text>
+</svg>

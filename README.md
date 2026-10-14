@@ -1,13 +1,114 @@
-# Deadtrace
+<h1 align="center">Deadtrace</h1>
 
-Deadtrace is an open-source, explainable dead-code analyzer for Python applications. It models
-framework registrations, dependency injection, callbacks, lifecycle hooks, and test consumers
-instead of treating “no textual references” as proof that code can be deleted.
+<p align="center">
+  <strong>Find the code your Python application no longer reaches.</strong><br>
+  Follow framework registrations, dependency injection and tests back to the application.
+</p>
 
-> **Public alpha:** scans are static and read-only. Findings are review units, never claims that
-> deletion is safe. APIs and artifact schemas may change during the alpha series.
+<p align="center">
+  <a href="https://github.com/kiselas/deadtrace/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/kiselas/deadtrace/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://pypi.org/project/deadtrace/"><img alt="PyPI" src="https://img.shields.io/pypi/v/deadtrace?color=087E66&amp;logo=pypi&amp;logoColor=white"></a>
+  <img alt="Python 3.12–3.14" src="https://img.shields.io/badge/Python-3.12%E2%80%933.14-3776AB?logo=python&amp;logoColor=white">
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache--2.0-7351B7"></a>
+  <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-D39135">
+</p>
 
-## What works now
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#see-what-a-finding-means">See a finding</a> ·
+  <a href="#for-developers-and-ai-coding-agents">AI workflow</a> ·
+  <a href="#github-action-and-pre-commit">CI</a> ·
+  <a href="docs/support-matrix.md">Support matrix</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/deadtrace-cover.png" width="960" alt="Deadtrace: a live application path and a disconnected legacy branch">
+</p>
+
+An endpoint may have no ordinary callers and still serve requests. A DI provider may be
+registered and never requested. Tests may keep calling an implementation that production
+has stopped using.
+
+Deadtrace models those relationships and turns them into explained review findings.
+It reads source and configuration without importing or running the application.
+
+## Quick start
+
+With [uv](https://docs.astral.sh/uv/) and CPython 3.12–3.14:
+
+```console
+uv tool install --python 3.12 "deadtrace==0.1.0a6"
+deadtrace scan .
+```
+
+> [!TIP]
+> Start with `deadtrace doctor .` to see the discovered applications and analysis limits.
+> The scanner does not need to install or import your application's framework dependencies.
+
+## See what a finding means
+
+The [reference FastAPI + Dishka application](corpus/reference/fastapi_dishka_basic) has a live
+endpoint → service → repository path. It also registers a legacy provider that no consumer
+requests. Both branches call `normalize`, so that shared function must remain reachable.
+
+<p align="center">
+  <img src="docs/assets/01-di-chain.png" width="900" alt="The endpoint reaches Service and Repository. The unrequested legacy provider is separate. Both branches reference the live normalize function.">
+</p>
+
+Scan that example from a repository checkout:
+
+```console
+deadtrace scan corpus/reference/fastapi_dishka_basic
+```
+
+<p align="center">
+  <img src="docs/assets/scan-reference.png" width="960" alt="Actual RCH003 scan output: LegacyService, LegacyService.run and AppProvider.legacy are grouped in one finding.">
+</p>
+
+Deadtrace groups the legacy provider, class and method into one `RCH003` finding.
+The shared `normalize` function is outside that group.
+[Copy the text output](docs/assets/scan-reference.txt).
+
+## Tests can keep old code looking live
+
+A production helper may be called only by a pytest fixture. Deadtrace keeps application
+and test worlds separate: that is `RCH004`, while code reached by neither world is `RCH001`.
+
+<p align="center">
+  <img src="docs/assets/02-worlds.png" width="900" alt="Separate production and pytest paths: endpoint runs in production; test_only_helper is reached through a fixture; unused is reached by neither.">
+</p>
+
+The diagram follows the [pytest separation example](corpus/frameworks/pytest_separation).
+It explains a review question: is this old code, an unconnected application path, or a root
+the analysis has not been told about?
+
+## For developers and AI coding agents
+
+An agent can use the same saved artifacts that a developer reviews:
+
+1. **Scan:** save a JSON report with the affected code, execution worlds and limitations.
+2. **Investigate:** use `deadtrace explain` on that report and inspect the listed source.
+3. **Change:** prepare a focused patch after checking external consumers and shared code.
+4. **Check:** run tests, scan again and compare the reports.
+
+Reports retain the analysis context. Baselines record reviewed findings, and comparisons
+distinguish source changes from incompatible model or configuration changes.
+The [saved-report workflow](#baseline-and-report-comparison) also works in CI.
+
+> [!IMPORTANT]
+> Public alpha: findings are candidates for review, not automatic deletion instructions.
+> Unknown behavior can protect code and reduce the number of findings. APIs and artifact
+> schemas may change during the alpha series.
+
+## Framework and Python coverage
+
+The strongest dedicated models cover FastAPI, Dishka and pytest. Python references,
+entry points, deployment files and conservative framework hooks supply the surrounding
+application context. See the [support matrix](docs/support-matrix.md) for the modeled subset.
+
+<details>
+<summary><strong>Expand the full capability list and guarded behavior</strong></summary>
 
 - world-local reachability with separate resolved and conservative execution;
 - Python references, closures, inheritance and `super()`, method overrides, decorators, and
@@ -53,7 +154,12 @@ Source discovery skips virtual environments, `site-packages`, `node_modules`, an
 directories, and names what it skipped. When a scan reports little because unknown
 boundaries protect most code, the report names the widest ones and where they are.
 
+</details>
+
 ## Install
+
+<details>
+<summary><strong>pip, development setup and installed-wheel checks</strong></summary>
 
 Deadtrace runs on CPython 3.12, 3.13, and 3.14. It never imports the project it scans, so the
 interpreter that runs it only needs to be new enough to parse that project's syntax (a file with newer
@@ -98,6 +204,8 @@ uv run --isolated --no-project --python 3.12 \
 
 The smoke script uses a temporary directory, rejects a source-tree package import, and checks
 inventory, analysis, determinism, explanations, baselines, comparisons, and no target execution.
+
+</details>
 
 ## Quickstart: FastAPI + Dishka
 
@@ -319,3 +427,18 @@ proposal; it does not change the active milestone or authorize future target exe
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+## Feedback
+
+Try Deadtrace on your application and [open an issue](https://github.com/kiselas/deadtrace/issues)
+with a small reproducer and the relevant output. Useful findings, false positives and missing
+framework patterns all help guide the next improvements.
+
+Follow the project and my other developer tools [on Telegram](https://t.me/kisel_it).
+
+## More projects
+
+Other projects I am building around coding agents:
+
+- [ComputeForGood](https://compute-for-good.tech) — contribute spare coding-agent capacity to useful open-source work. [Source](https://github.com/kiselas/compute_for_good).
+- [Testence](https://github.com/kiselas/testence) — browser testing for AI agents with deterministic replay and evidence-backed results.

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1030" viewBox="0 0 1600 1030">
+<rect width="1600" height="1030" fill="#F7F9FC"/>
+<text x="75" y="60" font-family="Arial, sans-serif" font-size="50" font-weight="700" fill="#18273E" dominant-baseline="hanging">Registered. Still not requested.</text>
+<text x="77" y="130" font-family="Arial, sans-serif" font-size="29" font-weight="400" fill="#617187" dominant-baseline="hanging">FastAPI + Dishka: a live path and an unrequested provider</text>
+<text x="78" y="199" font-family="Arial, sans-serif" font-size="23" font-weight="700" fill="#087E66" dominant-baseline="hanging">LIVE APPLICATION PATH</text>
+<rect x="80" y="245" width="220" height="140" rx="20" fill="#FFFFFF" stroke="#087E66" stroke-width="2"/>
+<text x="102" y="274" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#087E66" dominant-baseline="hanging">FastAPI</text>
+<text x="102" y="325" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">app</text>
+<rect x="370" y="245" width="220" height="140" rx="20" fill="#FFFFFF" stroke="#087E66" stroke-width="2"/>
+<text x="392" y="274" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#087E66" dominant-baseline="hanging">Router</text>
+<text x="392" y="325" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">router</text>
+<rect x="660" y="245" width="220" height="140" rx="20" fill="#FFFFFF" stroke="#087E66" stroke-width="2"/>
+<text x="682" y="274" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#087E66" dominant-baseline="hanging">GET /dish</text>
+<text x="682" y="325" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">get_dish()</text>
+<rect x="950" y="245" width="220" height="140" rx="20" fill="#FFFFFF" stroke="#087E66" stroke-width="2"/>
+<text x="972" y="274" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#087E66" dominant-baseline="hanging">Service</text>
+<text x="972" y="325" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">get()</text>
+<rect x="1240" y="245" width="220" height="140" rx="20" fill="#FFFFFF" stroke="#087E66" stroke-width="2"/>
+<text x="1262" y="274" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#087E66" dominant-baseline="hanging">Repository</text>
+<text x="1262" y="325" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">load()</text>
+<path d="M300,315 L370,315" fill="none" stroke="#087E66" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="370,315 355,307 355,323" fill="#087E66"/>
+<path d="M590,315 L660,315" fill="none" stroke="#087E66" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="660,315 645,307 645,323" fill="#087E66"/>
+<path d="M880,315 L950,315" fill="none" stroke="#087E66" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="950,315 935,307 935,323" fill="#087E66"/>
+<path d="M1170,315 L1240,315" fill="none" stroke="#087E66" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1240,315 1225,307 1225,323" fill="#087E66"/>
+<path d="M1060,385 L1060,440 L1380,440 L1380,755" fill="none" stroke="#087E66" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1380,755 1372,740 1388,740" fill="#087E66"/>
+<text x="1120" y="467" font-family="Arial, sans-serif" font-size="25" font-weight="400" fill="#087E66" dominant-baseline="hanging">live call</text>
+<rect x="70" y="510" width="930" height="215" rx="24" fill="#FFF2DF" stroke="#E7C79C" stroke-width="2"/>
+<rect x="100" y="535" width="410" height="125" rx="20" fill="#FFFFFF" stroke="#A15C12" stroke-width="2"/>
+<text x="122" y="564" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#A15C12" dominant-baseline="hanging">Provider</text>
+<text x="122" y="615" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">AppProvider.legacy</text>
+<rect x="620" y="535" width="350" height="125" rx="20" fill="#FFFFFF" stroke="#A15C12" stroke-width="2"/>
+<text x="642" y="564" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#A15C12" dominant-baseline="hanging">LegacyService</text>
+<text x="642" y="615" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">run()</text>
+<path d="M510,597 L620,597" fill="none" stroke="#A15C12" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="620,597 605,589 605,605" fill="#A15C12"/>
+<text x="103" y="684" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#A15C12" dominant-baseline="hanging">RCH003 · registered, no consumer found</text>
+<path d="M970,597 L1040,597 L1040,825 L1110,825" fill="none" stroke="#8190A3" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1110,825 1095,817 1095,833" fill="#8190A3"/>
+<text x="710" y="764" font-family="Arial, sans-serif" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">legacy call</text>
+<rect x="1110" y="755" width="360" height="140" rx="20" fill="#FFFFFF" stroke="#087E66" stroke-width="2"/>
+<text x="1132" y="784" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#087E66" dominant-baseline="hanging">normalize</text>
+<text x="1132" y="835" font-family="Consolas, monospace" font-size="25" font-weight="400" fill="#617187" dominant-baseline="hanging">shared function</text>
+<text x="78" y="905" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#087E66" dominant-baseline="hanging">normalize stays reachable from the live Service.</text>
+<text x="78" y="975" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#617187" dominant-baseline="hanging">Based on corpus/reference/fastapi_dishka_basic.</text>
+</svg>

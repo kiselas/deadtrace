@@ -1,0 +1,7 @@
+RCH003 rch003-e7d741dd16b73dae  Registered binding is not requested: app.domain.LegacyService
+  The provider is registered, but no demand reaches this binding.
+  app/domain.py:25  LegacyService
+  app/domain.py:26  LegacyService.run
+  app/providers.py:18  AppProvider.legacy
+
+A review finding is not a claim that deletion is safe.
