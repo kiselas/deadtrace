@@ -6,7 +6,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 ## Unreleased
 
 - Resolver syntax projections share one traversal for star imports, nominal
-  rebindings and function scope constructs (ADR-0118), with model 93 unchanged.
+  rebindings and function scope constructs (ADR-0118), with model 93, report bytes
+  and exact seed-7 injection outcomes unchanged. Paired measurements show a local
+  runtime benefit on some FastAPI inputs; timing varies across the full set.
 
 - Nested module-import discovery visits statement containers while preserving breadth-first
   alias precedence (ADR-0116), with model 93 unchanged.

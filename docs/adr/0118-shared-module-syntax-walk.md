@@ -1,6 +1,6 @@
 # ADR-0118: Collect resolver syntax projections in one module walk
 
-**Status:** Proposed, 2026-10-14. Frontend runtime only; model revision remains 93.
+**Status:** Accepted, 2026-10-14. Frontend runtime only; model revision remains 93.
 
 ## Context
 
@@ -11,7 +11,7 @@ or comprehension. An owned function containing 500 calls makes the same expressi
 payload participate in three traversals, even though these facts are independent
 projections of the same immutable syntax tree.
 
-## Decision under evaluation
+## Decision
 
 Collect all three projections in one explicit worklist traversal during resolver
 initialization. Retain only the existing immutable name/id sets and star-import
@@ -43,3 +43,28 @@ as must reviewed modern-stack text/JSON reports and seed-7 injection identities
 and outcomes. Run all local quality/build/wheel gates and supported-platform CI.
 Acceptance requires fresh-process alternating paired measurements including both
 time and OS peak RSS. Fewer traversals alone does not prove a speed improvement.
+
+## Evaluation and acceptance
+
+Control `41fecef` and candidate `339532a` used CPython 3.12.4 on Windows with the
+same locked runtime, files and configuration. Eight reviewed modern-stack inputs
+were measured in separate text and JSON series, two alternating fresh-process
+pairs each. All 64 report outputs matched byte-for-byte; the fixed 358 corpus
+reports also matched. Exact seed-7 injection identities and reported flags stayed
+at 534/721 development and 964/1565 holdout. Local quality/build/wheel gates and
+all supported-platform CI checks passed on the source candidate.
+
+One large FastAPI application had median local time ratios 0.909 in text and
+0.935 in JSON, with essentially unchanged peak RSS. Across eight inputs, text
+ratios ranged from 0.909 to 1.288 and JSON from 0.878 to 1.019. Preserve the text
+slowdowns of 5.0% on the second large application and 28.8% on a FastAPI template.
+A separate four-pair text repeat gave ratios 0.986 and 0.964 for those inputs;
+all 16 repeat reports matched. Large variation within the unchanged control
+prevents treating small timing differences as stable effects. Across both full
+series, median paired RSS ratios ranged from 0.989 to 1.005.
+
+Accept removal of redundant traversals with unchanged reports, injection outcomes
+and memory use. The first large-input result and template repeat support a local
+runtime benefit; these mixed samples do not establish a general speed gain or
+resource superiority over another analyzer. No causal explanation is assigned to
+the anomalous timings, and none of the original measurements is discarded.
