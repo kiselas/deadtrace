@@ -12,11 +12,12 @@ import re
 import tokenize
 from bisect import bisect_left
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from functools import lru_cache
-from typing import Any, NamedTuple
+from types import MappingProxyType
+from typing import NamedTuple
 
 from deadtrace.ast_storage import native_type
 from deadtrace.core import (
@@ -52,6 +53,27 @@ type FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
 
 _INSIGNIFICANT_TOKENS = frozenset(
     {tokenize.NL, tokenize.NEWLINE, tokenize.ENDMARKER, tokenize.COMMENT, tokenize.INDENT}
+)
+
+_NODE_HANDLER_NAMES: Mapping[type[ast.AST], str] = MappingProxyType(
+    {
+        ast.Call: "_visit_call",
+        ast.Name: "_visit_name_or_attribute",
+        ast.Attribute: "_visit_name_or_attribute",
+        ast.Subscript: "_visit_subscript",
+        ast.Assign: "_visit_assign",
+        ast.AnnAssign: "_visit_ann_assign",
+        ast.FunctionDef: "visit_definition_header",
+        ast.AsyncFunctionDef: "visit_definition_header",
+        ast.ClassDef: "visit_definition_header",
+        ast.Constant: "_visit_constant",
+        ast.Import: "_visit_import",
+        ast.ImportFrom: "_visit_import",
+        ast.If: "_visit_if",
+        ast.With: "_visit_with",
+        ast.AsyncWith: "_visit_with",
+        ast.NamedExpr: "_visit_named_expression",
+    }
 )
 
 TRANSPARENT_DECORATORS = frozenset(
@@ -570,15 +592,20 @@ class _ModuleSyntaxFacts:
     has_star_import: bool
     nominal_rebindings: frozenset[str]
     scope_constructs: frozenset[int]
+    computed_import_prefixes: frozenset[str]
+    imports_computed_modules: bool
 
 
-def _module_syntax_facts(tree: ast.Module) -> _ModuleSyntaxFacts:
+def _module_syntax_facts(module: PythonModule) -> _ModuleSyntaxFacts:
     """Independent lexical projections from one walk of an immutable module tree."""
 
     has_star_import = False
+    has_computed_import = False
     rebound: set[str] = set()
     marked: set[int] = set()
-    stack: list[tuple[ast.AST, tuple[int, ...]]] = [(tree, ())]
+    prefixes: set[str] = set()
+    want_prefixes = "import" in module.unit.source or "modules" in module.unit.source
+    stack: list[tuple[ast.AST, tuple[int, ...]]] = [(module.tree, ())]
     while stack:
         node, enclosing = stack.pop()
         if isinstance(node, (ast.Name, ast.Attribute)):
@@ -590,8 +617,46 @@ def _module_syntax_facts(tree: ast.Module) -> _ModuleSyntaxFacts:
             marked.update(enclosing)
         elif isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
             has_star_import = True
-        stack.extend((child, enclosing) for child in ast.iter_child_nodes(node))
-    return _ModuleSyntaxFacts(has_star_import, frozenset(rebound), frozenset(marked))
+        elif isinstance(node, ast.Call):
+            function = node.func
+            eligible = (
+                isinstance(function, ast.Name) and function.id in {"import_module", "__import__"}
+            ) or (
+                isinstance(function, ast.Attribute)
+                and (
+                    (
+                        function.attr == "import_module"
+                        and _dotted_name(function) == "importlib.import_module"
+                    )
+                    or (function.attr == "get" and _is_module_table(function.value))
+                )
+            )
+            if eligible:
+                first = node.args[0] if node.args else None
+                if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+                    has_computed_import = True
+                    if want_prefixes:
+                        prefix = _constant_affixes(first)[0]
+                        prefixes.add("" if prefix.startswith(".") else prefix)
+        elif isinstance(node, ast.Subscript) and _is_module_table(node.value):
+            key = node.slice
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                has_computed_import = True
+                if want_prefixes:
+                    prefixes.add(
+                        module.name
+                        if isinstance(key, ast.Name) and key.id == "__name__"
+                        else _constant_affixes(key)[0]
+                    )
+        # Contexts/operators and other empty-field leaves cannot contain a fact.
+        stack.extend((child, enclosing) for child in ast.iter_child_nodes(node) if child._fields)
+    return _ModuleSyntaxFacts(
+        has_star_import,
+        frozenset(rebound),
+        frozenset(marked),
+        frozenset(prefixes),
+        has_computed_import,
+    )
 
 
 class _Resolver:
@@ -629,7 +694,6 @@ class _Resolver:
         self._member_universe: (
             tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]] | None
         ) = None
-        self._computed_imports: bool | None = None
         self._public_member_universe: (
             tuple[tuple[NodeId, ...], tuple[tuple[NodeId, NodeId], ...]] | None
         ) = None
@@ -639,7 +703,11 @@ class _Resolver:
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
         self._roots: ImportRoots | None = None
-        syntax = {name: _module_syntax_facts(module.tree) for name, module in modules.items()}
+        syntax = {name: _module_syntax_facts(module) for name, module in modules.items()}
+        self._computed_imports = any(facts.imports_computed_modules for facts in syntax.values())
+        self._computed_prefixes = frozenset(
+            prefix for facts in syntax.values() for prefix in facts.computed_import_prefixes
+        )
         self._scope_constructs = {name: facts.scope_constructs for name, facts in syntax.items()}
         self._modules_with_star_imports = frozenset(
             name for name, facts in syntax.items() if facts.has_star_import
@@ -904,13 +972,10 @@ class _Resolver:
             held = set(self._modules_held_as_values())
             # A module imported by a computed name may be returned and called anywhere: the
             # modules the name may reach are held as values too (ADR-0096).
-            prefixes = {
-                prefix
-                for module in self.modules.values()
-                for prefix in _computed_import_prefixes(module)
-            }
             held.update(
-                name for name in self.modules if any(name.startswith(prefix) for prefix in prefixes)
+                name
+                for name in self.modules
+                if any(name.startswith(prefix) for prefix in self._computed_prefixes)
             )
             for module_name in sorted(held):
                 for symbol in self.modules[module_name].symbols:
@@ -1013,10 +1078,6 @@ class _Resolver:
         no string constant may yield any project module, which code may then hold as a value.
         """
 
-        if self._computed_imports is None:
-            self._computed_imports = any(
-                _imports_computed_module(module) for module in self.modules.values()
-            )
         return self._computed_imports
 
     def dispatchable_names(self) -> frozenset[str]:
@@ -1857,29 +1918,11 @@ class _ExecutionVisitor:
             self._handled.add(id(node))
 
     def _visit_nodes(self, nodes: Iterable[ast.AST]) -> None:
-        handlers: dict[type[ast.AST], Callable[[Any], None]] = {
-            ast.Call: self._visit_call,
-            ast.Name: self._visit_name_or_attribute,
-            ast.Attribute: self._visit_name_or_attribute,
-            ast.Subscript: self._visit_subscript,
-            ast.Assign: self._visit_assign,
-            ast.AnnAssign: self._visit_ann_assign,
-            ast.FunctionDef: self.visit_definition_header,
-            ast.AsyncFunctionDef: self.visit_definition_header,
-            ast.ClassDef: self.visit_definition_header,
-            ast.Constant: self._visit_constant,
-            ast.Import: self._visit_import,
-            ast.ImportFrom: self._visit_import,
-            ast.If: self._visit_if,
-            ast.With: self._visit_with,
-            ast.AsyncWith: self._visit_with,
-            ast.NamedExpr: self._visit_named_expression,
-        }
         handled = self._handled
         for node in nodes:
-            handler = handlers.get(native_type(node))
-            if handler is not None and id(node) not in handled:
-                handler(node)
+            handler_name = _NODE_HANDLER_NAMES.get(native_type(node))
+            if handler_name is not None and id(node) not in handled:
+                getattr(self, handler_name)(node)
 
     def _visit_subscript(self, node: ast.Subscript) -> None:
         if self._is_globals_call(node.value):
@@ -5167,60 +5210,6 @@ def _expects_raise(expression: ast.expr) -> bool:
     function = expression.func
     name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
     return name in RAISE_EXPECTATIONS
-
-
-def _computed_import_prefixes(module: PythonModule) -> set[str]:
-    """Constant starts of the module names the module imports by computed names (ADR-0096).
-
-    ``import_module(f"app.plugins.{name}")`` gives ``app.plugins.``; a name with no constant
-    start, or a relative one, gives ``""``: any module.
-    """
-
-    prefixes: set[str] = set()
-    if "import" not in module.unit.source and "modules" not in module.unit.source:
-        return prefixes
-    for node in ast.walk(module.tree):
-        if isinstance(node, ast.Call):
-            function = _dotted_name(node.func) or ""
-            if function not in {"importlib.import_module", "import_module", "__import__"} and not (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "get"
-                and _is_module_table(node.func.value)
-            ):
-                continue
-            first = node.args[0] if node.args else None
-            if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                continue
-            prefix = _constant_affixes(first)[0]
-            prefixes.add("" if prefix.startswith(".") else prefix)
-        elif isinstance(node, ast.Subscript) and _is_module_table(node.value):
-            key = node.slice
-            if isinstance(key, ast.Name) and key.id == "__name__":
-                prefixes.add(module.name)  # ``sys.modules[__name__]`` is this module
-            elif not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
-                prefixes.add(_constant_affixes(key)[0])
-    return prefixes
-
-
-def _imports_computed_module(module: PythonModule) -> bool:
-    """Whether the module imports a module by a computed name (ADR-0088)."""
-
-    for node in ast.walk(module.tree):
-        if isinstance(node, ast.Call):
-            function = _dotted_name(node.func) or ""
-            if function in {"importlib.import_module", "import_module", "__import__"} or (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "get"
-                and _is_module_table(node.func.value)
-            ):
-                first = node.args[0] if node.args else None
-                if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
-                    return True
-        elif isinstance(node, ast.Subscript) and _is_module_table(node.value):
-            key = node.slice
-            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
-                return True
-    return False
 
 
 METACLASS_BASES = frozenset({"type", "ABCMeta", "EnumMeta", "EnumType"})
