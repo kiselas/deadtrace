@@ -187,3 +187,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0114](0114-share-module-value-scan.md) — resolver projections share one immutable module-value scan. Accepted; frontend runtime only.
 - [ADR-0115](0115-compact-ast-attribute-storage.md) — AST attribute dictionaries share grammar keys. Accepted; storage only, with a measured time/memory tradeoff.
 - [ADR-0116](0116-statement-only-nested-import-walk.md) — nested module imports traverse statement containers in BFS order. Accepted; frontend runtime only, reports unchanged.
+- [ADR-0118](0118-shared-module-syntax-walk.md) — resolver syntax projections share one module walk. Proposed; frontend runtime only.

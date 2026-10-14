@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Resolver syntax projections share one traversal for star imports, nominal
+  rebindings and function scope constructs (ADR-0118), with model 93 unchanged.
+
 - Nested module-import discovery visits statement containers while preserving breadth-first
   alias precedence (ADR-0116), with model 93 unchanged.
 
