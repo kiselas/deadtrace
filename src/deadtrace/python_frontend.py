@@ -564,6 +564,35 @@ def _collect_symbols(module: PythonModule) -> list[PythonSymbol]:
     return symbols
 
 
+@dataclass(frozen=True, slots=True)
+class _ModuleSyntaxFacts:
+    has_star_import: bool
+    nominal_rebindings: frozenset[str]
+    scope_constructs: frozenset[int]
+
+
+def _module_syntax_facts(tree: ast.Module) -> _ModuleSyntaxFacts:
+    """Independent lexical projections from one walk of an immutable module tree."""
+
+    has_star_import = False
+    rebound: set[str] = set()
+    marked: set[int] = set()
+    stack: list[tuple[ast.AST, tuple[int, ...]]] = [(tree, ())]
+    while stack:
+        node, enclosing = stack.pop()
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            if isinstance(node.ctx, ast.Store) and (name := _dotted_name(node)) is not None:
+                rebound.add(name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            enclosing = (*enclosing, id(node))
+        elif isinstance(node, (ast.NamedExpr, ast.Global, ast.Nonlocal, ast.comprehension)):
+            marked.update(enclosing)
+        elif isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
+            has_star_import = True
+        stack.extend((child, enclosing) for child in ast.iter_child_nodes(node))
+    return _ModuleSyntaxFacts(has_star_import, frozenset(rebound), frozenset(marked))
+
+
 class _Resolver:
     def __init__(
         self,
@@ -609,23 +638,13 @@ class _Resolver:
         self._exposed_methods: dict[NodeId, tuple[NodeId, ...]] = {}
         self._top_level_bindings: dict[str, frozenset[str]] = {}
         self._roots: ImportRoots | None = None
-        self._scope_constructs: dict[str, frozenset[int]] = {}
+        syntax = {name: _module_syntax_facts(module.tree) for name, module in modules.items()}
+        self._scope_constructs = {name: facts.scope_constructs for name, facts in syntax.items()}
         self._modules_with_star_imports = frozenset(
-            module.name
-            for module in modules.values()
-            if any(
-                isinstance(part, ast.ImportFrom) and any(alias.name == "*" for alias in part.names)
-                for part in ast.walk(module.tree)
-            )
+            name for name, facts in syntax.items() if facts.has_star_import
         )
         self._nominal_rebindings = {
-            module.name: frozenset(
-                name
-                for part in ast.walk(module.tree)
-                if isinstance(part, (ast.Name, ast.Attribute)) and isinstance(part.ctx, ast.Store)
-                if (name := _dotted_name(part)) is not None
-            )
-            for module in modules.values()
+            name: facts.nominal_rebindings for name, facts in syntax.items()
         }
         self._inspection_rebound_builtins = frozenset(
             name.rsplit(".", 1)[-1]
@@ -1217,23 +1236,9 @@ class _Resolver:
         ]
 
     def functions_with_scope_constructs(self, module: PythonModule) -> frozenset[int]:
-        """Ids of the function nodes that contain, at any depth, a walrus, ``global``,
-        ``nonlocal``, or comprehension; computed with one walk of the module."""
+        """Functions containing scope constructs, from the resolver's shared syntax walk."""
 
-        cached = self._scope_constructs.get(module.name)
-        if cached is not None:
-            return cached
-        marked: set[int] = set()
-        stack: list[tuple[ast.AST, tuple[int, ...]]] = [(module.tree, ())]
-        while stack:
-            node, enclosing = stack.pop()
-            if isinstance(node, (ast.NamedExpr, ast.Global, ast.Nonlocal, ast.comprehension)):
-                marked.update(enclosing)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                enclosing = (*enclosing, id(node))
-            stack.extend((child, enclosing) for child in ast.iter_child_nodes(node))
-        result = self._scope_constructs[module.name] = frozenset(marked)
-        return result
+        return self._scope_constructs[module.name]
 
     def scope_imports(self, scope: PythonSymbol | None) -> dict[str, ImportBinding]:
         """Imports a function's body binds, with those of enclosing functions it can see."""
