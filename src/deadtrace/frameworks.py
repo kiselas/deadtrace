@@ -37,6 +37,7 @@ from deadtrace.python_frontend import (
     PythonModule,
     PythonProgram,
     PythonSymbol,
+    SymbolIndex,
     _annotation_names,
     _dotted_name,
     _import_from_base,
@@ -50,6 +51,7 @@ from deadtrace.python_frontend import (
     is_test_path,
     keyword_argument,
     positional_arguments,
+    resolve_through_imports,
     simple_block_statements,
     single_string_literal,
     subscript_elements,
@@ -382,6 +384,7 @@ def build_framework_model(
             # The capability set describes the method, so it holds whether or not tests exist.
             FrameworkCapability("pytest.fixtures", 2, "modeled"),
             FrameworkCapability("deployment.commands", 1, "modeled"),
+            FrameworkCapability("cookiecutter.local-extensions", 1, "modeled"),
         ),
     )
 
@@ -1811,6 +1814,24 @@ def _commands_plan(state: _BuildState) -> WorldPlan | None:
     conservative: set[NodeId] = set()
     provenance: dict[NodeId, RootProvenance] = {}
 
+    local_modules = (
+        {module.path: module for module in state.program.modules.values()}
+        if any(reference.kind == "local_object" for reference in state.deployment)
+        else {}
+    )
+    local_index = state.program.index
+    local_directories = _local_extension_directories(local_modules)
+    if local_modules:
+        active_symbols = [
+            symbol
+            for symbol in state.program.symbols.values()
+            if state.program.modules[symbol.module].path == symbol.path
+        ]
+        if len(active_symbols) != len(state.program.symbols):
+            # foo.py and foo/__init__.py can share a logical module name. Only
+            # symbols from the selected physical module may satisfy its exports.
+            local_index = SymbolIndex(active_symbols)
+
     def add(node_id: NodeId, reference: DeploymentReference, into: set[NodeId]) -> None:
         into.add(node_id)
         provenance.setdefault(
@@ -1820,10 +1841,14 @@ def _commands_plan(state: _BuildState) -> WorldPlan | None:
             ),
         )
 
-    def expose(symbol: PythonSymbol, reference: DeploymentReference) -> None:
+    def expose(
+        symbol: PythonSymbol, reference: DeploymentReference, index: SymbolIndex | None = None
+    ) -> None:
         add(symbol.id, reference, conservative)
         conservative.update(
-            member.id for member in state.program.index.members(symbol.id) if is_function(member)
+            member.id
+            for member in (index or state.program.index).members(symbol.id)
+            if is_function(member)
         )
 
     for reference in state.deployment:
@@ -1831,6 +1856,10 @@ def _commands_plan(state: _BuildState) -> WorldPlan | None:
             continue
         if reference.kind == "script":
             modules = [(module, "") for module in _modules_at_path(state, reference)]
+        elif reference.kind == "local_object":
+            modules = _local_extension_modules(
+                local_modules, reference, directories=local_directories
+            )
         elif reference.kind == "discovery":
             modules = [
                 (module, "")
@@ -1849,11 +1878,24 @@ def _commands_plan(state: _BuildState) -> WorldPlan | None:
                 for definition in module.symbols:
                     if definition.owner is None:
                         expose(definition, reference)
-            symbol = _deployment_symbol(state, module, name) if name else None
+            symbol = (
+                _deployment_symbol(
+                    state,
+                    module,
+                    name,
+                    local_index if reference.kind == "local_object" else None,
+                )
+                if name
+                else None
+            )
             if symbol is None:
                 continue
-            if reference.kind == "object":
-                expose(symbol, reference)
+            if reference.kind in {"object", "local_object"}:
+                expose(
+                    symbol,
+                    reference,
+                    local_index if reference.kind == "local_object" else None,
+                )
             else:
                 add(symbol.id, reference, roots)
     if not roots:
@@ -1868,12 +1910,61 @@ def _commands_plan(state: _BuildState) -> WorldPlan | None:
     )
 
 
-def _deployment_symbol(state: _BuildState, module: PythonModule, name: str) -> PythonSymbol | None:
+def _local_extension_directories(by_path: dict[str, PythonModule]) -> frozenset[str]:
+    directories: set[str] = set()
+    for path in by_path:
+        parent = path.rpartition("/")[0]
+        while parent and parent not in directories:
+            directories.add(parent)
+            parent = parent.rpartition("/")[0]
+    return frozenset(directories)
+
+
+def _local_extension_modules(
+    by_path: dict[str, PythonModule],
+    reference: DeploymentReference,
+    *,
+    directories: frozenset[str] | None = None,
+) -> list[tuple[PythonModule, str]]:
+    """Local module/package imports beside one template, without suffix fallback."""
+
+    module_name, _, attribute = reference.target.partition(":")
+    parts = module_name.split(".")
+    if directories is None:
+        directories = _local_extension_directories(by_path)
+    directory = reference.source.rpartition("/")[0]
+    modules: list[tuple[PythonModule, str]] = []
+    for index in range(1, len(parts) + 1):
+        path = posixpath.join(directory, *parts[:index])
+        final = index == len(parts)
+        # A regular package wins over a same-name .py file; a .py module blocks
+        # importing its descendants. Namespace directories contribute no module.
+        package = by_path.get(f"{path}/__init__.py")
+        plain = by_path.get(f"{path}.py")
+        if package is not None:
+            modules.append((package, attribute if final else ""))
+        elif plain is not None:
+            modules.append((plain, attribute if final else ""))
+            break
+        elif path not in directories:
+            break
+    return modules
+
+
+def _deployment_symbol(
+    state: _BuildState, module: PythonModule, name: str, index: SymbolIndex | None = None
+) -> PythonSymbol | None:
     """The definition ``name`` of ``module`` names, or of the longest prefix that is one."""
 
     parts = name.split(".")
     for cut in range(len(parts), 0, -1):
-        symbol = state.program.resolve_symbol(f"{module.name}:{'.'.join(parts[:cut])}")
+        full_name = f"{module.name}.{'.'.join(parts[:cut])}"
+        symbol = (
+            state.program.resolve_symbol(full_name)
+            if index is None
+            else index.resolve(full_name)
+            or resolve_through_imports(state.program.modules, index, full_name, {})
+        )
         if symbol is not None:
             return symbol
     return None

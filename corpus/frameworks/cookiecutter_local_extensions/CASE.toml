@@ -1,0 +1,57 @@
+schema_version = 1
+case_id = "cookiecutter-local-extensions"
+description = "Only explicitly listed local extensions and their execution consequences are roots."
+
+[analysis]
+complete = true
+worlds = ["production:commands", "production:library"]
+finding_codes = ["RCH001"]
+limitation_codes = ["DT2002"]
+
+[[targets]]
+path = "a/_filters.py"
+kind = "function"
+qualified_name = "format_value"
+expectation = "not_candidate"
+
+[[targets]]
+path = "a/_filters.py"
+kind = "function"
+qualified_name = "_helper"
+expectation = "not_candidate"
+
+[[targets]]
+path = "a/_filters.py"
+kind = "class"
+qualified_name = "FilterExtension"
+expectation = "not_candidate"
+
+[[targets]]
+path = "a/_filters.py"
+kind = "function"
+qualified_name = "FilterExtension.filter"
+expectation = "not_candidate"
+
+[[targets]]
+path = "a/_filters.py"
+kind = "function"
+qualified_name = "_unused"
+expectation = "candidate"
+
+[[targets]]
+path = "b/_filters.py"
+kind = "function"
+qualified_name = "format_value"
+expectation = "candidate"
+
+[[targets]]
+path = "a/extensions/filters.py"
+kind = "function"
+qualified_name = "format_value"
+expectation = "not_candidate"
+
+[[targets]]
+path = "a/extensions/filters.py"
+kind = "function"
+qualified_name = "_unused"
+expectation = "candidate"

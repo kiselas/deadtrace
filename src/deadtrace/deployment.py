@@ -9,6 +9,7 @@ nothing.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -99,6 +100,7 @@ class DeploymentReference:
 
     ``kind`` is ``module`` for ``module`` or ``module:attribute`` targets, ``script`` for a path
     run by ``python``, ``object`` for a dotted class or callable a configuration names, and
+    ``local_object`` for a Cookiecutter extension relative to its manifest directory,
     ``discovery`` for the leaf name of modules a worker imports by searching its directory, and
     ``test_path`` for a test file that a ``pytest`` command names (ADR-0054).
     ``exposed`` marks a module whose top-level definitions the program reads by name, as
@@ -121,6 +123,7 @@ def read_deployment_references(
     commands: list[tuple[Path, str]] = []
     documents: list[tuple[Path, str]] = []
     configurations: list[tuple[Path, str]] = []
+    templates: list[tuple[Path, str]] = []
     tools: set[DeploymentReference] = set()
     for current, directory_names, file_names in os.walk(root, followlinks=False):
         current_path = Path(current)
@@ -143,6 +146,8 @@ def read_deployment_references(
                 documents.append((path, relative))
             if name.lower().endswith(CONFIGURATION_SUFFIXES):
                 configurations.append((path, relative))
+            if name == "cookiecutter.json":
+                templates.append((path, relative))
             if _is_tool_module(relative):
                 tools.add(DeploymentReference("script", name, relative, exposed=True))
     found: set[DeploymentReference] = set(tools)
@@ -171,9 +176,39 @@ def read_deployment_references(
                 DeploymentReference("object", match.group(1), relative)
                 for match in _CONFIGURED_CLASS.finditer(text)
             )
+    for path, relative in templates:
+        text = _read_text(path)
+        if text is not None:
+            found.update(_cookiecutter_references(text, relative))
     return tuple(
         sorted(found, key=lambda item: (item.kind, item.target, item.source, item.exposed))
     )
+
+
+def _cookiecutter_references(text: str, source: str) -> set[DeploymentReference]:
+    """Explicit extension objects, never arbitrary strings from template data (ADR-0119)."""
+
+    try:
+        manifest = json.loads(text)
+    except (ValueError, RecursionError):
+        return set()
+    extensions = manifest.get("_extensions") if isinstance(manifest, dict) else None
+    if not isinstance(extensions, list):
+        return set()
+    found: set[DeploymentReference] = set()
+    for entry in extensions:
+        if not isinstance(entry, str):
+            continue
+        module, delimiter, attribute = (
+            entry.partition(":") if ":" in entry else entry.rpartition(".")
+        )
+        if (
+            delimiter
+            and attribute.isidentifier()
+            and all(part.isidentifier() for part in module.split("."))
+        ):
+            found.add(DeploymentReference("local_object", f"{module}:{attribute}", source))
+    return found
 
 
 def _read_text(path: Path) -> str | None:
