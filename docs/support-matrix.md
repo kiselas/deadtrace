@@ -11,6 +11,14 @@
 | Outputs | Inventory schema 0; semantic schema 1 (with `blocked_findings`, ADR-0071); explanations/baselines/comparison | Alpha compatibility; model/support differences affect comparability |
 | Public installation | Wheel + sdist; runtime packaging, Rich and Typer only | Same CI-built wheel tested on both release operating systems |
 
+Unreleased model 94 also models local Cookiecutter extension objects explicitly named
+in `cookiecutter.json`, including static package reexports. Resolution is relative to
+that manifest's directory; external extensions and dynamically rendered names remain
+outside this rule. Its independent case and paired evaluation on 531 reviewed development
+projects removed one false finding with no new findings or lost reviewed true findings;
+exact seed-7 injection outcomes were unchanged. This is development evidence, not a new
+blind precision estimate: [method and results](field/2026-10-cohort.md).
+
 The pinned HTTPX 0.28.1 belongs to the trusted oracle environment, not scanner runtime. Other exact
 FastAPI/Dishka versions within supported ranges emit DT4002; incompatible versions emit DT4001 and
 block strong negative findings. An unpinned version is not presented as verified.

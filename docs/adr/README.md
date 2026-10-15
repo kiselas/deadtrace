@@ -188,4 +188,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0115](0115-compact-ast-attribute-storage.md) — AST attribute dictionaries share grammar keys. Accepted; storage only, with a measured time/memory tradeoff.
 - [ADR-0116](0116-statement-only-nested-import-walk.md) — nested module imports traverse statement containers in BFS order. Accepted; frontend runtime only, reports unchanged.
 - [ADR-0118](0118-shared-module-syntax-walk.md) — resolver syntax projections share one module walk. Accepted; frontend runtime only, reports unchanged.
-- [ADR-0119](0119-cookiecutter-local-extensions.md) — explicitly named local Cookiecutter extensions are roots. Proposed; model 94, development evaluation pending.
+- [ADR-0119](0119-cookiecutter-local-extensions.md) — explicitly named local Cookiecutter extensions are roots. Accepted; model 94, paired development evaluation complete.

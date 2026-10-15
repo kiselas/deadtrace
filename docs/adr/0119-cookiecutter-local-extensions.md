@@ -1,6 +1,6 @@
 # ADR-0119: Local Cookiecutter extensions named in the manifest are roots
 
-**Status:** Proposed, 2026-10-14; model revision 94. Tracking: [issue 28](https://github.com/kiselas/deadtrace/issues/28).
+**Status:** Accepted, 2026-10-15; model revision 94. Tracking: [issue 28](https://github.com/kiselas/deadtrace/issues/28).
 
 ## Context
 
@@ -71,3 +71,25 @@ revision worktree, classify every NEW/LOST member and check exact seed-7 injecti
 identities and outcomes. Run Ruff, both-platform mypy, coverage, both case
 validators, build, wheel smoke and supported-platform CI. No blind accuracy or
 general framework-support claim follows from the one development example.
+
+## Evaluation and acceptance
+
+Source candidate `4ca4a0c` was compared with model 93 on the same pinned sources
+and configuration digests of all 531 active projects in reviewed development
+cohorts b-h. There were no new findings and one removed finding, previously
+reviewed false: a manifest-selected filter in a FastAPI template. No reviewed true,
+unsure or unverified finding was removed. All runs ended with status `ok`, and
+each project's completeness flag stayed unchanged; incomplete worlds remain
+incomplete rather than being counted as successful proofs.
+
+Exact seed-7 injection identities and reported flags remained 534/721 development
+and 964/1565 held-out packages. The independent case, Ruff, Linux/Windows mypy,
+620 tests with 93.51% coverage, both case validators, distribution build and
+isolated wheel smoke passed. Source-candidate CI passed on Linux and Windows,
+Python 3.12, 3.13 and 3.14. The interrupted cohort-c run was resumed only for its
+missing target, after preserving its partial archive; completed targets were not
+repeated. See the [field methodology](../field/2026-10-cohort.md).
+
+Accept this bounded manifest rule. The reviewed cohorts are development evidence,
+not a new blind precision estimate. Parallel quality scans do not establish a
+speed or memory change, and external/dynamic extensions remain outside this rule.
