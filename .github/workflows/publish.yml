@@ -61,7 +61,7 @@ jobs:
           assert os.environ['RELEASE_TAG'] == 'v' + project['version']
           PY
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: deadtrace-${{ steps.candidate.outputs.sha }}-distributions
           path: dist
@@ -87,7 +87,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: verified-${{ needs.verify.outputs.sha }}
           path: dist
