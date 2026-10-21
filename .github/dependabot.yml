@@ -4,6 +4,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # The oracle group pins the versions the runtime oracle executes the reference application
+    # with; they change together with _SUPPORTED_EXACT and the corpus manifests (ADR-0121).
+    ignore:
+      - dependency-name: "dishka"
+      - dependency-name: "fastapi"
+      - dependency-name: "httpx"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
