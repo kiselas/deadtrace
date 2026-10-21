@@ -1,6 +1,7 @@
 # ADR-0115: Share keys in AST attribute dictionaries
 
 **Status:** Accepted, 2026-10-13. Storage change; model revision remains 93.
+Storage superseded by ADR-0117 (slotted nodes), 2026-10-21.
 
 ## Context
 

@@ -6,7 +6,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 ## Unreleased
 
 - Parsed AST fields use slots while preserving grammar, values and canonical visitor
-  dispatch (ADR-0117); model 94 is unchanged.
+  dispatch (ADR-0117), with model 94, report bytes and exact seed-7 injection outcomes
+  unchanged. Paired development measurements used 17–18% less peak memory on two large
+  FastAPI applications at about 6–8% more scan time; small inputs are unchanged.
 
 - Development tools and CI actions update in one batch (ADR-0121): mypy 2.4.0, Ruff 0.17.0,
   Hypothesis 6.169.0, Typer 0.27.3 in the lock and download-artifact 8.0.2. Dependabot no
