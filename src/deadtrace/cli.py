@@ -27,13 +27,16 @@ from deadtrace.benchmark import benchmark, render_benchmark_json, render_benchma
 from deadtrace.case_validator import CaseValidationError, validate_cases
 from deadtrace.comparison import (
     Comparability,
+    cause_counts,
     compare_reports,
+    describe_resolution,
     render_comparison_json,
     render_comparison_text,
 )
 from deadtrace.config import ConfigurationError, discover_config, load_config
 from deadtrace.diagnostics import render_troubleshooting_json, render_troubleshooting_text
 from deadtrace.report import render_json, render_text
+from deadtrace.resolution import explain_resolved
 from deadtrace.scanner import scan as inventory_scan
 from deadtrace.semantic_report import (
     doctor_text,
@@ -192,6 +195,7 @@ def scan_command(
             baseline_result = apply_baseline(
                 semantic_report_dict(result, world_members=world_members),
                 read_json_artifact(baseline_path),
+                explain_stale=lambda entries: explain_resolved(result, entries),
             )
         except ArtifactError as error:
             typer.echo(f"baseline error: {error}", err=True)
@@ -210,6 +214,7 @@ def scan_command(
                 f"accepted={baseline_result.accepted} | new={baseline_result.new} | "
                 f"stale={baseline_result.stale}\n"
             )
+            rendered += _stale_lines(baseline_result.payload)
     _emit_report(rendered, output)
     for issue in result.inventory.issues:
         typer.echo(f"{issue.path}: {issue.code}: {issue.message}", err=True)
@@ -233,6 +238,23 @@ def scan_command(
             raise typer.Exit(code=1)
     if fail_on_findings and result.findings:
         raise typer.Exit(code=1)
+
+
+def _stale_lines(payload: dict[str, object]) -> str:
+    """Why each stale baseline entry is no longer reported (ADR-0122)."""
+
+    baseline = payload.get("baseline")
+    entries = baseline.get("stale_entries", []) if isinstance(baseline, dict) else []
+    if not entries:
+        return ""
+    counts = cause_counts(entries)
+    lines = ["Stale by cause: " + ", ".join(f"{cause} {count}" for cause, count in counts.items())]
+    lines.extend(
+        f"  {entry.get('fingerprint')} {describe_resolution(entry)}"
+        for entry in entries
+        if isinstance(entry, dict)
+    )
+    return "\n".join(lines) + "\n"
 
 
 @app.command()

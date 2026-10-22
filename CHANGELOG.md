@@ -5,6 +5,12 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Proposed (ADR-0122): `scan --baseline` records why each stale entry is no longer reported:
+  deleted, reached (with the caller), kept, protected by an unknown boundary (with its place and
+  whether it alone protects the code), regrouped or blocked. `compare` gives every resolved
+  finding a `resolution` and counts them in `resolved_by_cause`; a finding the later analysis
+  holds back is `blocked`, no longer silently resolved. Model 94 and plain reports unchanged.
+
 - Parsed AST fields use slots while preserving grammar, values and canonical visitor
   dispatch (ADR-0117), with model 94, report bytes and exact seed-7 injection outcomes
   unchanged. Paired development measurements used 17–18% less peak memory on two large

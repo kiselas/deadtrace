@@ -243,7 +243,7 @@ def widest_guards(result: AnalysisResult, limit: int) -> list[tuple[int, str, st
     widths: dict[tuple[NodeId, str], int] = {}
     for world in production:
         counts: dict[tuple[NodeId, str], int] = {}
-        for node_id, cause in _first_boundaries(world).items():
+        for node_id, cause in first_boundaries(world).items():
             if cause is None or node_id in resolved or node_map[node_id].kind.value == "module":
                 continue
             counts[cause] = counts.get(cause, 0) + 1
@@ -261,7 +261,7 @@ def widest_guards(result: AnalysisResult, limit: int) -> list[tuple[int, str, st
     ]
 
 
-def _first_boundaries(world: Any) -> dict[NodeId, tuple[NodeId, str] | None]:
+def first_boundaries(world: Any) -> dict[NodeId, tuple[NodeId, str] | None]:
     """For each conservative node, the boundary its first derivation crossed from resolved code."""
 
     first: dict[NodeId, Derivation] = {}
