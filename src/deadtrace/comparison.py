@@ -2,12 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from deadtrace.artifacts import ArtifactError, render_json_artifact
 from deadtrace.target_environment import UNTESTED_VERSION
+
+CAUSE_ORDER = (
+    "incomplete",
+    "method_changed",
+    "unattributed",
+    "blocked",
+    "regrouped",
+    "unexplained",
+    "protected",
+    "kept",
+    "reached",
+    "deleted",
+)
+"""Why a finding is no longer reported (ADR-0122), from the weakest evidence that its code is gone
+or used to the strongest. A finding takes the weakest cause among its members, so one member under
+an unknown boundary keeps the whole finding from reading as resolved by a consumer."""
 
 
 class Comparability(StrEnum):
@@ -62,6 +80,9 @@ class ReportComparison:
             "summary": {
                 "added_findings": len(self.added),
                 "resolved_findings": len(self.resolved),
+                "resolved_by_cause": cause_counts(
+                    finding.get("resolution", {}) for finding in self.resolved
+                ),
                 "unchanged_findings": len(self.unchanged),
                 "changed_groups": len(self.changed),
                 "new_limitations": len(self.new_limitations),
@@ -197,7 +218,12 @@ def compare_reports(before: dict[str, Any], after: dict[str, Any]) -> ReportComp
     before_keys = set(before_findings)
     after_keys = set(after_findings)
     added = tuple(after_findings[key] for key in sorted(after_keys - before_keys))
-    resolved = tuple(before_findings[key] for key in sorted(before_keys - after_keys))
+    resolved = _with_resolutions(
+        before,
+        after,
+        tuple(before_findings[key] for key in sorted(before_keys - after_keys)),
+        reasons=reasons,
+    )
     unchanged = tuple(after_findings[key] for key in sorted(before_keys & after_keys))
     changed = _changed_groups(resolved, added)
 
@@ -254,13 +280,121 @@ def render_comparison_text(comparison: ReportComparison) -> str:
         ),
     ]
     lines.extend(f"Method change: {reason}" for reason in comparison.reasons)
-    for label, findings in (("NEW", comparison.added), ("RESOLVED", comparison.resolved)):
-        for finding in findings:
-            lines.append(
-                f"{label} {finding.get('code', '?')} {finding.get('fingerprint', '?')} "
-                f"{finding.get('title', '')}"
-            )
+    by_cause = cause_counts(finding.get("resolution", {}) for finding in comparison.resolved)
+    if by_cause:
+        lines.append(
+            "Resolved by cause: "
+            + ", ".join(f"{cause} {count}" for cause, count in by_cause.items())
+        )
+    for finding in comparison.added:
+        lines.append(
+            f"NEW {finding.get('code', '?')} {finding.get('fingerprint', '?')} "
+            f"{finding.get('title', '')}"
+        )
+    for finding in comparison.resolved:
+        lines.append(
+            f"RESOLVED {finding.get('code', '?')} {finding.get('fingerprint', '?')} "
+            f"{finding.get('title', '')}"
+        )
+        if isinstance(resolution := finding.get("resolution"), Mapping):
+            lines.append(f"  {describe_resolution(resolution)}")
     return "\n".join(lines) + "\n"
+
+
+def cause_counts(resolutions: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    """How many resolved findings each cause accounts for, weakest evidence first."""
+
+    counts: dict[str, int] = {}
+    for resolution in resolutions:
+        if isinstance(cause := resolution.get("cause"), str):
+            counts[cause] = counts.get(cause, 0) + 1
+    return {cause: counts[cause] for cause in sorted(counts, key=cause_rank)}
+
+
+def cause_rank(cause: str) -> int:
+    return CAUSE_ORDER.index(cause) if cause in CAUSE_ORDER else len(CAUSE_ORDER)
+
+
+def describe_resolution(resolution: Mapping[str, Any]) -> str:
+    """One line on why a finding is no longer reported, for a person or an agent to repeat."""
+
+    cause = str(resolution.get("cause", "unattributed"))
+    members = resolution.get("members")
+    member = next(
+        (
+            item
+            for item in (members if isinstance(members, list) else [])
+            if isinstance(item, Mapping) and item.get("status") == cause
+        ),
+        None,
+    )
+    found = member.get("evidence", {}) if member is not None else {}
+    evidence: Mapping[str, Any] = found if isinstance(found, Mapping) else {}
+    subject = f"{member.get('qualified_name')}: " if member is not None else ""
+    if cause == "deleted":
+        return f"deleted: {subject}the code is no longer in the source"
+    if cause == "reached":
+        world = evidence.get("world", "?")
+        if "root" in evidence:
+            return f"reached: {subject}now a root of {world} ({evidence.get('root')})"
+        return (
+            f"reached: {subject}{evidence.get('edge', 'edge')} from "
+            f"{_where(evidence.get('from'))} in {world}"
+        )
+    if cause == "protected":
+        boundary = evidence.get("boundary", {})
+        notes = []
+        if evidence.get("sole") is True:
+            notes.append("the finding returns without it")
+        elif evidence.get("sole") is False:
+            notes.append("other boundaries protect it too")
+        if evidence.get("new_boundary") is True:
+            notes.append("new boundary")
+        elif evidence.get("new_boundary") is False:
+            notes.append("boundary existed before")
+        suffix = f" ({'; '.join(notes)})" if notes else ""
+        through = (
+            f"{boundary.get('reason', '?')} at {_where(boundary)} in {evidence.get('world', '?')}"
+        )
+        if "from" in evidence:
+            return (
+                f"protected: {subject}{evidence.get('edge', 'edge')} from "
+                f"{_where(evidence['from'])}, which itself may run only through {through}{suffix}"
+            )
+        return (
+            f"protected: {subject}no resolved path reaches it; it may run only through "
+            f"{through}{suffix}"
+        )
+    if cause == "kept":
+        return f"kept: {subject}{evidence.get('contract', 'retained')}"
+    if cause == "regrouped":
+        target = evidence or resolution
+        blocked = target.get("blocked")
+        held = f", held back: {', '.join(blocked)}" if isinstance(blocked, list) else ""
+        return (
+            f"regrouped: {subject}now part of {target.get('code', '?')} "
+            f"{target.get('fingerprint', '?')}{held}"
+        )
+    if cause == "blocked":
+        blocked = resolution.get("blocked") or ["a blocking rule"]
+        return f"blocked: held back by {', '.join(blocked)}; the code is unchanged in the graph"
+    if cause == "incomplete":
+        return "incomplete: the later analysis is incomplete and cannot vouch for absent findings"
+    if cause == "method_changed":
+        return f"method changed: {'; '.join(resolution.get('reasons', [])) or 'unknown'}"
+    if cause == "unexplained":
+        return f"unexplained: {subject}unreached, but no longer reported for another reason"
+    return (
+        "unattributed: the later report records no cause; scan with --baseline made from the "
+        "earlier report to attribute it"
+    )
+
+
+def _where(place: object) -> str:
+    if not isinstance(place, Mapping):
+        return "?"
+    name = str(place.get("name", "?"))
+    return f"{name} ({place.get('path')}:{place.get('line')})" if place.get("path") else name
 
 
 def _world_roots(payload: dict[str, Any]) -> dict[str, frozenset[str]]:
@@ -305,9 +439,12 @@ def _source_files(payload: dict[str, Any]) -> set[str]:
     return {path for path in files if isinstance(path, str)}
 
 
-def _findings_by_fingerprint(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    findings = payload["findings"]
-    assert isinstance(findings, list)
+def _findings_by_fingerprint(
+    payload: dict[str, Any], key: str = "findings"
+) -> dict[str, dict[str, Any]]:
+    findings = payload.get(key, [])
+    if not isinstance(findings, list):
+        return {}
     return {
         finding["fingerprint"]: finding
         for finding in findings
@@ -351,6 +488,118 @@ def _changed_groups(
                 }
             )
     return tuple(sorted(changes, key=lambda item: (item["before"], item["after"])))
+
+
+def _with_resolutions(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    resolved: tuple[dict[str, Any], ...],
+    *,
+    reasons: tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    """Resolved findings with the cause of each (ADR-0122).
+
+    The later scan records causes from its graph when it applied a baseline. Otherwise only what
+    the two reports show is used: a finding now held back, members now in another finding, or
+    their source files removed. Anything else stays ``unattributed`` rather than read as gone.
+    """
+
+    baseline = after.get("baseline")
+    stale = baseline.get("stale_entries", []) if isinstance(baseline, dict) else []
+    recorded = {
+        entry["fingerprint"]: entry
+        for entry in (stale if isinstance(stale, list) else [])
+        if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str)
+    }
+    later_blocked = _findings_by_fingerprint(after, "blocked_findings")
+    owner: dict[tuple[object, ...], dict[str, Any]] = {}
+    for finding in (*_findings_by_fingerprint(after).values(), *later_blocked.values()):
+        for identity in _member_identities(finding):
+            owner.setdefault(identity, finding)
+    later_files = _source_files(after)
+    guards = _guard_origins(before)
+    result: list[dict[str, Any]] = []
+    for finding in resolved:
+        fingerprint = finding["fingerprint"]
+        identities = sorted(_member_identities(finding), key=repr)
+        later = next((owner[item] for item in identities if item in owner), None)
+        resolution: dict[str, Any]
+        if fingerprint in recorded:
+            resolution = {
+                key: value
+                for key, value in deepcopy(recorded[fingerprint]).items()
+                if key not in {"fingerprint", "code"}
+            }
+            _mark_new_boundaries(resolution, guards)
+        elif fingerprint in later_blocked:
+            resolution = {
+                "cause": "blocked",
+                "blocked": list(later_blocked[fingerprint].get("blocked", [])),
+            }
+        elif later is not None:
+            resolution = {
+                "cause": "regrouped",
+                "fingerprint": later.get("fingerprint"),
+                "code": later.get("code"),
+            }
+            if later.get("blocked"):
+                resolution["blocked"] = list(later["blocked"])
+        elif identities and all(identity[0] not in later_files for identity in identities):
+            resolution = {"cause": "deleted"}
+        elif reasons:
+            resolution = {"cause": "method_changed", "reasons": list(reasons)}
+        else:
+            resolution = {"cause": "unattributed"}
+        result.append({**finding, "resolution": resolution})
+    return tuple(result)
+
+
+def _guard_origins(payload: dict[str, Any]) -> dict[tuple[str, str], set[str] | None]:
+    """Guard messages of each world with the origins the report names, or None where it groups
+    guards by message (ADR-0079)."""
+
+    result: dict[tuple[str, str], set[str] | None] = {}
+    for entry in _limitations(payload).values():
+        world = entry.get("world")
+        if entry.get("code") == "DT2002" and isinstance(world, dict):
+            result[(f"{world.get('profile')}:{world.get('scenario')}", str(entry["message"]))] = (
+                set()
+            )
+    for world in payload.get("worlds", []):
+        if not isinstance(world, dict) or not isinstance(world_id := world.get("id"), dict):
+            continue
+        world_key = f"{world_id.get('profile')}:{world_id.get('scenario')}"
+        for limitation in world.get("limitations", []):
+            if not isinstance(limitation, dict) or limitation.get("code") != "DT2002":
+                continue
+            key = (world_key, str(limitation.get("message")))
+            origins = result.get(key)
+            if limitation.get("origin") is None or origins is None:
+                result[key] = None
+            else:
+                origins.add(str(limitation["origin"]))
+    return result
+
+
+def _mark_new_boundaries(
+    resolution: dict[str, Any], guards: Mapping[tuple[str, str], set[str] | None]
+) -> None:
+    """Whether each protected member's boundary was already a guard in the earlier report; null
+    when that report lists the guard's message but groups its origins."""
+
+    members = resolution.get("members", [])
+    for member in members if isinstance(members, list) else []:
+        if not isinstance(member, dict) or member.get("status") != "protected":
+            continue
+        evidence = member["evidence"]
+        boundary = evidence["boundary"]
+        key = (str(evidence.get("world")), str(boundary.get("reason")))
+        if key not in guards:
+            evidence["new_boundary"] = True
+        elif (origins := guards[key]) is None:
+            evidence["new_boundary"] = None
+        else:
+            evidence["new_boundary"] = boundary.get("name") not in origins
 
 
 def _limitations(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:

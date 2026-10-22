@@ -323,6 +323,15 @@ baseline stays comparable across them. Fingerprints depend on a finding's code a
 When a new model revision makes a baseline incomparable, `baseline update` carries reviewed
 entries over by code and members.
 
+A smaller count is not by itself evidence that code was removed or used. Each resolved finding in a
+comparison carries a `resolution`: `deleted`, `reached` from a named caller, `kept` by a contract,
+`protected` when it may now run only through an unknown boundary such as a computed `getattr`, or
+`regrouped`/`blocked` when it is still reported in another form. The causes that need the graph
+come from the later scan: run it with `--baseline` made from the earlier report, and it records
+them under `baseline.stale_entries`; otherwise they stay `unattributed`. A protected entry tells
+whether the boundary alone keeps the code (`sole`) and, in `compare`, whether the boundary is new.
+This is a proposal under evaluation (ADR-0122).
+
 Create an inspectable troubleshooting artifact without source text, file paths, symbol names,
 configuration values, environment variables, or object values:
 

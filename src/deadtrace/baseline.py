@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -124,8 +125,20 @@ def validate_baseline(payload: dict[str, Any]) -> None:
         fingerprints.add(fingerprint)
 
 
-def apply_baseline(report: dict[str, Any], baseline: dict[str, Any]) -> BaselineApplication:
-    """Annotate a report; never remove findings or limitations."""
+StaleExplainer = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+"""Given baseline entries the report no longer shows, the cause of each (ADR-0122)."""
+
+
+def apply_baseline(
+    report: dict[str, Any],
+    baseline: dict[str, Any],
+    *,
+    explain_stale: StaleExplainer | None = None,
+) -> BaselineApplication:
+    """Annotate a report; never remove findings or limitations.
+
+    With ``explain_stale``, the annotation also says why each stale entry is no longer reported.
+    """
 
     validate_semantic_report(report)
     validate_baseline(baseline)
@@ -164,6 +177,14 @@ def apply_baseline(report: dict[str, Any], baseline: dict[str, Any]) -> Baseline
         "source_digest": baseline.get("source_digest"),
         "stale_fingerprints": sorted(stale),
     }
+    if explain_stale is not None and stale:
+        projected["baseline"]["stale_entries"] = explain_stale(
+            [
+                entry
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("fingerprint") in stale
+            ]
+        )
     return BaselineApplication(
         payload=projected,
         comparable=comparable,

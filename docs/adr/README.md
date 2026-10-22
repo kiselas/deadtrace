@@ -191,3 +191,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0118](0118-shared-module-syntax-walk.md) — resolver syntax projections share one module walk. Accepted; frontend runtime only, reports unchanged.
 - [ADR-0119](0119-cookiecutter-local-extensions.md) — explicitly named local Cookiecutter extensions are roots. Accepted; model 94, paired development evaluation complete.
 - [ADR-0121](0121-routine-dependency-updates.md) — routine dependency updates are batched; oracle pins move deliberately. Accepted; packaging and tooling only.
+- [ADR-0122](0122-causes-of-resolved-findings.md) — findings that are no longer reported carry a cause: deleted, reached, kept, protected by an unknown boundary, regrouped or blocked. Proposed; prototype, report bytes without `--baseline` unchanged.
