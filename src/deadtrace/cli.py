@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -27,6 +27,7 @@ from deadtrace.benchmark import benchmark, render_benchmark_json, render_benchma
 from deadtrace.case_validator import CaseValidationError, validate_cases
 from deadtrace.comparison import (
     Comparability,
+    apply_previous,
     cause_counts,
     compare_reports,
     describe_resolution,
@@ -153,6 +154,13 @@ def scan_command(
         bool,
         typer.Option("--fail-on-new", help="Exit 1 when findings are not accepted by baseline."),
     ] = False,
+    previous_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--previous",
+            help="Say why findings of an earlier semantic report are no longer reported.",
+        ),
+    ] = None,
     world_members: Annotated[
         bool,
         typer.Option(
@@ -200,10 +208,21 @@ def scan_command(
         except ArtifactError as error:
             typer.echo(f"baseline error: {error}", err=True)
             raise typer.Exit(code=2) from error
+    annotated = baseline_result.payload if baseline_result is not None else None
+    if previous_path is not None:
+        try:
+            annotated = apply_previous(
+                annotated or semantic_report_dict(result, world_members=world_members),
+                read_json_artifact(previous_path),
+                explain=lambda entries: explain_resolved(result, entries),
+            )
+        except ArtifactError as error:
+            typer.echo(f"previous report error: {error}", err=True)
+            raise typer.Exit(code=2) from error
     if output_format is OutputFormat.JSON:
         rendered = (
-            render_json_artifact(baseline_result.payload)
-            if baseline_result is not None
+            render_json_artifact(annotated)
+            if annotated is not None
             else render_semantic_json(result, world_members=world_members)
         )
     else:
@@ -214,7 +233,14 @@ def scan_command(
                 f"accepted={baseline_result.accepted} | new={baseline_result.new} | "
                 f"stale={baseline_result.stale}\n"
             )
-            rendered += _stale_lines(baseline_result.payload)
+            rendered += _cause_lines("Stale by cause", baseline_result.payload, "baseline")
+        if annotated is not None and isinstance(since := annotated.get("previous"), dict):
+            rendered += (
+                f"Previous report: {since['comparability']} | "
+                f"new={len(since['new_fingerprints'])} | resolved={len(since['resolved'])}\n"
+            )
+            rendered += "".join(f"Method change: {reason}\n" for reason in since["reasons"])
+            rendered += _cause_lines("Resolved by cause", annotated, "previous")
     _emit_report(rendered, output)
     for issue in result.inventory.issues:
         typer.echo(f"{issue.path}: {issue.code}: {issue.message}", err=True)
@@ -240,15 +266,17 @@ def scan_command(
         raise typer.Exit(code=1)
 
 
-def _stale_lines(payload: dict[str, object]) -> str:
-    """Why each stale baseline entry is no longer reported (ADR-0122)."""
+def _cause_lines(title: str, payload: dict[str, Any], section: str) -> str:
+    """Why each stale baseline entry, or each finding of the previous report, is no longer
+    reported (ADR-0122)."""
 
-    baseline = payload.get("baseline")
-    entries = baseline.get("stale_entries", []) if isinstance(baseline, dict) else []
+    annotation = payload.get(section)
+    key = "stale_entries" if section == "baseline" else "resolved"
+    entries = annotation.get(key, []) if isinstance(annotation, dict) else []
     if not entries:
         return ""
     counts = cause_counts(entries)
-    lines = ["Stale by cause: " + ", ".join(f"{cause} {count}" for cause, count in counts.items())]
+    lines = [f"{title}: " + ", ".join(f"{cause} {count}" for cause, count in counts.items())]
     lines.extend(
         f"  {entry.get('fingerprint')} {describe_resolution(entry)}"
         for entry in entries

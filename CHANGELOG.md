@@ -5,9 +5,11 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
-- Proposed (ADR-0122): `scan --baseline` records why each stale entry is no longer reported:
-  deleted, reached (with the caller), kept, protected by an unknown boundary (with its place and
-  whether it alone protects the code), regrouped or blocked. `compare` gives every resolved
+- Proposed (ADR-0122): `scan --previous REPORT` and `scan --baseline` record why each earlier
+  finding is no longer reported: deleted, reached (with the caller), kept, protected by an unknown
+  boundary (with its place and whether it alone protects the code), regrouped or blocked.
+  `--previous` takes a saved report directly, for the loop "scan, edit, scan again", and also
+  lists the new findings. `compare` gives every resolved
   finding a `resolution` and counts them in `resolved_by_cause`; a finding the later analysis
   holds back is `blocked`, no longer silently resolved. Model 94 and plain reports unchanged.
 

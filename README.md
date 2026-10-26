@@ -327,10 +327,18 @@ A smaller count is not by itself evidence that code was removed or used. Each re
 comparison carries a `resolution`: `deleted`, `reached` from a named caller, `kept` by a contract,
 `protected` when it may now run only through an unknown boundary such as a computed `getattr`, or
 `regrouped`/`blocked` when it is still reported in another form. The causes that need the graph
-come from the later scan: run it with `--baseline` made from the earlier report, and it records
-them under `baseline.stale_entries`; otherwise they stay `unattributed`. A protected entry tells
-whether the boundary alone keeps the code (`sole`) and, in `compare`, whether the boundary is new.
-This is a proposal under evaluation (ADR-0122).
+come from the later scan. After an edit, scan again with the earlier report:
+
+```console
+uv run deadtrace scan . --format json --output after.json --previous before.json
+```
+
+The report then says, under `previous`, which findings are new and why each earlier one is no
+longer shown; `compare before.json after.json` reads the same causes. A scan with `--baseline`
+records them under `baseline.stale_entries`. Without either, they stay `unattributed`. A
+protected entry names the caller that may itself run only through the boundary, if there is one,
+and tells whether the boundary alone keeps the code (`sole`). In `compare`, it also tells whether
+the boundary is new. This is a proposal under evaluation (ADR-0122).
 
 Create an inspectable troubleshooting artifact without source text, file paths, symbol names,
 configuration values, environment variables, or object values:
