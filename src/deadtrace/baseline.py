@@ -11,6 +11,7 @@ from deadtrace.artifacts import ArtifactError, render_json_artifact
 from deadtrace.comparison import (
     method_change_reasons,
     method_descriptor,
+    recorded_causes,
     validate_semantic_report,
 )
 
@@ -22,6 +23,7 @@ class BaselineApplication:
     accepted: int
     new: int
     stale: int
+    dormant: int = 0
     reasons: tuple[str, ...] = ()
 
 
@@ -61,7 +63,10 @@ def update_baseline(
     """Rebase reviewed entries; accepting new findings always requires an explicit reason.
 
     An entry carries over to a finding with its fingerprint, or with its code and exactly its
-    members when a method change renewed the fingerprint.
+    members when a method change renewed the fingerprint. An entry the report no longer shows
+    stays as a dormant entry when the scan that wrote the report recorded that its finding is only
+    hidden, not gone or used (ADR-0122): when the boundary that hides it goes away, the finding
+    returns as accepted rather than new. Without a recorded cause it is dropped, as before.
     """
 
     validate_baseline(baseline)
@@ -77,14 +82,16 @@ def update_baseline(
     }
     by_content = {_content_key(entry): entry for entry in old_entries if isinstance(entry, dict)}
     entries: list[dict[str, Any]] = []
+    carried: set[str] = set()
     for finding in findings:
         assert isinstance(finding, dict)
         fingerprint = finding["fingerprint"]
         old = by_fingerprint.get(fingerprint) or by_content.get(_content_key(finding))
         if old is not None:
+            carried.add(old["fingerprint"])
             entries.append(
                 {
-                    **deepcopy(old),
+                    **{key: value for key, value in deepcopy(old).items() if key != "dormant"},
                     "fingerprint": fingerprint,
                     "members": deepcopy(finding.get("members", [])),
                 }
@@ -98,6 +105,21 @@ def update_baseline(
                     "reason": reason,
                 }
             )
+    causes = recorded_causes(report)
+    present = {entry["fingerprint"] for entry in entries}
+    for old in sorted(
+        (entry for entry in old_entries if isinstance(entry, dict)),
+        key=lambda entry: str(entry["fingerprint"]),
+    ):
+        cause = causes.get(old["fingerprint"])
+        if (
+            old["fingerprint"] in carried
+            or old["fingerprint"] in present
+            or cause is None
+            or cause.get("cause") not in DORMANT_CAUSES
+        ):
+            continue
+        entries.append({**deepcopy(old), "dormant": _dormancy(cause)})
     return {
         "schema_version": 1,
         "kind": "deadtrace-baseline",
@@ -105,6 +127,53 @@ def update_baseline(
         "source_digest": report["descriptor"].get("source_digest"),
         "entries": entries,
     }
+
+
+DORMANT_CAUSES = frozenset({"protected"})
+"""Causes of a stale entry that keep it in a refreshed baseline: the finding is only hidden by an
+unknown boundary, and returns when the boundary goes away (ADR-0122)."""
+
+
+def _dormancy(cause: dict[str, Any]) -> dict[str, Any]:
+    """Why a dormant entry is kept: its cause and the boundaries that hide its members."""
+
+    boundaries: dict[tuple[object, ...], dict[str, Any]] = {}
+    members = cause.get("members", [])
+    for member in members if isinstance(members, list) else []:
+        evidence = member.get("evidence") if isinstance(member, dict) else None
+        boundary = evidence.get("boundary") if isinstance(evidence, dict) else None
+        if member.get("status") == "protected" and isinstance(boundary, dict):
+            place = {
+                key: boundary.get(key)
+                for key in ("name", "path", "line", "reason")
+                if key in boundary
+            }
+            boundaries.setdefault(tuple(sorted(place.items(), key=str)), place)
+    return {
+        "cause": cause.get("cause"),
+        "boundaries": [boundaries[key] for key in sorted(boundaries, key=str)],
+    }
+
+
+def unexplained_stale_count(baseline: dict[str, Any], report: dict[str, Any]) -> int:
+    """Baseline entries the report neither shows nor explains: ``update_baseline`` drops them
+    without knowing whether their findings are gone or only hidden."""
+
+    validate_baseline(baseline)
+    validate_semantic_report(report)
+    shown = {
+        finding.get("fingerprint") for finding in report["findings"] if isinstance(finding, dict)
+    }
+    content = {_content_key(finding) for finding in report["findings"] if isinstance(finding, dict)}
+    causes = recorded_causes(report)
+    return sum(
+        1
+        for entry in baseline["entries"]
+        if isinstance(entry, dict)
+        and entry["fingerprint"] not in shown
+        and _content_key(entry) not in content
+        and entry["fingerprint"] not in causes
+    )
 
 
 def validate_baseline(payload: dict[str, Any]) -> None:
@@ -160,6 +229,11 @@ def apply_baseline(
         assert isinstance(finding, dict)
         finding["baseline_status"] = "accepted" if finding["fingerprint"] in accepted else "new"
     stale = baseline_fingerprints - current
+    dormant = {
+        entry["fingerprint"]
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("dormant") and entry["fingerprint"] in stale
+    }
     summary = projected.get("summary")
     if not isinstance(summary, dict):
         summary = {}
@@ -169,6 +243,7 @@ def apply_baseline(
             "baselined_finding_count": len(accepted),
             "new_finding_count": len(current - accepted),
             "stale_baseline_count": len(stale),
+            "dormant_baseline_count": len(dormant),
         }
     )
     projected["baseline"] = {
@@ -176,6 +251,7 @@ def apply_baseline(
         "reasons": list(reasons),
         "source_digest": baseline.get("source_digest"),
         "stale_fingerprints": sorted(stale),
+        "dormant_fingerprints": sorted(dormant),
     }
     if explain_stale is not None and stale:
         projected["baseline"]["stale_entries"] = explain_stale(
@@ -191,6 +267,7 @@ def apply_baseline(
         accepted=len(accepted),
         new=len(current - accepted),
         stale=len(stale),
+        dormant=len(dormant),
         reasons=reasons,
     )
 

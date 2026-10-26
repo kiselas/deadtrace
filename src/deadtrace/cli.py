@@ -21,6 +21,7 @@ from deadtrace.baseline import (
     apply_baseline,
     create_baseline,
     render_baseline_json,
+    unexplained_stale_count,
     update_baseline,
 )
 from deadtrace.benchmark import benchmark, render_benchmark_json, render_benchmark_text
@@ -231,7 +232,7 @@ def scan_command(
             rendered += (
                 f"Baseline: {'comparable' if baseline_result.comparable else 'incomparable'} | "
                 f"accepted={baseline_result.accepted} | new={baseline_result.new} | "
-                f"stale={baseline_result.stale}\n"
+                f"stale={baseline_result.stale} | dormant={baseline_result.dormant}\n"
             )
             rendered += _cause_lines("Stale by cause", baseline_result.payload, "baseline")
         if annotated is not None and isinstance(since := annotated.get("previous"), dict):
@@ -492,18 +493,22 @@ def update_baseline_command(
         typer.echo(f"baseline output already exists: {output}", err=True)
         raise typer.Exit(code=2)
     try:
-        rendered = render_baseline_json(
-            update_baseline(
-                read_json_artifact(baseline),
-                read_json_artifact(report),
-                accept_new=accept_new,
-                reason=reason,
-            )
-        )
+        previous, current = read_json_artifact(baseline), read_json_artifact(report)
+        refreshed = update_baseline(previous, current, accept_new=accept_new, reason=reason)
+        unexplained = unexplained_stale_count(previous, current)
     except ArtifactError as error:
         typer.echo(f"baseline error: {error}", err=True)
         raise typer.Exit(code=2) from error
-    _emit_report(rendered, output)
+    _emit_report(render_baseline_json(refreshed), output)
+    dormant = sum(1 for entry in refreshed["entries"] if entry.get("dormant"))
+    if dormant:
+        typer.echo(f"kept {dormant} dormant entries hidden by unknown boundaries", err=True)
+    if unexplained:
+        typer.echo(
+            f"dropped {unexplained} stale entries without a recorded cause; scan with "
+            "--baseline or --previous first to keep those only hidden by unknown boundaries",
+            err=True,
+        )
 
 
 def _emit_report(rendered: str, output: Path | None) -> None:
