@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -249,6 +250,68 @@ def test_scan_with_baseline_prints_stale_causes(tmp_path: Path) -> None:
     assert "stale=2" in result.stdout
     assert "Stale by cause: protected 2" in result.stdout
     assert "the finding returns without it" in result.stdout
+
+
+def _scan_saved(root: Path, name: str, *extra: str) -> Any:
+    target = root / name
+    result = runner.invoke(
+        app, ["scan", str(root), "--format", "json", "--output", str(target), *extra]
+    )
+    assert result.exit_code == 0, result.output
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def test_scan_with_a_previous_report_needs_no_baseline(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+    _scan(source)
+    _scan_saved(source, "before.json")
+    _scan(source, MAIN.replace("    pass", "    getattr(plugins, NAME)()"))
+    before = source / "before.json"
+
+    text = runner.invoke(app, ["scan", str(source), "--previous", str(before)])
+    after = _scan_saved(source, "after.json", "--previous", str(before))
+    comparison = compare_reports(json.loads(before.read_text(encoding="utf-8")), after)
+
+    assert text.exit_code == 0
+    assert "Previous report: comparable | new=0 | resolved=2" in text.stdout
+    assert "Resolved by cause: protected 2" in text.stdout
+    assert after["previous"]["resolved_by_cause"] == {"protected": 2}
+    assert "baseline" not in after
+    assert {item["resolution"]["cause"] for item in comparison.resolved} == {"protected"}
+
+
+def test_previous_and_baseline_annotate_one_report(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+    _scan(source)
+    _scan_saved(source, "before.json")
+    before = source / "before.json"
+    baseline = tmp_path / "baseline.json"
+    runner.invoke(
+        app,
+        ["baseline", "create", str(before), "--output", str(baseline), "--reason", "reviewed"],
+    )
+    _scan(source, MAIN.replace("pass", "plugins.first_candidate()"))
+
+    after = _scan_saved(
+        source, "after.json", "--baseline", str(baseline), "--previous", str(before)
+    )
+
+    assert after["summary"]["stale_baseline_count"] == 1
+    assert after["previous"]["resolved"] == after["baseline"]["stale_entries"]
+    assert after["previous"]["resolved"][0]["cause"] == "reached"
+
+
+def test_an_unreadable_previous_report_is_an_operational_error(tmp_path: Path) -> None:
+    _scan(tmp_path)
+    broken = tmp_path / "previous.json"
+    broken.write_text('{"schema_version": 1}', encoding="utf-8")
+
+    result = runner.invoke(app, ["scan", str(tmp_path), "--previous", str(broken)])
+
+    assert result.exit_code == 2
+    assert "previous report error" in result.output
 
 
 def test_reach_from_tests_hides_an_unreached_component(tmp_path: Path) -> None:

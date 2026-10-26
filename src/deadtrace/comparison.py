@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import StrEnum
@@ -253,6 +253,41 @@ def compare_reports(before: dict[str, Any], after: dict[str, Any]) -> ReportComp
     )
 
 
+ResolvedExplainer = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+"""Given earlier findings the analysis no longer shows, the cause of each (ADR-0122)."""
+
+
+def apply_previous(
+    report: dict[str, Any], previous: dict[str, Any], *, explain: ResolvedExplainer
+) -> dict[str, Any]:
+    """Annotate a report with what changed since an earlier report of the same project.
+
+    The earlier report is not a reviewed baseline: nothing is accepted and no exit code depends
+    on it. The annotation names the comparability, the new findings, and the cause of each
+    finding no longer shown, so an agent that scans again after an edit can say why a finding
+    disappeared rather than only that the count fell.
+    """
+
+    validate_semantic_report(previous)
+    comparison = compare_reports(previous, report)
+    projected = deepcopy(report)
+    resolved = explain(
+        [
+            {key: finding.get(key) for key in ("fingerprint", "code", "members")}
+            for finding in comparison.resolved
+        ]
+    )
+    projected["previous"] = {
+        "comparability": comparison.status.value,
+        "reasons": list(comparison.reasons),
+        "source_digest": previous["descriptor"].get("source_digest"),
+        "new_fingerprints": [str(finding["fingerprint"]) for finding in comparison.added],
+        "resolved": resolved,
+        "resolved_by_cause": cause_counts(resolved),
+    }
+    return projected
+
+
 def render_comparison_json(comparison: ReportComparison) -> str:
     return render_json_artifact(comparison.to_dict())
 
@@ -499,18 +534,19 @@ def _with_resolutions(
 ) -> tuple[dict[str, Any], ...]:
     """Resolved findings with the cause of each (ADR-0122).
 
-    The later scan records causes from its graph when it applied a baseline. Otherwise only what
-    the two reports show is used: a finding now held back, members now in another finding, or
-    their source files removed. Anything else stays ``unattributed`` rather than read as gone.
+    The later scan records causes from its graph when it was given the earlier report
+    (``--previous``) or a baseline. Otherwise only what the two reports show is used: a finding now
+    held back, members now in another finding, or their source files removed. Anything else stays
+    ``unattributed`` rather than read as gone.
     """
 
-    baseline = after.get("baseline")
-    stale = baseline.get("stale_entries", []) if isinstance(baseline, dict) else []
-    recorded = {
-        entry["fingerprint"]: entry
-        for entry in (stale if isinstance(stale, list) else [])
-        if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str)
-    }
+    recorded: dict[str, dict[str, Any]] = {}
+    for section, key in (("baseline", "stale_entries"), ("previous", "resolved")):
+        annotation = after.get(section)
+        entries = annotation.get(key, []) if isinstance(annotation, dict) else []
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str):
+                recorded.setdefault(entry["fingerprint"], entry)
     later_blocked = _findings_by_fingerprint(after, "blocked_findings")
     owner: dict[tuple[object, ...], dict[str, Any]] = {}
     for finding in (*_findings_by_fingerprint(after).values(), *later_blocked.values()):

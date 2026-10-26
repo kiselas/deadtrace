@@ -64,8 +64,21 @@ from 340 MB to 24.5 MB. Only the findings that disappeared need a cause.
    `baseline.stale_entries`: for each stale entry, its fingerprint, code, cause and members with
    status and evidence. Members are matched to the new graph by path, qualified name, kind and
    occurrence, the identity that fingerprints hash. Text output adds a `Stale by cause` line and a
-   line per entry. The size grows with the number of disappeared findings, not with the graph. A
-   scan without `--baseline` writes the same bytes as before.
+   line per entry. The size grows with the number of disappeared findings, not with the graph.
+
+   The same causes come without a baseline from `deadtrace scan --previous REPORT`, where REPORT
+   is an earlier saved semantic report of the project. It is the agent loop “scan, edit, scan
+   again”: an earlier report is no reviewed debt, so nothing is accepted and no exit code depends
+   on it. The report gains a `previous` section with:
+   - the comparability and its reasons, as `compare` gives them;
+   - the earlier report's source digest;
+   - the fingerprints of new findings;
+   - `resolved`, with the cause of each earlier finding no longer shown, in the shape of
+     `baseline.stale_entries`;
+   - `resolved_by_cause`.
+
+   Text output adds a `Previous report` line and `Resolved by cause`. Both options can be given
+   together. A scan with neither writes the same bytes as before.
 
 3. **Counterfactual.** For a protected member, `sole` tells whether the boundary alone keeps it
    possibly running. The boundary is identified by its source node and domain. `sole` is true
@@ -189,21 +202,17 @@ process are not affected.
   - the second boundary that makes neither member sole;
   - the budget;
   - the novelty rules;
-  - the scan's text output.
-- To attribute a comparison, the later scan needs a baseline made from the earlier report. In
-  the agent loop that is one more step: `baseline create` on the earlier report, which also asks
-  for a reason.
-- In the worst case the counterfactual adds about one solve to a scan with `--baseline` and stale
-  entries. In the field it added almost nothing, because a second boundary settles most members
+  - the scan's output with a baseline, a previous report, both, and an unreadable previous report.
+- To attribute a comparison, the later scan is given the earlier report with `--previous`, or a
+  baseline made from it with `--baseline`; `compare` reads the causes from either section.
+- In the worst case the counterfactual adds about one solve to a scan with `--previous` or
+  `--baseline` and disappeared findings. In the field it added almost nothing, because a second boundary settles most members
   without a solve.
 - Nothing changes for findings that stay, and scanner semantics are unchanged, so no reviewed
   public findings were re-measured.
 
 ## Open questions
 
-- Should `scan --previous REPORT` take a saved report directly, so the agent loop needs no
-  baseline? The causes are facts of the later graph and do not depend on where the entries came
-  from.
 - `baseline update` drops the entry of a finding that became `protected`. When the boundary is
   removed, the finding returns as new and fails `--fail-on-new`. A protected entry could be kept
   as dormant instead.
