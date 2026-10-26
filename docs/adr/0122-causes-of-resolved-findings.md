@@ -113,16 +113,17 @@ from 340 MB to 24.5 MB. Only the findings that disappeared need a cause.
    cause` and one line per resolved finding.
 
 5. **Dormant baseline entries.** `baseline update` used to drop every entry that the report does
-   not show. An entry whose finding became `protected` then came back as new as soon as the
-   boundary went away, and `--fail-on-new` failed on debt that had been reviewed. Now
-   `baseline update` keeps such an entry when the report records `protected` as its cause, under
-   `baseline.stale_entries` or `previous.resolved`. The entry keeps its fingerprint, code, members
-   and reason, and gains `dormant`: the cause and the boundaries that hide its members.
-   - **While the boundary stays,** `scan --baseline` counts the entry as stale and as dormant: the
+   not show. An entry whose finding became `protected` or `blocked` then came back as new as soon
+   as the boundary or the blocking reason went away, and `--fail-on-new` failed on debt that had
+   been reviewed. Now `baseline update` keeps such an entry when the report records one of these
+   two causes for it, under `baseline.stale_entries` or `previous.resolved`. The entry keeps its
+   fingerprint, code, members and reason, and gains `dormant`: the cause, with the boundaries
+   that hide its members for `protected` or the blocking reasons for `blocked`.
+   - **While it stays hidden,** `scan --baseline` counts the entry as stale and as dormant: the
      report gains `baseline.dormant_fingerprints` and `summary.dormant_baseline_count`, and text
      output adds `dormant=N`.
-   - **When the boundary goes,** the finding returns with the same fingerprint and is accepted.
-     The next `baseline update` carries the entry over without `dormant`.
+   - **When what hides it goes away,** the finding returns with the same fingerprint and is
+     accepted. The next `baseline update` carries the entry over without `dormant`.
    - **Other causes do not keep an entry.** An entry whose finding was deleted, reached, kept or
      regrouped is dropped, as before. So is an entry whose cause is not recorded, because the
      report was written without `--baseline` or `--previous`. `baseline update` names how many
@@ -221,10 +222,11 @@ process are not affected.
   - the scan's output with a baseline, a previous report, both, and an unreadable previous report;
   - dormant entries that accept a finding again once its boundary is gone, while a baseline
     refreshed without causes loses them and `--fail-on-new` fails; a returned finding that loses
-    `dormant`, and deleted code that is dropped.
+    `dormant`, and deleted code that is dropped; a blocked entry that returns once a
+    configuration file stops mentioning the name.
 - In the field history, a baseline of the earlier commit has 107 stale entries at the later
-  commit, and 22 of them are `protected`. `baseline update` now keeps those 22 dormant instead of
-  dropping them.
+  commit: 22 are `protected` and 22 `blocked`. `baseline update` now keeps those 44 dormant instead
+  of dropping them. 21 of the blocked ones are in one project, so the count is concentrated.
 - To attribute a comparison, the later scan is given the earlier report with `--previous`, or a
   baseline made from it with `--baseline`; `compare` reads the causes from either section.
 - In the worst case the counterfactual adds about one solve to a scan with `--previous` or
@@ -235,9 +237,8 @@ process are not affected.
 
 ## Open questions
 
-- `baseline update` still drops the entry of a finding that became `blocked`. When the blocking
-  reason goes away, for example a configuration file that stops mentioning the name, the finding
-  returns as new. The argument for dormant `protected` entries applies to it as well.
+- A dormant entry stays as long as every refresh records it as hidden. Code that stays hidden for
+  good keeps its entry for good, and a reviewer sees it only in `dormant_fingerprints`.
 - `new_boundary` is null for 11 of 38 protected members, because reports group guards by message.
   The later scan could instead record whether the boundary's source existed in the earlier
   baseline's members or files.

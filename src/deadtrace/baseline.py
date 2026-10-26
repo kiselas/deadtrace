@@ -65,8 +65,9 @@ def update_baseline(
     An entry carries over to a finding with its fingerprint, or with its code and exactly its
     members when a method change renewed the fingerprint. An entry the report no longer shows
     stays as a dormant entry when the scan that wrote the report recorded that its finding is only
-    hidden, not gone or used (ADR-0122): when the boundary that hides it goes away, the finding
-    returns as accepted rather than new. Without a recorded cause it is dropped, as before.
+    hidden, by an unknown boundary or by blocking, not gone or used (ADR-0122): when what hides it
+    goes away, the finding returns as accepted rather than new. Without a recorded cause it is
+    dropped, as before.
     """
 
     validate_baseline(baseline)
@@ -129,14 +130,19 @@ def update_baseline(
     }
 
 
-DORMANT_CAUSES = frozenset({"protected"})
-"""Causes of a stale entry that keep it in a refreshed baseline: the finding is only hidden by an
-unknown boundary, and returns when the boundary goes away (ADR-0122)."""
+DORMANT_CAUSES = frozenset({"protected", "blocked"})
+"""Causes of a stale entry that keep it in a refreshed baseline: the finding is only hidden, by an
+unknown boundary or by blocking (ADR-0071), and returns when the boundary or the blocking reason
+goes away (ADR-0122)."""
 
 
 def _dormancy(cause: dict[str, Any]) -> dict[str, Any]:
-    """Why a dormant entry is kept: its cause and the boundaries that hide its members."""
+    """Why a dormant entry is kept: its cause, and the blocking reasons or the boundaries that
+    hide its members."""
 
+    if cause.get("cause") == "blocked":
+        blocked = cause.get("blocked")
+        return {"cause": "blocked", "blocked": list(blocked) if isinstance(blocked, list) else []}
     boundaries: dict[tuple[object, ...], dict[str, Any]] = {}
     members = cause.get("members", [])
     for member in members if isinstance(members, list) else []:

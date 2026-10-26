@@ -502,11 +502,13 @@ def update_baseline_command(
     _emit_report(render_baseline_json(refreshed), output)
     dormant = sum(1 for entry in refreshed["entries"] if entry.get("dormant"))
     if dormant:
-        typer.echo(f"kept {dormant} dormant entries hidden by unknown boundaries", err=True)
+        typer.echo(
+            f"kept {dormant} dormant entries hidden by unknown boundaries or blocking", err=True
+        )
     if unexplained:
         typer.echo(
             f"dropped {unexplained} stale entries without a recorded cause; scan with "
-            "--baseline or --previous first to keep those only hidden by unknown boundaries",
+            "--baseline or --previous first to keep those that are only hidden",
             err=True,
         )
 
