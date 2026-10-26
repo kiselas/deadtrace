@@ -308,6 +308,12 @@ uv run deadtrace baseline update deadtrace-baseline.json deadtrace-report-new.js
   --output deadtrace-baseline-reviewed.json --accept-new --reason "reviewed new debt"
 ```
 
+When the new report comes from `scan --baseline` (or `--previous`), it records why each missing
+entry is gone. An entry whose finding is only hidden, by an unknown boundary or by
+[blocking](#blocked-findings), stays as a `dormant` entry. The finding is then accepted again once
+the boundary or the blocking reason goes away, instead of failing `--fail-on-new` as new. Entries whose code was deleted or is now used are dropped. So are entries
+without a recorded cause; `baseline update` reports how many on standard error (ADR-0122).
+
 Compare two reports directly; Git access is not required:
 
 ```console
@@ -322,6 +328,23 @@ removed source files, worlds, and roots are listed separately from finding chang
 baseline stays comparable across them. Fingerprints depend on a finding's code and members only.
 When a new model revision makes a baseline incomparable, `baseline update` carries reviewed
 entries over by code and members.
+
+A smaller count is not by itself evidence that code was removed or used. Each resolved finding in a
+comparison carries a `resolution`: `deleted`, `reached` from a named caller, `kept` by a contract,
+`protected` when it may now run only through an unknown boundary such as a computed `getattr`, or
+`regrouped`/`blocked` when it is still reported in another form. The causes that need the graph
+come from the later scan. After an edit, scan again with the earlier report:
+
+```console
+uv run deadtrace scan . --format json --output after.json --previous before.json
+```
+
+The report then says, under `previous`, which findings are new and why each earlier one is no
+longer shown; `compare before.json after.json` reads the same causes. A scan with `--baseline`
+records them under `baseline.stale_entries`. Without either, they stay `unattributed`. A
+protected entry names the caller that may itself run only through the boundary, if there is one,
+and tells whether the boundary alone keeps the code (`sole`). In `compare`, it also tells whether
+the boundary is new. This is a proposal under evaluation (ADR-0122).
 
 Create an inspectable troubleshooting artifact without source text, file paths, symbol names,
 configuration values, environment variables, or object values:

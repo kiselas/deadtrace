@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -21,19 +21,24 @@ from deadtrace.baseline import (
     apply_baseline,
     create_baseline,
     render_baseline_json,
+    unexplained_stale_count,
     update_baseline,
 )
 from deadtrace.benchmark import benchmark, render_benchmark_json, render_benchmark_text
 from deadtrace.case_validator import CaseValidationError, validate_cases
 from deadtrace.comparison import (
     Comparability,
+    apply_previous,
+    cause_counts,
     compare_reports,
+    describe_resolution,
     render_comparison_json,
     render_comparison_text,
 )
 from deadtrace.config import ConfigurationError, discover_config, load_config
 from deadtrace.diagnostics import render_troubleshooting_json, render_troubleshooting_text
 from deadtrace.report import render_json, render_text
+from deadtrace.resolution import explain_resolved
 from deadtrace.scanner import scan as inventory_scan
 from deadtrace.semantic_report import (
     doctor_text,
@@ -150,6 +155,13 @@ def scan_command(
         bool,
         typer.Option("--fail-on-new", help="Exit 1 when findings are not accepted by baseline."),
     ] = False,
+    previous_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--previous",
+            help="Say why findings of an earlier semantic report are no longer reported.",
+        ),
+    ] = None,
     world_members: Annotated[
         bool,
         typer.Option(
@@ -192,14 +204,26 @@ def scan_command(
             baseline_result = apply_baseline(
                 semantic_report_dict(result, world_members=world_members),
                 read_json_artifact(baseline_path),
+                explain_stale=lambda entries: explain_resolved(result, entries),
             )
         except ArtifactError as error:
             typer.echo(f"baseline error: {error}", err=True)
             raise typer.Exit(code=2) from error
+    annotated = baseline_result.payload if baseline_result is not None else None
+    if previous_path is not None:
+        try:
+            annotated = apply_previous(
+                annotated or semantic_report_dict(result, world_members=world_members),
+                read_json_artifact(previous_path),
+                explain=lambda entries: explain_resolved(result, entries),
+            )
+        except ArtifactError as error:
+            typer.echo(f"previous report error: {error}", err=True)
+            raise typer.Exit(code=2) from error
     if output_format is OutputFormat.JSON:
         rendered = (
-            render_json_artifact(baseline_result.payload)
-            if baseline_result is not None
+            render_json_artifact(annotated)
+            if annotated is not None
             else render_semantic_json(result, world_members=world_members)
         )
     else:
@@ -208,8 +232,16 @@ def scan_command(
             rendered += (
                 f"Baseline: {'comparable' if baseline_result.comparable else 'incomparable'} | "
                 f"accepted={baseline_result.accepted} | new={baseline_result.new} | "
-                f"stale={baseline_result.stale}\n"
+                f"stale={baseline_result.stale} | dormant={baseline_result.dormant}\n"
             )
+            rendered += _cause_lines("Stale by cause", baseline_result.payload, "baseline")
+        if annotated is not None and isinstance(since := annotated.get("previous"), dict):
+            rendered += (
+                f"Previous report: {since['comparability']} | "
+                f"new={len(since['new_fingerprints'])} | resolved={len(since['resolved'])}\n"
+            )
+            rendered += "".join(f"Method change: {reason}\n" for reason in since["reasons"])
+            rendered += _cause_lines("Resolved by cause", annotated, "previous")
     _emit_report(rendered, output)
     for issue in result.inventory.issues:
         typer.echo(f"{issue.path}: {issue.code}: {issue.message}", err=True)
@@ -233,6 +265,25 @@ def scan_command(
             raise typer.Exit(code=1)
     if fail_on_findings and result.findings:
         raise typer.Exit(code=1)
+
+
+def _cause_lines(title: str, payload: dict[str, Any], section: str) -> str:
+    """Why each stale baseline entry, or each finding of the previous report, is no longer
+    reported (ADR-0122)."""
+
+    annotation = payload.get(section)
+    key = "stale_entries" if section == "baseline" else "resolved"
+    entries = annotation.get(key, []) if isinstance(annotation, dict) else []
+    if not entries:
+        return ""
+    counts = cause_counts(entries)
+    lines = [f"{title}: " + ", ".join(f"{cause} {count}" for cause, count in counts.items())]
+    lines.extend(
+        f"  {entry.get('fingerprint')} {describe_resolution(entry)}"
+        for entry in entries
+        if isinstance(entry, dict)
+    )
+    return "\n".join(lines) + "\n"
 
 
 @app.command()
@@ -442,18 +493,24 @@ def update_baseline_command(
         typer.echo(f"baseline output already exists: {output}", err=True)
         raise typer.Exit(code=2)
     try:
-        rendered = render_baseline_json(
-            update_baseline(
-                read_json_artifact(baseline),
-                read_json_artifact(report),
-                accept_new=accept_new,
-                reason=reason,
-            )
-        )
+        previous, current = read_json_artifact(baseline), read_json_artifact(report)
+        refreshed = update_baseline(previous, current, accept_new=accept_new, reason=reason)
+        unexplained = unexplained_stale_count(previous, current)
     except ArtifactError as error:
         typer.echo(f"baseline error: {error}", err=True)
         raise typer.Exit(code=2) from error
-    _emit_report(rendered, output)
+    _emit_report(render_baseline_json(refreshed), output)
+    dormant = sum(1 for entry in refreshed["entries"] if entry.get("dormant"))
+    if dormant:
+        typer.echo(
+            f"kept {dormant} dormant entries hidden by unknown boundaries or blocking", err=True
+        )
+    if unexplained:
+        typer.echo(
+            f"dropped {unexplained} stale entries without a recorded cause; scan with "
+            "--baseline or --previous first to keep those that are only hidden",
+            err=True,
+        )
 
 
 def _emit_report(rendered: str, output: Path | None) -> None:
