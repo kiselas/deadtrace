@@ -385,6 +385,34 @@ def test_protected_entries_stay_dormant_until_the_boundary_goes(tmp_path: Path) 
     assert lost.exit_code == 1
 
 
+def test_blocked_entries_stay_dormant_until_the_blocking_reason_goes(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+    _scan(source)
+    _scan_saved(source, "before.json")
+    first, kept = tmp_path / "first.json", tmp_path / "kept.json"
+    _baseline_cli(
+        "create", str(source / "before.json"), "--output", str(first), "--reason", "reviewed"
+    )
+    settings = source / "settings.yaml"
+    settings.write_text("handler: first_candidate\n", encoding="utf-8")
+    _scan_saved(source, "annotated.json", "--baseline", str(first))
+
+    updated = _baseline_cli(
+        "update", str(first), str(source / "annotated.json"), "--output", str(kept)
+    )
+    settings.unlink()
+    returned = runner.invoke(app, ["scan", str(source), "--baseline", str(kept), "--fail-on-new"])
+
+    entries = json.loads(kept.read_text(encoding="utf-8"))["entries"]
+    dormant = [entry["dormant"] for entry in entries if "dormant" in entry]
+    assert dormant == [{"cause": "blocked", "blocked": ["mentioned_in_config"]}]
+    assert len(entries) == 2
+    assert "kept 1 dormant entries hidden by unknown boundaries or blocking" in updated.output
+    assert returned.exit_code == 0
+    assert "accepted=2 | new=0" in returned.stdout
+
+
 def test_a_returned_finding_is_no_longer_dormant_and_deleted_code_is_dropped(
     tmp_path: Path,
 ) -> None:

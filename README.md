@@ -309,9 +309,9 @@ uv run deadtrace baseline update deadtrace-baseline.json deadtrace-report-new.js
 ```
 
 When the new report comes from `scan --baseline` (or `--previous`), it records why each missing
-entry is gone. An entry whose finding is only hidden by an unknown boundary stays as a `dormant`
-entry, so the finding is accepted again once the boundary goes away instead of failing
-`--fail-on-new` as new. Entries whose code was deleted or is now used are dropped. So are entries
+entry is gone. An entry whose finding is only hidden, by an unknown boundary or by
+[blocking](#blocked-findings), stays as a `dormant` entry. The finding is then accepted again once
+the boundary or the blocking reason goes away, instead of failing `--fail-on-new` as new. Entries whose code was deleted or is now used are dropped. So are entries
 without a recorded cause; `baseline update` reports how many on standard error (ADR-0122).
 
 Compare two reports directly; Git access is not required:
