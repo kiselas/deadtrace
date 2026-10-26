@@ -540,13 +540,7 @@ def _with_resolutions(
     ``unattributed`` rather than read as gone.
     """
 
-    recorded: dict[str, dict[str, Any]] = {}
-    for section, key in (("baseline", "stale_entries"), ("previous", "resolved")):
-        annotation = after.get(section)
-        entries = annotation.get(key, []) if isinstance(annotation, dict) else []
-        for entry in entries if isinstance(entries, list) else []:
-            if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str):
-                recorded.setdefault(entry["fingerprint"], entry)
+    recorded = recorded_causes(after)
     later_blocked = _findings_by_fingerprint(after, "blocked_findings")
     owner: dict[tuple[object, ...], dict[str, Any]] = {}
     for finding in (*_findings_by_fingerprint(after).values(), *later_blocked.values()):
@@ -588,6 +582,20 @@ def _with_resolutions(
             resolution = {"cause": "unattributed"}
         result.append({**finding, "resolution": resolution})
     return tuple(result)
+
+
+def recorded_causes(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The causes a scan recorded for earlier findings it no longer shows, by fingerprint, from
+    its baseline annotation or its ``previous`` section (ADR-0122)."""
+
+    recorded: dict[str, dict[str, Any]] = {}
+    for section, key in (("baseline", "stale_entries"), ("previous", "resolved")):
+        annotation = report.get(section)
+        entries = annotation.get(key, []) if isinstance(annotation, dict) else []
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str):
+                recorded.setdefault(entry["fingerprint"], entry)
+    return recorded
 
 
 def _guard_origins(payload: dict[str, Any]) -> dict[tuple[str, str], set[str] | None]:

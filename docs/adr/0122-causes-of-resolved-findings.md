@@ -112,9 +112,25 @@ from 340 MB to 24.5 MB. Only the findings that disappeared need a cause.
    origins (ADR-0079), because then it cannot tell sites apart. Text output adds `Resolved by
    cause` and one line per resolved finding.
 
-5. **Schemas.** The report, baseline and comparison schemas stay at version 1: the additions are
-   new keys, and readers that ignore unknown keys see what they saw before. Exit codes,
-   `--fail-on-new`, baselines and their comparability are unchanged.
+5. **Dormant baseline entries.** `baseline update` used to drop every entry that the report does
+   not show. An entry whose finding became `protected` then came back as new as soon as the
+   boundary went away, and `--fail-on-new` failed on debt that had been reviewed. Now
+   `baseline update` keeps such an entry when the report records `protected` as its cause, under
+   `baseline.stale_entries` or `previous.resolved`. The entry keeps its fingerprint, code, members
+   and reason, and gains `dormant`: the cause and the boundaries that hide its members.
+   - **While the boundary stays,** `scan --baseline` counts the entry as stale and as dormant: the
+     report gains `baseline.dormant_fingerprints` and `summary.dormant_baseline_count`, and text
+     output adds `dormant=N`.
+   - **When the boundary goes,** the finding returns with the same fingerprint and is accepted.
+     The next `baseline update` carries the entry over without `dormant`.
+   - **Other causes do not keep an entry.** An entry whose finding was deleted, reached, kept or
+     regrouped is dropped, as before. So is an entry whose cause is not recorded, because the
+     report was written without `--baseline` or `--previous`. `baseline update` names how many
+     entries it kept dormant, and how many it dropped without a recorded cause, on standard error.
+
+6. **Schemas.** The report, baseline and comparison schemas stay at version 1: the additions are
+   new keys, and readers that ignore unknown keys see what they saw before. Exit codes and
+   `--fail-on-new` keep their meaning, and baseline comparability is unchanged.
 
 ## Field evaluation
 
@@ -202,20 +218,26 @@ process are not affected.
   - the second boundary that makes neither member sole;
   - the budget;
   - the novelty rules;
-  - the scan's output with a baseline, a previous report, both, and an unreadable previous report.
+  - the scan's output with a baseline, a previous report, both, and an unreadable previous report;
+  - dormant entries that accept a finding again once its boundary is gone, while a baseline
+    refreshed without causes loses them and `--fail-on-new` fails; a returned finding that loses
+    `dormant`, and deleted code that is dropped.
+- In the field history, a baseline of the earlier commit has 107 stale entries at the later
+  commit, and 22 of them are `protected`. `baseline update` now keeps those 22 dormant instead of
+  dropping them.
 - To attribute a comparison, the later scan is given the earlier report with `--previous`, or a
   baseline made from it with `--baseline`; `compare` reads the causes from either section.
 - In the worst case the counterfactual adds about one solve to a scan with `--previous` or
-  `--baseline` and disappeared findings. In the field it added almost nothing, because a second boundary settles most members
-  without a solve.
+  `--baseline` and disappeared findings. In the field it added almost nothing, because a second
+  boundary settles most members without a solve.
 - Nothing changes for findings that stay, and scanner semantics are unchanged, so no reviewed
   public findings were re-measured.
 
 ## Open questions
 
-- `baseline update` drops the entry of a finding that became `protected`. When the boundary is
-  removed, the finding returns as new and fails `--fail-on-new`. A protected entry could be kept
-  as dormant instead.
+- `baseline update` still drops the entry of a finding that became `blocked`. When the blocking
+  reason goes away, for example a configuration file that stops mentioning the name, the finding
+  returns as new. The argument for dormant `protected` entries applies to it as well.
 - `new_boundary` is null for 11 of 38 protected members, because reports group guards by message.
   The later scan could instead record whether the boundary's source existed in the earlier
   baseline's members or files.

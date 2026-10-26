@@ -308,6 +308,12 @@ uv run deadtrace baseline update deadtrace-baseline.json deadtrace-report-new.js
   --output deadtrace-baseline-reviewed.json --accept-new --reason "reviewed new debt"
 ```
 
+When the new report comes from `scan --baseline` (or `--previous`), it records why each missing
+entry is gone. An entry whose finding is only hidden by an unknown boundary stays as a `dormant`
+entry, so the finding is accepted again once the boundary goes away instead of failing
+`--fail-on-new` as new. Entries whose code was deleted or is now used are dropped. So are entries
+without a recorded cause; `baseline update` reports how many on standard error (ADR-0122).
+
 Compare two reports directly; Git access is not required:
 
 ```console

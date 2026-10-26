@@ -8,7 +8,7 @@ from typing import Any
 from typer.testing import CliRunner
 
 from deadtrace.analysis import AnalysisResult, analyze
-from deadtrace.baseline import apply_baseline, create_baseline
+from deadtrace.baseline import apply_baseline, create_baseline, update_baseline
 from deadtrace.cli import app
 from deadtrace.comparison import compare_reports, render_comparison_text
 from deadtrace.config import Config, KeepConfig
@@ -339,3 +339,76 @@ def test_reach_from_tests_hides_an_unreached_component(tmp_path: Path) -> None:
     assert candidate["evidence"]["world"] == "tests:pytest"
     assert candidate["evidence"]["boundary"]["name"] == "tests.test_loading.test_any"
     assert candidate["evidence"]["sole"] is True
+
+
+def _baseline_cli(*args: str) -> Any:
+    result = runner.invoke(app, ["baseline", *args])
+    assert result.exit_code == 0, result.output
+    return result
+
+
+def test_protected_entries_stay_dormant_until_the_boundary_goes(tmp_path: Path) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+    _scan(source)
+    _scan_saved(source, "before.json")
+    first = tmp_path / "first.json"
+    _baseline_cli(
+        "create", str(source / "before.json"), "--output", str(first), "--reason", "reviewed"
+    )
+    _scan(source, MAIN.replace("    pass", "    getattr(plugins, NAME)()"))
+    _scan_saved(source, "annotated.json", "--baseline", str(first))
+    _scan_saved(source, "plain.json")
+    kept, dropped = tmp_path / "kept.json", tmp_path / "dropped.json"
+
+    with_causes = _baseline_cli(
+        "update", str(first), str(source / "annotated.json"), "--output", str(kept)
+    )
+    without_causes = _baseline_cli(
+        "update", str(first), str(source / "plain.json"), "--output", str(dropped)
+    )
+    hidden = runner.invoke(app, ["scan", str(source), "--baseline", str(kept)])
+    _scan(source)
+    returned = runner.invoke(app, ["scan", str(source), "--baseline", str(kept), "--fail-on-new"])
+    lost = runner.invoke(app, ["scan", str(source), "--baseline", str(dropped), "--fail-on-new"])
+
+    entries = json.loads(kept.read_text(encoding="utf-8"))["entries"]
+    assert [entry["dormant"]["cause"] for entry in entries] == ["protected", "protected"]
+    assert entries[0]["dormant"]["boundaries"][0]["name"] == "main.live"
+    assert "kept 2 dormant entries" in with_causes.output
+    assert json.loads(dropped.read_text(encoding="utf-8"))["entries"] == []
+    assert "dropped 2 stale entries without a recorded cause" in without_causes.output
+    assert "stale=2 | dormant=2" in hidden.stdout
+    # The boundary is gone: the dormant entries accept the findings again; dropped ones do not.
+    assert returned.exit_code == 0
+    assert "accepted=2 | new=0" in returned.stdout
+    assert lost.exit_code == 1
+
+
+def test_a_returned_finding_is_no_longer_dormant_and_deleted_code_is_dropped(
+    tmp_path: Path,
+) -> None:
+    before = semantic_report_dict(_scan(tmp_path))
+    baseline = create_baseline(before, "reviewed")
+    protected = _annotated(
+        before, _scan(tmp_path, MAIN.replace("    pass", "    getattr(plugins, NAME)()"))
+    )
+    dormant = update_baseline(baseline, protected)
+    # The boundary goes and one candidate is deleted while the baseline holds both as dormant.
+    result = _scan(
+        tmp_path, plugins=PLUGINS.replace("def second_candidate() -> None:\n    pass\n", "")
+    )
+    returned = apply_baseline(
+        semantic_report_dict(result),
+        dormant,
+        explain_stale=lambda entries: explain_resolved(result, entries),
+    ).payload
+
+    refreshed = update_baseline(dormant, returned)
+
+    assert [entry["qualified_name"] for entry in refreshed["entries"][0]["members"]] == [
+        "first_candidate"
+    ]
+    assert len(refreshed["entries"]) == 1
+    assert "dormant" not in refreshed["entries"][0]
+    assert returned["baseline"]["stale_entries"][0]["cause"] == "deleted"
