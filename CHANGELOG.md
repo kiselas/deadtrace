@@ -5,7 +5,7 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
-- Proposed (ADR-0122): `scan --previous REPORT` and `scan --baseline` record why each earlier
+- ADR-0122: `scan --previous REPORT` and `scan --baseline` record why each earlier
   finding is no longer reported: deleted, reached (with the caller), kept, protected by an unknown
   boundary (with its place and whether it alone protects the code), regrouped or blocked.
   `--previous` takes a saved report directly, for the loop "scan, edit, scan again", and also
