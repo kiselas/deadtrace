@@ -193,6 +193,38 @@ app = FastAPI()
     assert result.state_of(_id(program, "routes:hidden_endpoint")) is None
 
 
+def test_include_names_a_router_through_the_imports_of_its_function() -> None:
+    router = """
+from fastapi import APIRouter
+
+router = APIRouter()
+"""
+    program = _program(
+        **{
+            "shop/__init__.py": "",
+            "shop/routes/__init__.py": "",
+            "shop/routes/messages.py": router,
+            "shop/routes/archive.py": router,
+            "shop/app.py": """
+from fastapi import FastAPI
+
+from shop.routes import archive as messages
+
+def create_app() -> FastAPI:
+    app = FastAPI()
+    from shop.routes import messages
+
+    app.include_router(messages.router)
+    return app
+""",
+        }
+    )
+    model = build_framework_model(program, Config())
+
+    assert {include.router for include in model.includes} == {"shop.routes.messages:router"}
+    assert model.unknown_includes == ()
+
+
 def test_two_apps_have_isolated_route_worlds() -> None:
     program = _program(
         **{
