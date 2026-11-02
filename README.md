@@ -344,7 +344,7 @@ longer shown; `compare before.json after.json` reads the same causes. A scan wit
 records them under `baseline.stale_entries`. Without either, they stay `unattributed`. A
 protected entry names the caller that may itself run only through the boundary, if there is one,
 and tells whether the boundary alone keeps the code (`sole`). In `compare`, it also tells whether
-the boundary is new. This is a proposal under evaluation (ADR-0122).
+the boundary is new. See ADR-0122.
 
 Create an inspectable troubleshooting artifact without source text, file paths, symbol names,
 configuration values, environment variables, or object values:

@@ -1,7 +1,8 @@
 # ADR-0122: Causes of findings that are no longer reported
 
-**Status:** Proposed, 2026-10-21. Draft with a prototype; changes the baseline annotation of a
-report and the comparison artifact (additive). Analysis and model revision 94 unchanged.
+**Status:** Accepted, 2026-11-02, after the field evaluation below; proposed 2026-10-21. Adds
+`scan --previous`, causes in the baseline annotation and the comparison artifact, and dormant
+baseline entries (additive). Analysis and model revision 94 unchanged.
 
 ## Context
 
