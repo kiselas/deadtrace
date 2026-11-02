@@ -5,6 +5,9 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Routine dependency batch (ADR-0121): Ruff 0.17.3 and Hypothesis 6.170.14 in the lock,
+  pypa/gh-action-pypi-publish 1.14.3 in the publish workflow. Reports are unchanged.
+
 - Computed-import prefixes and the project import flag share the resolver syntax
   traversal; execution dispatch binds only selected handlers from immutable grammar
   metadata (ADR-0120). Existing import policies and the semantic model are unchanged.
