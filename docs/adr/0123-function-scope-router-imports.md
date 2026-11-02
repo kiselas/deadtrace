@@ -1,6 +1,6 @@
 # ADR-0123: Routers named through imports in the including function
 
-**Status:** Proposed, 2026-11-02; model revision 95. Field evaluation pending.
+**Status:** Accepted, 2026-11-02; model revision 95.
 
 ## Context
 
@@ -25,8 +25,9 @@ In a service kept in a subdirectory, such as `src/backend/notes_service` install
 `src/backend`, `notes_service.routes.messages` names no project module, so the router was not
 escaping either: its routes were reported as RCH002 and the models only they use as RCH001.
 
-On model 94 one reviewed development project of the public cohorts had 32 false members from this
-alone: the router behind the factory and 25 request and response models of its routes.
+On model 94 one reviewed development project of the public cohorts had three false findings with
+37 members from this alone: the five routes of the router behind the factory and 32 request and
+response models only those routes use.
 
 ## Decision
 
@@ -44,3 +45,20 @@ The case `corpus/frameworks/router_imported_in_nested_factory` fails on revision
 router and its request model are reported.
 
 MODEL_REVISION becomes `python-fastapi-dishka/95`.
+
+## Evaluation and acceptance
+
+Source candidate `fa5b360` was compared with model 94 on the same pinned sources and configuration
+digests of all 531 active projects in reviewed development cohorts b-h. There were no new findings.
+Three findings were removed, all in the project above and all reviewed false: the five routes of the
+router included by the factory, judged in this evaluation, and the request and response models only
+those routes use, judged earlier. No reviewed true, unsure or unverified finding was removed. All
+runs ended with status `ok`, and each project's completeness flag stayed unchanged.
+
+Exact seed-7 injection identities and reported flags remained 534/721 development and 964/1565
+held-out packages. The independent case, Ruff, Linux/Windows mypy, 669 tests, both case validators,
+distribution build and isolated wheel smoke passed. See the
+[field methodology](../field/2026-10-cohort.md).
+
+Accept the function-scope import rule. The reviewed cohorts are development evidence, not a new
+blind precision estimate.
