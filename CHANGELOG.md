@@ -5,6 +5,10 @@ compatibility commitments are defined; alpha schemas may change between releases
 
 ## Unreleased
 
+- Model revision `python-fastapi-dishka/95` (ADR-0123): a router passed to `include_router` through
+  an import in the including function, such as an application factory's own
+  `from app.routes import messages`, is included rather than left to an unknown include.
+
 - Routine dependency batch (ADR-0121): Ruff 0.17.3 and Hypothesis 6.170.14 in the lock,
   pypa/gh-action-pypi-publish 1.14.3 in the publish workflow. Reports are unchanged.
 

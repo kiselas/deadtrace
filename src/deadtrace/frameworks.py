@@ -39,6 +39,7 @@ from deadtrace.python_frontend import (
     PythonSymbol,
     SymbolIndex,
     _annotation_names,
+    _collect_imports,
     _dotted_name,
     _import_from_base,
     _unstarred,
@@ -212,6 +213,8 @@ class _BuildState:
     deployment: tuple[DeploymentReference, ...] = ()
     distribution: ProjectDistribution | None = None
     import_roots: ImportRoots | None = None
+    scope_imports: dict[NodeId, dict[str, str]] = field(default_factory=dict)
+    """What the imports of a function body, and of the functions enclosing it, bind each name to."""
     objects: dict[str, FrameworkObject] = field(default_factory=dict)
     routes: list[RouteRegistration] = field(default_factory=list)
     hooks: list[FrameworkHook] = field(default_factory=list)
@@ -856,7 +859,7 @@ def _connect_factory_assembly(
             and call.func.value.id == local_app_name
             and call.func.attr == "include_router"
         ):
-            router = _first_argument_object_key(state, module, call)
+            router = _first_argument_object_key(state, module, call, factory)
             if (
                 router is not None
                 and state.objects[router].kind is FrameworkObjectKind.FASTAPI_ROUTER
@@ -1228,7 +1231,7 @@ def _router_values(
         if loops:
             innermost = max(loops, key=lambda node: (node.lineno, node.col_offset))
             return _router_list(state, module, innermost.iter, _INDIRECT_DEPTH)
-    key = _object_key(state, module, expression)
+    key = _object_key(state, module, expression, scope)
     if key is None:
         return None
     return {key} if state.objects[key].kind is FrameworkObjectKind.FASTAPI_ROUTER else None
@@ -3796,8 +3799,44 @@ def _index_object_keys(state: _BuildState) -> None:
         state.object_keys.setdefault(f"{object_module}.{object_name}", key)
 
 
-def _object_key(state: _BuildState, module: PythonModule, expression: ast.expr) -> str | None:
+def _object_key(
+    state: _BuildState,
+    module: PythonModule,
+    expression: ast.expr,
+    scope: PythonSymbol | None = None,
+) -> str | None:
+    """The framework object an expression names; in a function ``scope``, the names its own
+    imports bind come first, as ``messages`` after ``from app.routes import messages`` in the
+    application factory (ADR-0123)."""
+
+    dotted = _dotted_name(expression)
+    if dotted is not None and scope is not None:
+        first, _, rest = dotted.partition(".")
+        target = _scope_imports(state, scope).get(first)
+        if target is not None:
+            return _object_key_for_name(state, f"{target}.{rest}" if rest else target, 3)
     return _object_key_for_name(state, _expanded_name(module, expression), 3)
+
+
+def _scope_imports(state: _BuildState, scope: PythonSymbol) -> dict[str, str]:
+    """Targets of the names that imports in ``scope``'s body and in the functions enclosing it
+    bind, resolved like the module's own imports; the innermost binding of a name wins."""
+
+    cached = state.scope_imports.get(scope.id)
+    if cached is not None:
+        return cached
+    owner = state.program.symbols.get(scope.owner) if scope.owner is not None else None
+    found = dict(_scope_imports(state, owner)) if owner is not None and is_function(owner) else {}
+    if is_function(scope):
+        if state.import_roots is None:
+            state.import_roots = ImportRoots(state.program.modules)
+        module = state.program.modules[scope.module]
+        bindings = _collect_imports(
+            module, state.program.modules, scope.node.body, state.import_roots
+        ).bindings
+        found.update((name, binding.target) for name, binding in bindings.items())
+    state.scope_imports[scope.id] = found
+    return found
 
 
 def _object_key_for_name(state: _BuildState, dotted: str, depth: int) -> str | None:
@@ -3824,10 +3863,10 @@ def _object_key_for_name(state: _BuildState, dotted: str, depth: int) -> str | N
 
 
 def _first_argument_object_key(
-    state: _BuildState, module: PythonModule, call: ast.Call
+    state: _BuildState, module: PythonModule, call: ast.Call, scope: PythonSymbol | None = None
 ) -> str | None:
     arguments = call_arguments(call)
-    return _object_key(state, module, arguments[0].value) if arguments else None
+    return _object_key(state, module, arguments[0].value, scope) if arguments else None
 
 
 def _configured_object_key(state: _BuildState, target: str) -> str | None:

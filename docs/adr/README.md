@@ -193,3 +193,4 @@ each other. Typo and link fixes are fine.
 - [ADR-0120](0120-computed-import-syntax-facts.md) — shared syntax facts and immutable visitor dispatch metadata avoid repeated work. Accepted; frontend runtime only, reports unchanged.
 - [ADR-0121](0121-routine-dependency-updates.md) — routine dependency updates are batched; oracle pins move deliberately. Accepted; packaging and tooling only.
 - [ADR-0122](0122-causes-of-resolved-findings.md) — findings that are no longer reported carry a cause: deleted, reached, kept, protected by an unknown boundary, regrouped or blocked. Accepted; model 94, report bytes without `--baseline` or `--previous` unchanged.
+- [ADR-0123](0123-function-scope-router-imports.md) — an `include_router` argument is named through imports of the including function. Accepted; model 95, paired development evaluation complete.

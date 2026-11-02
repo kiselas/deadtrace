@@ -1,0 +1,27 @@
+schema_version = 1
+case_id = "router-imported-in-nested-factory"
+description = "A router that the application factory imports in its body is included."
+
+[analysis]
+complete = true
+worlds = ["production:commands", "production:web"]
+finding_codes = ["RCH002"]
+limitation_codes = []
+
+[[targets]]
+path = "services/api/chat_api/routes/messages.py"
+kind = "function"
+qualified_name = "deliver_note"
+expectation = "not_candidate"
+
+[[targets]]
+path = "services/api/chat_api/models.py"
+kind = "class"
+qualified_name = "MessageRequest"
+expectation = "not_candidate"
+
+[[targets]]
+path = "services/api/chat_api/routes/archive.py"
+kind = "function"
+qualified_name = "archived_messages"
+expectation = "candidate"
