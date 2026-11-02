@@ -190,6 +190,6 @@ each other. Typo and link fixes are fine.
 - [ADR-0117](0117-slotted-ast-storage.md) — parsed AST fields use slots with canonical native-type dispatch. Accepted; storage only, with a measured time/memory tradeoff.
 - [ADR-0118](0118-shared-module-syntax-walk.md) — resolver syntax projections share one module walk. Accepted; frontend runtime only, reports unchanged.
 - [ADR-0119](0119-cookiecutter-local-extensions.md) — explicitly named local Cookiecutter extensions are roots. Accepted; model 94, paired development evaluation complete.
-- [ADR-0120](0120-computed-import-syntax-facts.md) — shared syntax facts and immutable visitor dispatch metadata avoid repeated work. Proposed; runtime only.
+- [ADR-0120](0120-computed-import-syntax-facts.md) — shared syntax facts and immutable visitor dispatch metadata avoid repeated work. Accepted; frontend runtime only, reports unchanged.
 - [ADR-0121](0121-routine-dependency-updates.md) — routine dependency updates are batched; oracle pins move deliberately. Accepted; packaging and tooling only.
 - [ADR-0122](0122-causes-of-resolved-findings.md) — findings that are no longer reported carry a cause: deleted, reached, kept, protected by an unknown boundary, regrouped or blocked. Accepted; model 94, report bytes without `--baseline` or `--previous` unchanged.

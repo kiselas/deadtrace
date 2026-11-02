@@ -1,6 +1,6 @@
 # ADR-0120: Share frontend syntax facts and visitor dispatch metadata
 
-**Status:** Proposed, 2026-10-14. Runtime only; no semantic revision bump.
+**Status:** Accepted, 2026-11-02. Frontend runtime only; model revision remains 94.
 
 ## Context
 
@@ -66,3 +66,29 @@ wheel gate, compare all fixed default/world-members corpus bytes, reviewed moder
 stack text/JSON bytes and exact seed-7 injection outcomes. Measure alternating
 fresh-process time and OS peak RSS only when no competing local checks/scans run.
 Record all results and any regressions; model revision stays at the semantic parent.
+
+## Field evaluation
+
+The candidate was rebased onto `81e3658` (model 94, slotted AST from ADR-0117), where
+dispatch keys use `native_type(node)` like the code it replaces. Local quality, build and
+wheel gates passed with 668 tests. All 360 fixed default and world-members corpus reports
+matched byte-for-byte. Exact seed-7 injection identities and reported flags stayed at
+534/721 development and 964/1565 holdout.
+
+Control and candidate ran from the same locked runtime with freshly compiled bytecode,
+only after six consecutive load samples below 25%. Eight reviewed modern-stack inputs were
+measured in separate text and JSON series, two alternating fresh-process pairs each, and the
+two large applications again in a four-pair text series. All 80 report outputs matched
+byte-for-byte between control and candidate.
+
+Text time ratios ranged from 0.904 to 1.042 and JSON from 0.904 to 0.999. The large
+FastAPI application gave 0.904 text, 0.922 JSON and 0.914 in the repeat; the second large
+application gave 0.951, 0.904 and 0.922. Preserve the one slowdown: 4.2% in text on the
+smallest input, about 0.7 seconds per run, whose JSON ratio was 0.999. Median paired RSS
+ratios ranged from 0.992 to 1.004 in text and 0.980 to 1.008 in JSON.
+
+Accept removal of the repeated traversals and per-call callback binding with unchanged
+reports, injection outcomes and memory use. The consistent large-input ratios support a
+local runtime benefit of roughly 5-10% on those projects; two pairs per input do not
+establish a general speed gain, and the small-input slowdown is within the spread seen on
+unchanged controls (ADR-0118) but is not discarded.
